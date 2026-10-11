@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { IceServer } from "../../shared/protocol.ts";
 import { DEFAULT_ICE_SERVERS } from "./rooms.ts";
 
@@ -42,7 +43,8 @@ export function parseIceServers(raw: string | undefined): IceServer[] {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const dirs = (env.MEDIA_DIRS ?? env.MEDIA_DIR ?? "./media")
+  // MEDIA_PATH is the name .env uses for Docker; accepting it lets a plain `npm start` share that file.
+  const dirs = (env.MEDIA_DIRS ?? env.MEDIA_DIR ?? env.MEDIA_PATH ?? "./media")
     .split(/[,;]/)
     .map((d) => d.trim())
     .filter(Boolean)
@@ -54,7 +56,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mediaDirs: dirs,
     password: env.WATCH_PASSWORD ?? "",
     allowNoPassword: env.ALLOW_NO_PASSWORD === "1",
-    webDir: path.resolve(env.WEB_DIR ?? new URL("../../web/dist", import.meta.url).pathname),
+    webDir: path.resolve(env.WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url))),
     iceServers: parseIceServers(env.ICE_SERVERS),
     trustProxy: env.TRUST_PROXY?.trim() || "loopback",
   };

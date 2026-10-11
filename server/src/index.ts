@@ -1,5 +1,12 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
+
+// Without Docker, read settings from the repo's .env too (variables already set win), so they
+// don't need shell-specific syntax like PowerShell's $env:.
+const envFile = fileURLToPath(new URL("../../.env", import.meta.url));
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 const config = loadConfig();
 
