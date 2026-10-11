@@ -2,11 +2,16 @@ import { createApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 
 const config = loadConfig();
-const app = createApp(config);
 
 if (!config.password) {
-  console.warn("WATCH_PASSWORD is not set: anyone who can reach this server can watch. Set it before exposing the server.");
+  if (!config.allowNoPassword) {
+    console.error("WATCH_PASSWORD is not set. Set it, or set ALLOW_NO_PASSWORD=1 to run an open server (private networks only).");
+    process.exit(1);
+  }
+  console.warn("Running without a password: anyone who can reach this server can browse and stream your library.");
 }
+
+const app = createApp(config);
 
 await app.library.scan();
 const count = (await app.library.list()).length;

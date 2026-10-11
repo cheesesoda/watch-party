@@ -4,6 +4,7 @@ import { expectedPosition } from "../../shared/protocol.ts";
 import { checkPassword, tokenFor } from "../src/auth.ts";
 import { subtitleTag, titleFromFilename } from "../src/library.ts";
 import { parseRange } from "../src/range.ts";
+import { FailureLimiter } from "../src/ratelimit.ts";
 import { srtToVtt } from "../src/subtitles.ts";
 
 test("parseRange", () => {
@@ -47,4 +48,20 @@ test("auth tokens", () => {
 test("expectedPosition", () => {
   assert.equal(expectedPosition({ mediaId: "a", paused: true, position: 10, updatedAt: 0 }, 5000), 10);
   assert.equal(expectedPosition({ mediaId: "a", paused: false, position: 10, updatedAt: 0 }, 5000), 15);
+});
+
+test("FailureLimiter blocks after the limit and forgets old failures", () => {
+  let now = 0;
+  const lim = new FailureLimiter(3, 1000, () => now);
+  lim.fail("a");
+  lim.fail("a");
+  assert.equal(lim.blockedFor("a"), 0);
+  lim.fail("a");
+  assert.equal(lim.blockedFor("a"), 1);
+  assert.equal(lim.blockedFor("b"), 0);
+  now = 1001;
+  assert.equal(lim.blockedFor("a"), 0);
+  lim.fail("a");
+  lim.reset("a");
+  assert.equal(lim.blockedFor("a"), 0);
 });

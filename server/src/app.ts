@@ -9,6 +9,7 @@ import { checkPassword, COOKIE_NAME, isAuthorized, tokenFor } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
 import { parseRange } from "./range.ts";
+import { FailureLimiter } from "./ratelimit.ts";
 import { RoomManager } from "./rooms.ts";
 import { srtToVtt } from "./subtitles.ts";
 
@@ -39,10 +40,19 @@ export function createApp(config: Config): App {
     res.json({ ok: true, authRequired: Boolean(config.password) });
   });
 
+  const loginLimiter = new FailureLimiter();
   app.post("/api/login", (req, res) => {
+    const client = req.ip ?? "unknown";
+    const wait = loginLimiter.blockedFor(client);
+    if (wait > 0) {
+      res.setHeader("Retry-After", String(wait));
+      return void res.status(429).json({ error: `Too many wrong passwords. Try again in ${Math.ceil(wait / 60)} min.` });
+    }
     if (config.password && !checkPassword(config.password, req.body?.password)) {
+      loginLimiter.fail(client);
       return void res.status(401).json({ error: "Wrong password." });
     }
+    loginLimiter.reset(client);
     const token = config.password ? tokenFor(config.password) : "";
     res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", maxAge: 365 * 24 * 3600 * 1000 });
     res.json({ token });

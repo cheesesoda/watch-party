@@ -35,7 +35,8 @@ WATCH_PASSWORD=change-me MEDIA_DIR=/path/to/movies npm start
 
 | Variable | Default | |
 | --- | --- | --- |
-| `WATCH_PASSWORD` | _(none)_ | Shared password everyone signs in with. Without it the server is open to anyone who can reach it. |
+| `WATCH_PASSWORD` | _(required)_ | Shared password everyone signs in with. The server won't start without it. |
+| `ALLOW_NO_PASSWORD` | _(off)_ | Set to `1` to run with no password at all. Only do this on a network you trust. |
 | `MEDIA_DIR` | `./media` | Folder to index. Use `MEDIA_DIRS` with commas for several. Subfolders show up as groups. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
@@ -51,6 +52,18 @@ Your friends need to reach the server. The easiest options:
 - **Port forward** 8080 on your router, ideally behind a reverse proxy like Caddy for HTTPS.
 
 Then send them the invite link from the room's **Invite** button. They sign in with the password and pick a name.
+
+### Security
+
+Your library is only as private as your running server. The code itself holds no secrets: the
+password and media path come from your environment (`.env`, which git ignores), so anyone else running
+this code gets their own empty server and can't see yours.
+
+- Prefer Tailscale over opening a port, so strangers can't reach the server at all.
+- If the server is reachable from the internet, use a long random password and HTTPS.
+- After 10 wrong passwords from one address in 15 minutes, logins from that address are refused until
+  the window passes. Behind a reverse proxy every visitor shares the proxy's address, so the limit is shared.
+- Changing `WATCH_PASSWORD` signs everyone out, including the Android app.
 
 Upload speed matters: each viewer streams the file directly from your server, so a 10 Mbps 1080p file
 watched by three friends needs about 30 Mbps of upload.
