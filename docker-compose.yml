@@ -1,0 +1,11 @@
+services:
+  watch-party:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      WATCH_PASSWORD: ${WATCH_PASSWORD:?Set WATCH_PASSWORD in .env}
+    volumes:
+      # Point this at your movie folder. Read-only is enough.
+      - ${MEDIA_PATH:-./media}:/media:ro

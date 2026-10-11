@@ -1,0 +1,367 @@
+:root {
+  --bg: #0f1115;
+  --panel: #181b22;
+  --panel-2: #222631;
+  --text: #eceef3;
+  --muted: #9097a6;
+  --accent: #e5a00d;
+  --accent-text: #15120a;
+  --error: #ff7a6b;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 12px;
+  font-weight: 650;
+}
+h1 {
+  font-size: 22px;
+}
+h2 {
+  font-size: 18px;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+button:hover,
+button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+button.on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--panel-2);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+.error {
+  color: var(--error);
+}
+.spacer {
+  flex: 1;
+}
+.hidden {
+  visibility: hidden;
+}
+
+.center {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: min(380px, 100%);
+}
+.login {
+  display: grid;
+  gap: 14px;
+}
+.login label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+/* Home */
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.page > section {
+  margin-top: 28px;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.topbar h1 {
+  margin: 0;
+}
+
+.library-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.folder {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 18px 0 6px;
+}
+.items,
+.rooms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "title action" "meta action";
+  text-align: left;
+  background: var(--panel);
+  padding: 10px 14px;
+  gap: 2px 12px;
+}
+.item .title {
+  grid-area: title;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.item .meta {
+  grid-area: meta;
+  color: var(--muted);
+  font-size: 13px;
+}
+.item .meta .warn {
+  color: #d9a35b;
+}
+.item .action {
+  grid-area: action;
+  align-self: center;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Room */
+.room {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  overflow: hidden;
+}
+.room video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.room video::cue {
+  font-size: 1.1em;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.room-top {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 28px;
+  background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+  transition: opacity 0.3s;
+}
+.room-top button {
+  background: rgba(30, 33, 42, 0.85);
+}
+.room-top button.on {
+  background: var(--accent);
+}
+.room-title {
+  display: grid;
+  min-width: 0;
+}
+.room-title strong,
+.room-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room.idle .room-top {
+  opacity: 0;
+  pointer-events: none;
+}
+.room.idle {
+  cursor: none;
+}
+
+.room-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+}
+
+.join-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  padding: 14px 22px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 650;
+}
+
+.toast {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  color: var(--error);
+  padding: 8px 14px;
+  border-radius: 8px;
+}
+
+/* Chat overlay: sits above the native controls in the bottom-right. */
+.chat {
+  position: absolute;
+  right: 12px;
+  bottom: 64px;
+  width: min(340px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.chat.expanded .chat-list {
+  pointer-events: auto;
+  background: rgba(10, 11, 14, 0.7);
+  border-radius: var(--radius);
+  padding: 8px;
+  max-height: 55vh;
+}
+.chat-msg {
+  align-self: flex-start;
+  background: rgba(10, 11, 14, 0.72);
+  border-radius: 8px;
+  padding: 5px 9px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  transition: opacity 0.5s;
+}
+.chat.expanded .chat-msg {
+  background: transparent;
+  padding: 2px 4px;
+}
+.chat-msg .from {
+  font-weight: 650;
+  color: var(--accent);
+  margin-right: 6px;
+}
+.chat-msg.mine .from {
+  color: #7cc4ff;
+}
+.chat-msg.system {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+.chat form {
+  pointer-events: auto;
+}
+.chat input {
+  background: rgba(10, 11, 14, 0.72);
+  border-color: transparent;
+}
+.room.idle .chat:not(.expanded) input {
+  opacity: 0;
+}
+
+.modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.modal-body {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 16px;
+  width: min(720px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+@media (max-width: 600px) {
+  .room-top {
+    flex-wrap: wrap;
+  }
+  .room-title {
+    flex-basis: calc(100% - 60px);
+  }
+  .chat {
+    bottom: 56px;
+  }
+}

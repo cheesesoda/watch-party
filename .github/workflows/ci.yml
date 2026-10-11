@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t watch-party .
+      - name: Smoke test the image
+        run: |
+          mkdir -p media
+          docker run -d --name wp -p 8080:8080 -e WATCH_PASSWORD=ci -v "$PWD/media:/media:ro" watch-party
+          for i in $(seq 1 30); do curl -sf localhost:8080/api/health && break; sleep 1; done
+          curl -sf localhost:8080/ | grep -q '<div id="root">'
+          docker logs wp
