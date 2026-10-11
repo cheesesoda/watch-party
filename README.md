@@ -70,8 +70,8 @@ watched by three friends needs about 30 Mbps of upload.
 
 ## Android and Android TV
 
-Every CI run builds an APK: open the latest run under the repo's **Actions** tab and download the
-`watch-party-apk` artifact. Or build it yourself with `cd android && ./gradlew assembleRelease`
+CI builds an APK whenever a pull request changes `android/`. To build one on demand, open the repo's
+**Actions** tab, pick **Android**, and press **Run workflow**. Download the `watch-party-apk` artifact from the run. Or build it yourself with `cd android && ./gradlew assembleRelease`
 (needs JDK 17 and the Android SDK).
 
 - **Phone:** open the APK on the phone and allow installing from that source.
