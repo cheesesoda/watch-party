@@ -59,6 +59,7 @@ Note the name difference: Docker uses `MEDIA_PATH` in `.env`, plain Node uses `M
 | `WATCH_PASSWORD` | required | Shared password for everyone. Changing it signs everyone out. |
 | `MEDIA_PATH` / `MEDIA_DIR` | `./media` | Movie folder (Docker / plain Node). |
 | `PORT` | `8080` | Port the server listens on. |
+| `TRUST_PROXY` | `loopback` | Which proxies to believe about a visitor's real address. Leave it alone with `tailscale serve`; only change it for a proxy on another machine. |
 | `ICE_SERVERS` | Google public STUN | STUN/TURN servers for voice, as JSON. Only needed if voice won't connect for someone. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
 
@@ -175,7 +176,7 @@ The see-through TV panel and phone chat mode need an APK built after October 11,
 | Dashed red outline around someone's name | Your voice connection to them couldn't be set up, usually a strict router or mobile network. | Both join through Tailscale. Otherwise the host runs a TURN server and lists it in `ICE_SERVERS`. |
 | Phone doesn't switch to chat only | Names differ, or an older app. | Use the identical name on phone and TV; get the latest APK. |
 | Voice drops when I switch apps on Android | Android stops background apps using the mic. | Keep the app open while you talk. |
-| Can't sign in, even with the right password | After 10 wrong passwords in 15 minutes from one address, that address is blocked. Behind `tailscale serve` every visitor shares one address, so one person's typos can lock everyone out. | Wait 15 minutes, then type carefully. |
+| Can't sign in, even with the right password | After 10 wrong passwords in 15 minutes from one address, that address is blocked until the 15 minutes pass. It only affects that person, including behind `tailscale serve`. | Wait 15 minutes, then type carefully. |
 | Everyone signed out at once | The host changed `WATCH_PASSWORD`. | Sign in with the new password. |
 | Video stutters for everyone | The host's upload speed is shared by every viewer. | Fewer viewers, or a smaller file. |
 | New movie doesn't show up | The library rescans about once a minute. | Press **Rescan** in the library. |
