@@ -25,6 +25,7 @@ export function createApp(config: Config): App {
   const rooms = new RoomManager((id) => library.peek(id)?.item, Date.now, undefined, config.iceServers);
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", config.trustProxy);
   app.use(express.json({ limit: "16kb" }));
 
   // Lets the Android app and other origins talk to the API.
