@@ -84,7 +84,7 @@ and the password. Join a party from the list, by typing its code, or by pasting 
 
 In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Join voice,
 Leave). On a TV remote, the Menu button also opens chat. New messages float over the video for a few
-seconds; the full chat opens as a panel on the right and the video shrinks beside it instead of being covered.
+seconds; the full chat opens as a see-through panel along the right edge, with the movie still full size behind it.
 
 **Phone as a chat screen:** if you're in a party on the TV and open the same party on your phone (same
 name in both apps), the phone switches to chat only: no video, just the conversation, a keyboard, and the

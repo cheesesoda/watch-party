@@ -1,0 +1,14 @@
+{
+  "id": "com.watchparty.app",
+  "version": "0.1.0",
+  "vendor": "Watch Party",
+  "type": "web",
+  "main": "index.html",
+  "title": "Watch Party",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0f1115",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": false,
+  "requiredACG": []
+}

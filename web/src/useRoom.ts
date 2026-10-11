@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isTv } from "./device.ts";
 import type { ChatMessage, ClientMessage, IceServer, MediaItem, Member, PlaybackState, ServerMessage, SignalData } from "../../shared/protocol.ts";
 
 export interface RoomView {
@@ -46,7 +47,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const qs = new URLSearchParams({ room: roomId, name });
+      const qs = new URLSearchParams({ room: roomId, name, device: isTv() ? "tv" : "web" });
       const ws = new WebSocket(`${proto}://${location.host}/ws?${qs}`);
       wsRef.current = ws;
       setView((v) => ({ ...v, status: "connecting" }));

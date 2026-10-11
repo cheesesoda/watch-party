@@ -102,7 +102,7 @@ export function Room(props: { roomId: string; name: string }) {
     if (view.state) syncRef.current?.setState(view.state);
   }, [view.media?.id]);
 
-  // Hide the top bar after a few seconds without mouse movement.
+  // Hide the top bar after a few seconds without mouse or remote input.
   useEffect(() => {
     let t: number | undefined;
     const wake = () => {
@@ -113,12 +113,39 @@ export function Room(props: { roomId: string; name: string }) {
     const el = containerRef.current!;
     el.addEventListener("mousemove", wake);
     el.addEventListener("touchstart", wake);
+    window.addEventListener("keydown", wake);
     wake();
     return () => {
       window.clearTimeout(t);
       el.removeEventListener("mousemove", wake);
       el.removeEventListener("touchstart", wake);
+      window.removeEventListener("keydown", wake);
     };
+  }, []);
+
+  // TV remotes and keyboards: arrows seek, media keys play and pause.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select")) return;
+      const video = videoRef.current;
+      if (!video?.src) return;
+      const onButton = Boolean(target?.closest("button"));
+      const key = e.key;
+      const code = e.keyCode;
+      if (key === "ArrowLeft" && !onButton) video.currentTime = Math.max(0, video.currentTime - 10);
+      else if (key === "ArrowRight" && !onButton) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+      // webOS remotes send 415 (play), 19 (pause), 412 (rewind) and 417 (fast-forward).
+      else if (key === "MediaPlayPause" || (key === " " && !onButton)) void (video.paused ? video.play() : video.pause());
+      else if (key === "MediaPlay" || code === 415) void video.play();
+      else if (key === "MediaPause" || code === 19) video.pause();
+      else if (key === "MediaRewind" || code === 412) video.currentTime = Math.max(0, video.currentTime - 30);
+      else if (key === "MediaFastForward" || code === 417) video.currentTime += 30;
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const toggleFullscreen = () => {

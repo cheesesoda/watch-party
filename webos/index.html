@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watch Party</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #0f1115; color: #eceef3; font-family: system-ui, sans-serif; }
+  body { display: grid; place-items: center; }
+  main { width: 760px; background: #181b22; border-radius: 16px; padding: 48px 56px; display: flex; flex-direction: column; gap: 22px; }
+  h1 { margin: 0; font-size: 44px; }
+  p { margin: 0; font-size: 26px; color: #9097a6; line-height: 1.4; }
+  label { font-size: 22px; color: #b3b9c6; }
+  input { font: inherit; font-size: 30px; color: #fff; background: #0f1115; border: 3px solid #3a3f4b; border-radius: 10px; padding: 14px 18px; }
+  .row { display: flex; gap: 16px; }
+  button { font: inherit; font-size: 28px; font-weight: 600; border: 3px solid transparent; border-radius: 40px; padding: 14px 32px; background: #2a2f3b; color: #eceef3; }
+  button.primary { background: #e5a00d; color: #15120a; }
+  input:focus, button:focus { outline: none; border-color: #e5a00d; }
+  .error { color: #ff7a6b; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Watch Party</h1>
+
+  <section id="connecting" hidden>
+    <p id="connecting-text">Connecting…</p>
+    <div class="row" style="margin-top: 22px">
+      <button id="change">Change server</button>
+    </div>
+  </section>
+
+  <form id="setup" hidden>
+    <p>Enter the address of the Watch Party server. Ask whoever hosts it, for example <b>192.168.1.20:8080</b>.</p>
+    <label for="server">Server address</label>
+    <input id="server" autocomplete="off" spellcheck="false" inputmode="url">
+    <p id="error" class="error" hidden></p>
+    <div class="row"><button class="primary" type="submit">Connect</button></div>
+  </form>
+</main>
+<script src="launcher.js"></script>
+</body>
+</html>
