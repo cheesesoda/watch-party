@@ -5,6 +5,9 @@ Run the server on the machine that has your movies. Friends open a link, everyon
 and whoever starts a party picks a file. Play, pause and seeking stay in sync for everyone, and there's
 a chat overlay on top of the video.
 
+**New here?** The [setup and user guide](docs/guide.md) walks through hosting, joining on web and
+Android TV, voice chat, and troubleshooting.
+
 - **Server** (`server/`): Node + TypeScript. Indexes your media folder, streams files with HTTP range
   requests, and runs watch party rooms over WebSocket.
 - **Web** (`web/`): React app served by the server.
