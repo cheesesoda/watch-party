@@ -235,7 +235,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         items(rooms, key = { "room-" + it.id }) { room ->
             FocusRow(
                 title = room.media?.title ?: "Nothing selected",
-                subtitle = (if (room.members.isEmpty()) "empty" else room.members.joinToString(", ") { it.name }) + " · code ${room.id}",
+                subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id}",
                 action = "Join",
                 onClick = { RoomActivity.start(context, room.id) },
             )

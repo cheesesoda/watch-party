@@ -47,6 +47,8 @@ data class Member(
     val voice: Boolean = false,
     /** Not sending audio: muted, or listening only. */
     val muted: Boolean = true,
+    /** "web", "phone" or "tv". */
+    val device: String = "web",
 )
 
 @Serializable

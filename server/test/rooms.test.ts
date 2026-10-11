@@ -128,3 +128,16 @@ test("joining voice tells the newcomer who to call and relays signals only betwe
   room.handle(alice.id, { type: "voice", on: false, muted: true });
   assert.ok(a.some((m) => m.type === "chat" && m.message.text === "Alice left voice"));
 });
+
+test("a second device under the same name joins quietly", () => {
+  const { room, a } = setup();
+  const notices = () => a.filter((m) => m.type === "chat" && m.message.system).map((m) => (m.type === "chat" ? m.message.text : ""));
+  const before = notices().length;
+  const phone = room.join("alice", () => {}, "phone");
+  assert.equal(phone.device, "phone");
+  assert.equal(notices().length, before);
+  room.leave(phone.id);
+  assert.equal(notices().length, before);
+  const members = a.filter((m) => m.type === "members").at(-1);
+  assert.ok(members?.type === "members" && members.members.every((m) => m.device === "web"));
+});

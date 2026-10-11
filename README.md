@@ -83,7 +83,13 @@ On first launch enter the server address (like `192.168.1.20:8080`, or your Tail
 and the password. Join a party from the list, by typing its code, or by pasting an invite link.
 
 In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Join voice,
-Leave). On a TV remote, the Menu button also opens chat. Chat messages float over the video for a few seconds.
+Leave). On a TV remote, the Menu button also opens chat. New messages float over the video for a few
+seconds; the full chat opens as a panel on the right and the video shrinks beside it instead of being covered.
+
+**Phone as a chat screen:** if you're in a party on the TV and open the same party on your phone (same
+name in both apps), the phone switches to chat only: no video, just the conversation, a keyboard, and the
+voice buttons. Tap **Watch here** to play the video on the phone again, or **Chat only** in the phone's top
+bar to switch by hand.
 
 **Voice on Android:** press **Join voice** and allow the mic. TVs without a mic join listen-only. Voice
 plays through the same speaker as the movie, so headphones help keep it out of everyone else's mic.
