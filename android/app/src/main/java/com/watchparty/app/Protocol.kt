@@ -1,0 +1,143 @@
+package com.watchparty.app
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+
+// Mirrors shared/protocol.ts. Keep the two in sync.
+
+@Serializable
+data class SubtitleTrack(val index: Int, val label: String, val lang: String? = null)
+
+@Serializable
+data class MediaItem(
+    val id: String,
+    val title: String,
+    val relPath: String,
+    val folder: String = "",
+    val size: Long = 0,
+    val mime: String = "",
+    val subtitles: List<SubtitleTrack> = emptyList(),
+)
+
+@Serializable
+data class PlaybackState(
+    val mediaId: String? = null,
+    val paused: Boolean = true,
+    /** Seconds at [updatedAt]. */
+    val position: Double = 0.0,
+    /** Server clock, ms since epoch. */
+    val updatedAt: Long = 0,
+) {
+    /** Where playback should be at [serverNow] (ms), in seconds. */
+    fun expectedPosition(serverNow: Long): Double =
+        if (paused) position else position + maxOf(0L, serverNow - updatedAt) / 1000.0
+}
+
+@Serializable
+data class Member(val id: String, val name: String)
+
+@Serializable
+data class ChatMessage(
+    val id: String,
+    val from: String,
+    val text: String,
+    val ts: Long,
+    val system: Boolean = false,
+)
+
+@Serializable
+data class RoomSummary(val id: String, val media: MediaItem? = null, val members: List<Member> = emptyList())
+
+sealed interface ServerMessage {
+    data class Welcome(
+        val you: Member,
+        val roomId: String,
+        val state: PlaybackState,
+        val media: MediaItem?,
+        val members: List<Member>,
+        val chat: List<ChatMessage>,
+        val serverTime: Long,
+    ) : ServerMessage
+
+    data class State(val state: PlaybackState, val media: MediaItem?, val by: String?) : ServerMessage
+    data class Members(val members: List<Member>) : ServerMessage
+    data class Chat(val message: ChatMessage) : ServerMessage
+    data class Pong(val clientTime: Long, val serverTime: Long) : ServerMessage
+    data class Error(val message: String) : ServerMessage
+}
+
+object Protocol {
+    val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        coerceInputValues = true
+    }
+
+    @Serializable
+    private data class WelcomeDto(
+        val you: Member,
+        val roomId: String,
+        val state: PlaybackState,
+        val media: MediaItem? = null,
+        val members: List<Member> = emptyList(),
+        val chat: List<ChatMessage> = emptyList(),
+        val serverTime: Long,
+    )
+
+    @Serializable
+    private data class StateDto(val state: PlaybackState, val media: MediaItem? = null, val by: String? = null)
+
+    @Serializable
+    private data class MembersDto(val members: List<Member>)
+
+    @Serializable
+    private data class ChatDto(val message: ChatMessage)
+
+    @Serializable
+    private data class PongDto(val clientTime: Long, val serverTime: Long)
+
+    @Serializable
+    private data class ErrorDto(val message: String)
+
+    /** Returns null for message types this app version doesn't know. */
+    fun parse(text: String): ServerMessage? {
+        val obj: JsonObject = json.parseToJsonElement(text).jsonObject
+        return when (obj["type"]?.jsonPrimitive?.content) {
+            "welcome" -> json.decodeFromJsonElement<WelcomeDto>(obj).let {
+                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime)
+            }
+            "state" -> json.decodeFromJsonElement<StateDto>(obj).let { ServerMessage.State(it.state, it.media, it.by) }
+            "members" -> ServerMessage.Members(json.decodeFromJsonElement<MembersDto>(obj).members)
+            "chat" -> ServerMessage.Chat(json.decodeFromJsonElement<ChatDto>(obj).message)
+            "pong" -> json.decodeFromJsonElement<PongDto>(obj).let { ServerMessage.Pong(it.clientTime, it.serverTime) }
+            "error" -> ServerMessage.Error(json.decodeFromJsonElement<ErrorDto>(obj).message)
+            else -> null
+        }
+    }
+
+    fun position(type: String, position: Double): String = buildJsonObject {
+        put("type", type)
+        put("position", position)
+    }.toString()
+
+    fun chat(text: String): String = buildJsonObject {
+        put("type", "chat")
+        put("text", text)
+    }.toString()
+
+    fun select(mediaId: String): String = buildJsonObject {
+        put("type", "select")
+        put("mediaId", mediaId)
+    }.toString()
+
+    fun ping(clientTime: Long): String = buildJsonObject {
+        put("type", "ping")
+        put("clientTime", clientTime)
+    }.toString()
+}

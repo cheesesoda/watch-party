@@ -31,3 +31,21 @@ jobs:
           for i in $(seq 1 30); do curl -sf localhost:8080/api/health && break; sleep 1; done
           curl -sf localhost:8080/ | grep -q '<div id="root">'
           docker logs wp
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: watch-party-apk
+          path: android/app/build/outputs/apk/release/*.apk
