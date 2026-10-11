@@ -1,13 +1,21 @@
-name: CI
+name: Server and web
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    paths-ignore:
+      - "android/**"
+      - "**.md"
+  workflow_dispatch:
+
+# A newer push to the same PR makes the older run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  server-web:
+  test-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,11 +26,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      # Same job as the tests, so the image check doesn't cost its own rounded-up minute.
       - run: docker build -t watch-party .
       - name: Smoke test the image
         run: |

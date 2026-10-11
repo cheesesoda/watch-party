@@ -8,7 +8,7 @@ a chat overlay on top of the video.
 - **Server** (`server/`): Node + TypeScript. Indexes your media folder, streams files with HTTP range
   requests, and runs watch party rooms over WebSocket.
 - **Web** (`web/`): React app served by the server.
-- **Android** (`android/`): phone and Android TV app (coming in a follow-up PR).
+- **Android** (`android/`): one app for phones and Android TV, using ExoPlayer.
 
 ## Run it
 
@@ -68,13 +68,32 @@ this code gets their own empty server and can't see yours.
 Upload speed matters: each viewer streams the file directly from your server, so a 10 Mbps 1080p file
 watched by three friends needs about 30 Mbps of upload.
 
+## Android and Android TV
+
+CI builds an APK whenever a pull request changes `android/`. To build one on demand, open the repo's
+**Actions** tab, pick **Android**, and press **Run workflow**. Download the `watch-party-apk` artifact from the run. Or build it yourself with `cd android && ./gradlew assembleRelease`
+(needs JDK 17 and the Android SDK).
+
+- **Phone:** open the APK on the phone and allow installing from that source.
+- **Android TV / Google TV:** sideload it, for example with `adb install app-release.apk`, or with the
+  Downloader app or Send Files to TV. It shows up on the TV home screen like any other app.
+
+On first launch enter the server address (like `192.168.1.20:8080`, or your Tailscale name), your name,
+and the password. Join a party from the list, by typing its code, or by pasting an invite link.
+
+In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Leave).
+On a TV remote, the Menu button also opens chat. Chat messages float over the video for a few seconds.
+
+The APK is signed with a debug key for easy sideloading. Use your own signing key before publishing it anywhere.
+
 ## Video formats
 
 There's no transcoding yet, so files play as-is:
 
 - **Works everywhere:** MP4 with H.264 video and AAC audio, and WebM.
-- **Android app only (usually):** MKV, HEVC/H.265, AC3/DTS audio. Browsers mostly can't play these, and the
-  library marks them "may not play in browser".
+- **Android app only (usually):** MKV, and HEVC/H.265 on devices with a hardware decoder. Browsers mostly
+  can't play these, and the library marks them "may not play in browser". AC3/DTS audio depends on the
+  device or what it's plugged into.
 
 To convert a file for the browser: `ffmpeg -i in.mkv -c:v libx264 -crf 20 -c:a aac -movflags +faststart out.mp4`.
 
