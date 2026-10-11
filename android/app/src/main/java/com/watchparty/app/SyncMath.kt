@@ -37,3 +37,22 @@ object Drift {
         }
     }
 }
+
+/** Turns audio levels (0..1) into who is talking, holding each person briefly so the ring doesn't flicker. */
+class SpeakingTracker(private val threshold: Double = 0.03, private val holdMs: Long = 600) {
+    private val lastLoud = HashMap<String, Long>()
+    private var current: Set<String> = emptySet()
+
+    fun level(id: String, level: Double, now: Long) {
+        if (level > threshold) lastLoud[id] = now
+    }
+
+    /** Who is talking among [ids], or null if that hasn't changed since the last call. */
+    fun changed(now: Long, ids: Set<String>): Set<String>? {
+        lastLoud.keys.retainAll(ids)
+        val next = lastLoud.filterValues { now - it < holdMs }.keys.toSet()
+        if (next == current) return null
+        current = next
+        return next
+    }
+}

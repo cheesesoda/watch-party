@@ -81,8 +81,12 @@ CI builds an APK whenever a pull request changes `android/`. To build one on dem
 On first launch enter the server address (like `192.168.1.20:8080`, or your Tailscale name), your name,
 and the password. Join a party from the list, by typing its code, or by pasting an invite link.
 
-In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Leave).
-On a TV remote, the Menu button also opens chat. Chat messages float over the video for a few seconds.
+In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Join voice,
+Leave). On a TV remote, the Menu button also opens chat. Chat messages float over the video for a few seconds.
+
+**Voice on Android:** press **Join voice** and allow the mic. TVs without a mic join listen-only. Voice
+plays through the same speaker as the movie, so headphones help keep it out of everyone else's mic.
+Leaving the app (Home button, screen off) leaves voice, because Android doesn't let background apps keep the mic.
 
 The APK is signed with a debug key for easy sideloading. Use your own signing key before publishing it anywhere.
 
