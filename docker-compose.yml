@@ -6,6 +6,8 @@ services:
       - "8080:8080"
     environment:
       WATCH_PASSWORD: ${WATCH_PASSWORD:?Set WATCH_PASSWORD in .env}
+      # Optional STUN/TURN servers for voice chat (JSON); empty uses Google's public STUN.
+      ICE_SERVERS: ${ICE_SERVERS:-}
     volumes:
       # Point this at your movie folder. Read-only is enough.
       - ${MEDIA_PATH:-./media}:/media:ro

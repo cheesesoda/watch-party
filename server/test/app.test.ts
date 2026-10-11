@@ -19,7 +19,7 @@ before(async () => {
   await fs.writeFile(path.join(dir, "Shows", "Ep.One.mp4"), Buffer.from("0123456789"));
   await fs.writeFile(path.join(dir, "Shows", "Ep.One.en.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
   await fs.writeFile(path.join(dir, "notes.txt"), "ignore me");
-  app = createApp({ port: 0, host: "127.0.0.1", mediaDirs: [dir], password: "secret", allowNoPassword: false, webDir: dir });
+  app = createApp({ port: 0, host: "127.0.0.1", mediaDirs: [dir], password: "secret", allowNoPassword: false, webDir: dir, iceServers: [] });
   await app.library.scan();
   await new Promise<void>((r) => app.server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
