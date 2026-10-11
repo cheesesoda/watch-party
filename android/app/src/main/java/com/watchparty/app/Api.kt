@@ -70,10 +70,11 @@ class Api(private val baseUrl: String, private val token: String) {
 
     fun subtitleUrl(mediaId: String, index: Int): String = withToken("$baseUrl/api/media/$mediaId/subtitles/$index.vtt")
 
-    fun socketUrl(roomId: String, name: String): String {
+    fun socketUrl(roomId: String, name: String, device: String): String {
         val url = "$baseUrl/ws".toHttpUrl().newBuilder()
             .addQueryParameter("room", roomId)
             .addQueryParameter("name", name)
+            .addQueryParameter("device", device)
             .apply { if (token.isNotEmpty()) addQueryParameter("token", token) }
             .build()
             .toString()
