@@ -36,7 +36,11 @@ export interface Member {
   voice: boolean;
   /** Not sending audio: muted, or listening only (no mic). */
   muted: boolean;
+  /** What they joined from, so a phone can act as the chat screen for its owner's TV. */
+  device: Device;
 }
+
+export type Device = "web" | "phone" | "tv";
 
 /** An RTCIceServer, with `urls` always an array so typed clients can parse it. */
 export interface IceServer {

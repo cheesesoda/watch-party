@@ -2,7 +2,10 @@ package com.watchparty.app
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.UiModeManager
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -24,6 +27,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -32,6 +36,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.core.view.WindowCompat
@@ -65,12 +70,31 @@ class RoomActivity : ComponentActivity() {
     private lateinit var voiceButton: Button
     private lateinit var muteButton: Button
     private lateinit var voiceStrip: TextView
+    private lateinit var chatPanel: LinearLayout
+    private lateinit var chatPanelHistory: TextView
+    private lateinit var chatPanelInput: EditText
+    private lateinit var companionView: LinearLayout
+    private lateinit var companionTitle: TextView
+    private lateinit var companionVoice: TextView
+    private lateinit var companionHistory: TextView
+    private lateinit var companionVoiceButton: Button
+    private lateinit var companionMuteButton: Button
 
     private val main = Handler(Looper.getMainLooper())
     private val chat = mutableListOf<ChatMessage>()
     private var me: Member? = null
     private var loadedMediaId: String? = null
-    private var chatDialogHistory: TextView? = null
+    private var isTv = false
+    private var lastState: PlaybackState? = null
+    private var lastMedia: MediaItem? = null
+
+    /** Phone showing only chat, because its owner is watching on a TV. */
+    private var companion = false
+    private var autoSwitched = false
+
+    private val closeChatOnBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = closeChat()
+    }
 
     private var members: List<Member> = emptyList()
     private var iceServers: List<IceServer> = emptyList()
@@ -95,6 +119,8 @@ class RoomActivity : ComponentActivity() {
         prefs = Prefs(this)
         api = Api(prefs.serverUrl, prefs.token)
         val roomId = intent.getStringExtra(EXTRA_ROOM) ?: return finish()
+        isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        onBackPressedDispatcher.addCallback(this, closeChatOnBack)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -109,7 +135,7 @@ class RoomActivity : ComponentActivity() {
         playerView.player = player
 
         connection = RoomConnection(
-            api.socketUrl(roomId, prefs.name),
+            api.socketUrl(roomId, prefs.name, if (isTv) "tv" else "phone"),
             onMessage = ::onServerMessage,
             onStatus = ::onStatus,
         )
@@ -118,9 +144,9 @@ class RoomActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        sync.start()
+        if (!companion) sync.start()
         main.post(chatTicker)
-        playerView.requestFocus()
+        if (!companion) playerView.requestFocus()
     }
 
     override fun onStop() {
@@ -143,7 +169,9 @@ class RoomActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_PROG_BLUE -> {
-                openChat()
+                if (!companion) {
+                    if (chatPanel.visibility == View.VISIBLE) closeChat() else openChat()
+                }
                 return true
             }
         }
@@ -200,7 +228,11 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun applyState(state: PlaybackState, media: MediaItem?) {
+        lastState = state
+        lastMedia = media
         titleText.text = media?.title ?: "Nothing playing. Use Change video to pick something."
+        companionTitle.text = media?.title ?: "Nothing playing"
+        if (companion) return
         if (media != null && media.id != loadedMediaId) {
             loadedMediaId = media.id
             val subs = media.subtitles.map { track ->
@@ -259,6 +291,7 @@ class RoomActivity : ComponentActivity() {
         topBar.addView(voiceButton)
         muteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
         topBar.addView(muteButton)
+        if (!isTv) topBar.addView(barButton("Chat only") { enterCompanion(auto = false) })
         topBar.addView(barButton("Leave") { finish() })
         root.addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
 
@@ -286,6 +319,12 @@ class RoomActivity : ComponentActivity() {
             },
         )
 
+        chatPanel = buildChatPanel()
+        root.addView(chatPanel, FrameLayout.LayoutParams(dp(CHAT_PANEL_DP), MATCH_PARENT, Gravity.END))
+
+        companionView = buildCompanionView()
+        root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
         statusText = text(14f, Color.WHITE).apply {
             background = rounded(Color.argb(200, 24, 27, 34))
             setPadding(dp(14), dp(8), dp(14), dp(8))
@@ -303,8 +342,14 @@ class RoomActivity : ComponentActivity() {
 
     private fun showMembers(members: List<Member>) {
         this.members = members
-        membersText.text = members.joinToString(", ") { it.name }
+        membersText.text = members.map { it.name }.distinct().joinToString(", ")
         renderVoice()
+        val self = me ?: return
+        val ownTv = members.any { it.id != self.id && it.device == "tv" && it.name.equals(self.name, ignoreCase = true) }
+        if (!isTv && !companion && !autoSwitched && ownTv) {
+            autoSwitched = true
+            enterCompanion(auto = true)
+        }
     }
 
     // --- voice ---
@@ -346,9 +391,11 @@ class RoomActivity : ComponentActivity() {
         if (!withMic) {
             Toast.makeText(this, "No mic available, so you're listening only.", Toast.LENGTH_LONG).show()
         }
-        voiceButton.text = "Leave voice"
-        muteButton.text = "Mute"
-        muteButton.visibility = if (chat.hasMic) View.VISIBLE else View.GONE
+        for (b in listOf(voiceButton, companionVoiceButton)) b.text = "Leave voice"
+        for (b in listOf(muteButton, companionMuteButton)) {
+            b.text = "Mute"
+            b.visibility = if (chat.hasMic) View.VISIBLE else View.GONE
+        }
     }
 
     private fun stopVoice() {
@@ -358,21 +405,22 @@ class RoomActivity : ComponentActivity() {
         speaking = emptySet()
         brokenVoice.clear()
         if (::player.isInitialized) player.volume = 1f
-        voiceButton.text = "Join voice"
-        muteButton.visibility = View.GONE
+        for (b in listOf(voiceButton, companionVoiceButton)) b.text = "Join voice"
+        for (b in listOf(muteButton, companionMuteButton)) b.visibility = View.GONE
         renderVoice()
     }
 
     private fun toggleMute() {
         muted = !muted
         voice?.setMuted(muted)
-        muteButton.text = if (muted) "Unmute" else "Mute"
+        for (b in listOf(muteButton, companionMuteButton)) b.text = if (muted) "Unmute" else "Mute"
     }
 
     private fun renderVoice() {
         val inVoice = members.filter { it.voice }
-        voiceStrip.visibility = if (inVoice.isEmpty()) View.GONE else View.VISIBLE
-        voiceStrip.text = SpannableStringBuilder().apply {
+        voiceStrip.visibility = if (inVoice.isEmpty() || companion) View.GONE else View.VISIBLE
+        companionVoice.visibility = if (inVoice.isEmpty()) View.GONE else View.VISIBLE
+        val line = SpannableStringBuilder().apply {
             append("Voice  ")
             setSpan(ForegroundColorSpan(Color.LTGRAY), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             inVoice.forEachIndexed { i, m ->
@@ -392,13 +440,15 @@ class RoomActivity : ComponentActivity() {
                 if (m.id in speaking) setSpan(StyleSpan(Typeface.BOLD), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
+        voiceStrip.text = line
+        companionVoice.text = line
     }
 
     private fun renderChat() {
         renderChatOverlay()
-        chatDialogHistory?.let { history ->
-            history.text = chatHistoryText(50)
-            (history.parent as? ScrollView)?.post { (history.parent as ScrollView).fullScroll(View.FOCUS_DOWN) }
+        for (history in listOf(chatPanelHistory, companionHistory)) {
+            history.text = chatHistoryText(100)
+            (history.parent as? ScrollView)?.let { scroll -> scroll.post { scroll.fullScroll(View.FOCUS_DOWN) } }
         }
     }
 
@@ -406,7 +456,7 @@ class RoomActivity : ComponentActivity() {
     private fun renderChatOverlay() {
         val now = System.currentTimeMillis()
         val serverNow = sync.clock.serverNow(now)
-        val recent = chat.takeLast(6).filter { serverNow - it.ts < CHAT_FADE_MS }
+        val recent = if (chatPanel.visibility == View.VISIBLE) emptyList() else chat.takeLast(6).filter { serverNow - it.ts < CHAT_FADE_MS }
         chatOverlay.removeAllViews()
         for (m in recent) {
             val age = serverNow - m.ts
@@ -446,55 +496,161 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Chat opens as a see-through panel along the right edge, so the movie stays full size and visible
+     * behind it. Back or the remote's Menu button closes it.
+     */
     private fun openChat() {
-        val history = text(15f, Color.WHITE).apply { text = chatHistoryText(50) }
-        val scroll = ScrollView(this).apply { addView(history) }
-        val input = EditText(this).apply {
-            hint = "Say something…"
-            setSingleLine()
-            imeOptions = EditorInfo.IME_ACTION_SEND
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
-        }
-        val content = LinearLayout(this).apply {
+        if (chatPanel.visibility == View.VISIBLE) return
+        chatPanel.visibility = View.VISIBLE
+        closeChatOnBack.isEnabled = true
+        (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = dp(CHAT_PANEL_DP)
+        topBar.requestLayout()
+        renderChat()
+        chatPanelInput.requestFocus()
+    }
+
+    private fun closeChat() {
+        if (chatPanel.visibility != View.VISIBLE) return
+        chatPanel.visibility = View.GONE
+        closeChatOnBack.isEnabled = false
+        (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = 0
+        topBar.requestLayout()
+        hideKeyboard(chatPanelInput)
+        playerView.requestFocus()
+    }
+
+    private fun buildChatPanel(): LinearLayout {
+        // A soft shadow keeps text readable over bright scenes now that the panel is see-through.
+        chatPanelHistory = text(15f, Color.WHITE).apply { setShadowLayer(4f, 0f, 1f, Color.BLACK) }
+        chatPanelInput = chatInput()
+        val send = { sendChat(chatPanelInput) }
+        chatPanelInput.setOnEditorActionListener { _, actionId, _ -> sendOnAction(actionId, send) }
+        return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(12), dp(20), 0)
-            addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, dp(220)))
-            addView(input, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        }
-        chatDialogHistory = history
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-
-        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("Chat")
-            .setView(content)
-            .setPositiveButton("Send", null)
-            .setNegativeButton("Close", null)
-            .create()
-
-        val sendText = {
-            val t = input.text.toString().trim()
-            if (t.isNotEmpty()) connection.send(Protocol.chat(t))
-            input.setText("")
-        }
-        input.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEND || actionId == EditorInfo.IME_ACTION_DONE) {
-                sendText()
-                true
-            } else {
-                false
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.argb(90, 10, 11, 14), Color.argb(170, 10, 11, 14)),
+            )
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+            visibility = View.GONE
+            val header = LinearLayout(this@RoomActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(text(20f, Color.WHITE).apply { text = "Chat"; setTypeface(typeface, Typeface.BOLD) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(barButton("Close") { closeChat() })
             }
+            addView(header)
+            addView(ScrollView(this@RoomActivity).apply { addView(chatPanelHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(LinearLayout(this@RoomActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(chatPanelInput, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(barButton("Send") { send() })
+            })
         }
-        dialog.setOnShowListener {
-            // Keep the dialog open after sending so you can keep chatting.
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { sendText() }
-            input.requestFocus()
+    }
+
+    // --- phone as a chat screen ---
+
+    private fun buildCompanionView(): LinearLayout {
+        companionTitle = text(18f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD); maxLines = 1 }
+        companionVoice = text(14f, Color.WHITE).apply { visibility = View.GONE }
+        companionHistory = text(16f, Color.WHITE).apply { setLineSpacing(0f, 1.15f) }
+        companionVoiceButton = barButton("Join voice") { toggleVoice() }
+        companionMuteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
+        val input = chatInput()
+        val send = { sendChat(input) }
+        input.setOnEditorActionListener { _, actionId, _ -> sendOnAction(actionId, send) }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(15, 17, 21))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            visibility = View.GONE
+            addView(LinearLayout(this@RoomActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(LinearLayout(this@RoomActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(companionTitle)
+                    addView(text(13f, Color.LTGRAY).apply { text = "Chat only. The video plays on your TV." })
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(barButton("Watch here") { exitCompanion() })
+            })
+            addView(LinearLayout(this@RoomActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(companionVoice, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(companionVoiceButton)
+                addView(companionMuteButton)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
+            addView(ScrollView(this@RoomActivity).apply { addView(companionHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
+            addView(LinearLayout(this@RoomActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(barButton("Send") { send() })
+            })
         }
-        dialog.setOnDismissListener {
-            chatDialogHistory = null
-            playerView.requestFocus()
+    }
+
+    private fun enterCompanion(auto: Boolean) {
+        if (companion) return
+        companion = true
+        closeChat()
+        sync.stop()
+        player.stop()
+        player.clearMediaItems()
+        loadedMediaId = null
+        for (v in listOf(playerView, topBar, chatOverlay, voiceStrip)) v.visibility = View.GONE
+        companionView.visibility = View.VISIBLE
+        // A chat screen wants the keyboard and the status bar back, and works best upright.
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        renderChat()
+        renderVoice()
+        if (auto) {
+            Toast.makeText(this, "You're on the TV too, so this phone is now just chat. Tap Watch here to switch back.", Toast.LENGTH_LONG).show()
         }
-        dialog.show()
+    }
+
+    private fun exitCompanion() {
+        if (!companion) return
+        companion = false
+        hideKeyboard(companionView)
+        companionView.visibility = View.GONE
+        playerView.visibility = View.VISIBLE
+        chatOverlay.visibility = View.VISIBLE
+        renderVoice()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        sync.start()
+        lastState?.let { applyState(it, lastMedia) }
+        playerView.requestFocus()
+    }
+
+    // --- chat input helpers ---
+
+    private fun chatInput() = EditText(this).apply {
+        hint = "Say something…"
+        setSingleLine()
+        imeOptions = EditorInfo.IME_ACTION_SEND
+        setTextColor(Color.WHITE)
+        setHintTextColor(Color.GRAY)
+    }
+
+    private fun sendChat(input: EditText) {
+        val t = input.text.toString().trim()
+        if (t.isNotEmpty()) connection.send(Protocol.chat(t))
+        input.setText("")
+    }
+
+    private fun sendOnAction(actionId: Int, send: () -> Unit): Boolean {
+        if (actionId != EditorInfo.IME_ACTION_SEND && actionId != EditorInfo.IME_ACTION_DONE) return false
+        send()
+        return true
+    }
+
+    private fun hideKeyboard(view: View) {
+        getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(view.windowToken, 0)
     }
 
     private fun pickVideo() {
@@ -543,6 +699,7 @@ class RoomActivity : ComponentActivity() {
         const val EXTRA_ROOM = "room"
         private const val CHAT_FADE_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
+        private const val CHAT_PANEL_DP = 320
 
         fun start(context: Context, roomId: String) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId))

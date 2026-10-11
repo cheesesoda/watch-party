@@ -49,7 +49,7 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
                 <button className="item" onClick={() => navigate(`/room/${r.id}`)}>
                   <span className="title">{r.media?.title ?? "Nothing selected"}</span>
                   <span className="meta">
-                    {r.members.length === 0 ? "empty" : r.members.map((m) => m.name).join(", ")} · code {r.id}
+                    {r.members.length === 0 ? "empty" : [...new Set(r.members.map((m) => m.name))].join(", ")} · code {r.id}
                   </span>
                   <span className="action">Join</span>
                 </button>

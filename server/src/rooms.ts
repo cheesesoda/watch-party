@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type {
   ChatMessage,
   ClientMessage,
+  Device,
   IceServer,
   MediaItem,
   Member,
@@ -75,8 +76,10 @@ export class Room {
     return [...this.members.values()].map((m) => m.member);
   }
 
-  join(name: string, send: Send): Member {
-    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true };
+  join(name: string, send: Send, device: Device = "web"): Member {
+    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
+    // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
+    const alreadyHere = this.hasName(member.name);
     this.members.set(member.id, { member, send });
     send({
       type: "welcome",
@@ -90,7 +93,7 @@ export class Room {
       iceServers: this.iceServers,
     });
     this.broadcast({ type: "members", members: this.memberList() });
-    this.notice(`${member.name} joined`);
+    if (!alreadyHere) this.notice(`${member.name} joined`);
     return member;
   }
 
@@ -100,7 +103,12 @@ export class Room {
     this.members.delete(memberId);
     if (this.members.size === 0) this.emptySince = this.now();
     this.broadcast({ type: "members", members: this.memberList() });
-    this.notice(`${entry.member.name} left`);
+    if (!this.hasName(entry.member.name)) this.notice(`${entry.member.name} left`);
+  }
+
+  private hasName(name: string): boolean {
+    const key = name.toLowerCase();
+    return this.memberList().some((m) => m.name.toLowerCase() === key);
   }
 
   /** Points the room at a media item without anyone being connected (used when a room is created). */

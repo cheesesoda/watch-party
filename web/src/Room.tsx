@@ -176,7 +176,7 @@ export function Room(props: { roomId: string; name: string }) {
         <div className="room-title">
           <strong>{media?.title ?? "Nothing playing"}</strong>
           <span className="muted">
-            {view.status === "open" ? view.members.map((m) => m.name).join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
+            {view.status === "open" ? [...new Set(view.members.map((m) => m.name))].join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>
         </div>
         <span className="spacer" />

@@ -179,7 +179,8 @@ export function createApp(config: Config): App {
       return void ws.close(4404, "No such room");
     }
 
-    const member = room.join(url.searchParams.get("name") ?? "", send);
+    const device = url.searchParams.get("device");
+    const member = room.join(url.searchParams.get("name") ?? "", send, device === "phone" || device === "tv" ? device : "web");
     let alive = true;
     ws.on("pong", () => (alive = true));
     const heartbeat = setInterval(() => {
