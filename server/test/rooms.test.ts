@@ -88,3 +88,43 @@ test("empty rooms are swept after the idle timeout", () => {
   mgr.sweep();
   assert.equal(mgr.get(room.id), undefined);
 });
+
+test("joining voice tells the newcomer who to call and relays signals only between voice members", () => {
+  const { room, a, b, alice, bob } = setup();
+  const offer = { sdp: { type: "offer" as const, sdp: "v=0" } };
+
+  room.handle(alice.id, { type: "voice", on: true, muted: false });
+  assert.deepEqual(a.filter((m) => m.type === "voice-peers").at(-1), { type: "voice-peers", peers: [] });
+
+  // Bob is not in voice yet, so nothing reaches him.
+  room.handle(alice.id, { type: "signal", to: bob.id, data: offer });
+  assert.equal(b.filter((m) => m.type === "signal").length, 0);
+
+  room.handle(bob.id, { type: "voice", on: true, muted: true });
+  assert.deepEqual(b.filter((m) => m.type === "voice-peers").at(-1), { type: "voice-peers", peers: [alice.id] });
+  const members = a.filter((m) => m.type === "members").at(-1);
+  assert.ok(members?.type === "members");
+  assert.deepEqual(
+    members.members.map((m) => [m.name, m.voice, m.muted]),
+    [
+      ["Alice", true, false],
+      ["Guest", true, true],
+    ],
+  );
+
+  room.handle(bob.id, { type: "signal", to: alice.id, data: offer });
+  assert.deepEqual(a.filter((m) => m.type === "signal").at(-1), { type: "signal", from: bob.id, data: offer });
+
+  // Malformed or oversized payloads are dropped.
+  const before = a.length;
+  room.handle(bob.id, { type: "signal", to: alice.id, data: { nope: 1 } as any });
+  room.handle(bob.id, { type: "signal", to: alice.id, data: { sdp: { type: "offer", sdp: "x".repeat(20_000) } } });
+  assert.equal(a.length, before);
+
+  // A mute change does not ask for new connections.
+  room.handle(alice.id, { type: "voice", on: true, muted: true });
+  assert.equal(a.filter((m) => m.type === "voice-peers").length, 1);
+
+  room.handle(alice.id, { type: "voice", on: false, muted: true });
+  assert.ok(a.some((m) => m.type === "chat" && m.message.text === "Alice left voice"));
+});

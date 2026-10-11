@@ -22,7 +22,7 @@ export interface App {
 
 export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
-  const rooms = new RoomManager((id) => library.peek(id)?.item);
+  const rooms = new RoomManager((id) => library.peek(id)?.item, Date.now, undefined, config.iceServers);
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
