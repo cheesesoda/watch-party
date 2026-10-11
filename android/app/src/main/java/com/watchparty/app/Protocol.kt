@@ -40,7 +40,17 @@ data class PlaybackState(
 }
 
 @Serializable
-data class Member(val id: String, val name: String)
+data class Member(
+    val id: String,
+    val name: String,
+    /** In the room's voice chat. */
+    val voice: Boolean = false,
+    /** Not sending audio: muted, or listening only. */
+    val muted: Boolean = true,
+)
+
+@Serializable
+data class IceServer(val urls: List<String>, val username: String? = null, val credential: String? = null)
 
 @Serializable
 data class ChatMessage(
@@ -63,6 +73,7 @@ sealed interface ServerMessage {
         val members: List<Member>,
         val chat: List<ChatMessage>,
         val serverTime: Long,
+        val iceServers: List<IceServer>,
     ) : ServerMessage
 
     data class State(val state: PlaybackState, val media: MediaItem?, val by: String?) : ServerMessage
@@ -70,6 +81,12 @@ sealed interface ServerMessage {
     data class Chat(val message: ChatMessage) : ServerMessage
     data class Pong(val clientTime: Long, val serverTime: Long) : ServerMessage
     data class Error(val message: String) : ServerMessage
+
+    /** We just joined voice; call these members. */
+    data class VoicePeers(val peers: List<String>) : ServerMessage
+
+    /** WebRTC negotiation from another voice member: `{sdp: {type, sdp}}` or `{candidate: {...}}`. */
+    data class Signal(val from: String, val data: JsonObject) : ServerMessage
 }
 
 object Protocol {
@@ -88,6 +105,7 @@ object Protocol {
         val members: List<Member> = emptyList(),
         val chat: List<ChatMessage> = emptyList(),
         val serverTime: Long,
+        val iceServers: List<IceServer> = emptyList(),
     )
 
     @Serializable
@@ -105,18 +123,26 @@ object Protocol {
     @Serializable
     private data class ErrorDto(val message: String)
 
+    @Serializable
+    private data class VoicePeersDto(val peers: List<String>)
+
+    @Serializable
+    private data class SignalDto(val from: String, val data: JsonObject)
+
     /** Returns null for message types this app version doesn't know. */
     fun parse(text: String): ServerMessage? {
         val obj: JsonObject = json.parseToJsonElement(text).jsonObject
         return when (obj["type"]?.jsonPrimitive?.content) {
             "welcome" -> json.decodeFromJsonElement<WelcomeDto>(obj).let {
-                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime)
+                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime, it.iceServers)
             }
             "state" -> json.decodeFromJsonElement<StateDto>(obj).let { ServerMessage.State(it.state, it.media, it.by) }
             "members" -> ServerMessage.Members(json.decodeFromJsonElement<MembersDto>(obj).members)
             "chat" -> ServerMessage.Chat(json.decodeFromJsonElement<ChatDto>(obj).message)
             "pong" -> json.decodeFromJsonElement<PongDto>(obj).let { ServerMessage.Pong(it.clientTime, it.serverTime) }
             "error" -> ServerMessage.Error(json.decodeFromJsonElement<ErrorDto>(obj).message)
+            "voice-peers" -> ServerMessage.VoicePeers(json.decodeFromJsonElement<VoicePeersDto>(obj).peers)
+            "signal" -> json.decodeFromJsonElement<SignalDto>(obj).let { ServerMessage.Signal(it.from, it.data) }
             else -> null
         }
     }
@@ -140,4 +166,31 @@ object Protocol {
         put("type", "ping")
         put("clientTime", clientTime)
     }.toString()
+
+    fun voice(on: Boolean, muted: Boolean): String = buildJsonObject {
+        put("type", "voice")
+        put("on", on)
+        put("muted", muted)
+    }.toString()
+
+    fun signal(to: String, data: JsonObject): String = buildJsonObject {
+        put("type", "signal")
+        put("to", to)
+        put("data", data)
+    }.toString()
+
+    fun sdpSignal(type: String, sdp: String): JsonObject = buildJsonObject {
+        put("sdp", buildJsonObject {
+            put("type", type)
+            put("sdp", sdp)
+        })
+    }
+
+    fun candidateSignal(candidate: String, sdpMid: String?, sdpMLineIndex: Int): JsonObject = buildJsonObject {
+        put("candidate", buildJsonObject {
+            put("candidate", candidate)
+            put("sdpMid", sdpMid)
+            put("sdpMLineIndex", sdpMLineIndex)
+        })
+    }
 }

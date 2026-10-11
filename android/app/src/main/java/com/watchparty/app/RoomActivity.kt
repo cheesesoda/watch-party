@@ -1,8 +1,10 @@
 package com.watchparty.app
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -30,6 +32,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -59,12 +62,26 @@ class RoomActivity : ComponentActivity() {
     private lateinit var membersText: TextView
     private lateinit var statusText: TextView
     private lateinit var chatOverlay: LinearLayout
+    private lateinit var voiceButton: Button
+    private lateinit var muteButton: Button
+    private lateinit var voiceStrip: TextView
 
     private val main = Handler(Looper.getMainLooper())
     private val chat = mutableListOf<ChatMessage>()
     private var me: Member? = null
     private var loadedMediaId: String? = null
     private var chatDialogHistory: TextView? = null
+
+    private var members: List<Member> = emptyList()
+    private var iceServers: List<IceServer> = emptyList()
+    private var voice: VoiceChat? = null
+    private var muted = false
+    private var speaking: Set<String> = emptySet()
+    private val brokenVoice = mutableSetOf<String>()
+
+    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        startVoice(withMic = granted)
+    }
 
     private val chatTicker = object : Runnable {
         override fun run() {
@@ -107,6 +124,8 @@ class RoomActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // Android doesn't let a backgrounded app keep the mic, so leave voice when the player goes away.
+        stopVoice()
         // Stop listening first so pausing here isn't broadcast as "paused" to everyone.
         sync.stop()
         player.playWhenReady = false
@@ -115,6 +134,7 @@ class RoomActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopVoice()
         if (::connection.isInitialized) connection.close()
         if (::player.isInitialized) player.release()
         super.onDestroy()
@@ -136,6 +156,8 @@ class RoomActivity : ComponentActivity() {
         when (msg) {
             is ServerMessage.Welcome -> {
                 me = msg.you
+                iceServers = msg.iceServers
+                voice?.rejoin(msg.you.id)
                 chat.clear()
                 chat.addAll(msg.chat)
                 showMembers(msg.members)
@@ -143,7 +165,10 @@ class RoomActivity : ComponentActivity() {
                 renderChat()
             }
             is ServerMessage.State -> applyState(msg.state, msg.media)
-            is ServerMessage.Members -> showMembers(msg.members)
+            is ServerMessage.Members -> {
+                voice?.syncMembers(msg.members)
+                showMembers(msg.members)
+            }
             is ServerMessage.Chat -> {
                 chat.add(msg.message)
                 if (chat.size > 200) chat.removeAt(0)
@@ -151,6 +176,8 @@ class RoomActivity : ComponentActivity() {
             }
             is ServerMessage.Pong -> sync.clock.onPong(msg.clientTime, msg.serverTime, System.currentTimeMillis())
             is ServerMessage.Error -> Toast.makeText(this, msg.message, Toast.LENGTH_SHORT).show()
+            is ServerMessage.VoicePeers -> voice?.callAll(msg.peers)
+            is ServerMessage.Signal -> voice?.onSignal(msg.from, msg.data)
         }
     }
 
@@ -228,6 +255,10 @@ class RoomActivity : ComponentActivity() {
         topBar.addView(titles, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         topBar.addView(barButton("Chat") { openChat() })
         topBar.addView(barButton("Change video") { pickVideo() })
+        voiceButton = barButton("Join voice") { toggleVoice() }
+        topBar.addView(voiceButton)
+        muteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
+        topBar.addView(muteButton)
         topBar.addView(barButton("Leave") { finish() })
         root.addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
 
@@ -239,6 +270,19 @@ class RoomActivity : ComponentActivity() {
             chatOverlay,
             FrameLayout.LayoutParams(dp(340), WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
                 setMargins(dp(16), dp(16), dp(16), dp(96))
+            },
+        )
+
+        // Who is in voice and who is talking; stays visible when the controls hide.
+        voiceStrip = text(14f, Color.WHITE).apply {
+            background = rounded(Color.argb(190, 10, 11, 14))
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            visibility = View.GONE
+        }
+        root.addView(
+            voiceStrip,
+            FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
+                setMargins(dp(16), dp(72), dp(16), 0)
             },
         )
 
@@ -258,7 +302,96 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun showMembers(members: List<Member>) {
+        this.members = members
         membersText.text = members.joinToString(", ") { it.name }
+        renderVoice()
+    }
+
+    // --- voice ---
+
+    private fun toggleVoice() {
+        if (voice != null) {
+            stopVoice()
+            return
+        }
+        when {
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) -> startVoice(withMic = false)
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> startVoice(withMic = true)
+            else -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startVoice(withMic: Boolean) {
+        val self = me ?: return
+        if (voice != null) return
+        val chat = try {
+            VoiceChat(this, iceServers) { connection.send(it) }
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Voice chat isn't available on this device.", Toast.LENGTH_LONG).show()
+            return
+        }
+        chat.onSpeaking = { ids ->
+            speaking = ids
+            // Lower the movie while someone else talks.
+            player.volume = if (ids.any { it != me?.id }) DUCK_VOLUME else 1f
+            renderVoice()
+        }
+        chat.onPeerHealth = { id, ok ->
+            if (ok) brokenVoice.remove(id) else brokenVoice.add(id)
+            renderVoice()
+        }
+        voice = chat
+        muted = false
+        chat.start(self.id, withMic)
+        if (!withMic) {
+            Toast.makeText(this, "No mic available, so you're listening only.", Toast.LENGTH_LONG).show()
+        }
+        voiceButton.text = "Leave voice"
+        muteButton.text = "Mute"
+        muteButton.visibility = if (chat.hasMic) View.VISIBLE else View.GONE
+    }
+
+    private fun stopVoice() {
+        val chat = voice ?: return
+        voice = null
+        chat.stop()
+        speaking = emptySet()
+        brokenVoice.clear()
+        if (::player.isInitialized) player.volume = 1f
+        voiceButton.text = "Join voice"
+        muteButton.visibility = View.GONE
+        renderVoice()
+    }
+
+    private fun toggleMute() {
+        muted = !muted
+        voice?.setMuted(muted)
+        muteButton.text = if (muted) "Unmute" else "Mute"
+    }
+
+    private fun renderVoice() {
+        val inVoice = members.filter { it.voice }
+        voiceStrip.visibility = if (inVoice.isEmpty()) View.GONE else View.VISIBLE
+        voiceStrip.text = SpannableStringBuilder().apply {
+            append("Voice  ")
+            setSpan(ForegroundColorSpan(Color.LTGRAY), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            inVoice.forEachIndexed { i, m ->
+                if (i > 0) append("   ")
+                val start = length
+                if (m.id in speaking) append("● ")
+                append(m.name)
+                if (m.id == me?.id) append(" (you)")
+                if (m.muted) append(" · muted")
+                if (m.id in brokenVoice) append(" · can't connect")
+                val color = when {
+                    m.id in brokenVoice -> Color.rgb(255, 122, 107)
+                    m.id in speaking -> Color.rgb(229, 160, 13)
+                    else -> Color.WHITE
+                }
+                setSpan(ForegroundColorSpan(color), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (m.id in speaking) setSpan(StyleSpan(Typeface.BOLD), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
     }
 
     private fun renderChat() {
@@ -409,6 +542,7 @@ class RoomActivity : ComponentActivity() {
     companion object {
         const val EXTRA_ROOM = "room"
         private const val CHAT_FADE_MS = 10_000L
+        private const val DUCK_VOLUME = 0.3f
 
         fun start(context: Context, roomId: String) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId))

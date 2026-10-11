@@ -64,4 +64,40 @@ class LogicTest {
         assertNull(Protocol.parse("""{"type":"future-thing"}"""))
         assertEquals("""{"type":"seek","position":3.5}""", Protocol.position("seek", 3.5))
     }
+
+    @Test
+    fun parsesVoiceMessages() {
+        val members = Protocol.parse("""{"type":"members","members":[{"id":"a","name":"Ann","voice":true,"muted":false},{"id":"b","name":"Ben"}]}""")
+        assertTrue(members is ServerMessage.Members)
+        members as ServerMessage.Members
+        assertEquals(listOf(true, false), members.members.map { it.voice })
+        assertEquals(listOf(false, true), members.members.map { it.muted })
+
+        val peers = Protocol.parse("""{"type":"voice-peers","peers":["a","b"]}""")
+        assertEquals(ServerMessage.VoicePeers(listOf("a", "b")), peers)
+
+        val signal = Protocol.parse("""{"type":"signal","from":"a","data":{"sdp":{"type":"offer","sdp":"v=0"}}}""")
+        assertTrue(signal is ServerMessage.Signal)
+        assertEquals(Protocol.sdpSignal("offer", "v=0"), (signal as ServerMessage.Signal).data)
+
+        assertEquals("""{"type":"voice","on":true,"muted":false}""", Protocol.voice(on = true, muted = false))
+        assertEquals(
+            """{"type":"signal","to":"b","data":{"candidate":{"candidate":"c","sdpMid":"0","sdpMLineIndex":0}}}""",
+            Protocol.signal("b", Protocol.candidateSignal("c", "0", 0)),
+        )
+    }
+
+    @Test
+    fun speakingHoldsBrieflyAfterGoingQuiet() {
+        val t = SpeakingTracker(threshold = 0.1, holdMs = 500)
+        t.level("a", 0.5, 1000)
+        t.level("b", 0.05, 1000)
+        assertEquals(setOf("a"), t.changed(1000, setOf("a", "b")))
+        assertNull(t.changed(1400, setOf("a", "b")))
+        assertEquals(emptySet<String>(), t.changed(1600, setOf("a", "b")))
+        t.level("b", 0.2, 1700)
+        assertEquals(setOf("b"), t.changed(1700, setOf("a", "b")))
+        // Someone who left voice stops counting even inside the hold window.
+        assertEquals(emptySet<String>(), t.changed(1800, setOf("a")))
+    }
 }

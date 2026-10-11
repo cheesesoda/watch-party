@@ -50,6 +50,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Community build of Google's WebRTC for voice chat; Google no longer publishes Android binaries.
+    implementation("io.getstream:stream-webrtc-android:1.3.10")
 
     testImplementation("junit:junit:4.13.2")
 }
