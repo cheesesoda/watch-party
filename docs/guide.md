@@ -12,9 +12,9 @@ You need three things from the host before joining: the server address, the shar
 
 ## Host the server
 
-Run the server on the computer that has your movies. Docker is the easiest way; plain Node works too.
+Run the server on the computer that has your movies. On Linux or macOS, Docker is the easiest way. On Windows, use plain Node in PowerShell.
 
-### Option A: Docker (recommended)
+### Option A: Docker (recommended on Linux and macOS)
 
 You need Docker with Compose and git.
 
@@ -35,19 +35,64 @@ To update later: `git pull` then `docker compose up -d --build` again. The conta
 
 ### Option B: Without Docker
 
-You need Node 20 or newer.
+You need Node 20 or newer. On Windows, follow [Windows (PowerShell)](#windows-powershell) instead.
 
 ```sh
 npm ci
 npm run build
-WATCH_PASSWORD=change-me MEDIA_DIR=/path/to/movies npm start
+cp .env.example .env   # set WATCH_PASSWORD and MEDIA_PATH, as above
+npm start
 ```
 
-Note the name difference: Docker uses `MEDIA_PATH` in `.env`, plain Node uses `MEDIA_DIR`.
+The server reads `.env` itself. Variables set in your shell override it, and `MEDIA_DIR` works as another name for `MEDIA_PATH`.
+
+### Windows (PowerShell)
+
+Run the server straight on Windows with Node. You don't need Docker or WSL: Docker Desktop on Windows runs inside WSL2 anyway, and reading movies from Windows drives through WSL is slow.
+
+1. Install Node, Git and Tailscale (skip any you already have):
+
+   ```powershell
+   winget install -e --id OpenJS.NodeJS.LTS
+   winget install -e --id Git.Git
+   winget install -e --id Tailscale.Tailscale
+   ```
+2. Close PowerShell and open a new window so it finds the new programs, then check them:
+
+   ```powershell
+   node --version     # v20 or newer
+   npm --version
+   git --version
+   tailscale version
+   ```
+
+   If `npm` says running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
+3. Get the code and build it:
+
+   ```powershell
+   git clone https://github.com/cheesesoda/watch-party.git
+   cd watch-party
+   npm ci
+   npm run build
+   ```
+4. Make your settings file and open it:
+
+   ```powershell
+   Copy-Item .env.example .env
+   notepad .env
+   ```
+
+   Set `WATCH_PASSWORD=` to a long password and `MEDIA_PATH=` to your movie folder, like `MEDIA_PATH=D:/Movies`. Forward slashes are easiest; for several folders use `MEDIA_DIRS=D:/Movies;E:/Shows`.
+5. Start it: `npm start`. It prints how many videos it found. Leave that window open; closing it stops the server.
+6. Open http://localhost:8080 and sign in. Then set up Tailscale as below.
+
+If Windows Firewall asks about Node, allow **Private networks** if friends on your Wi-Fi will use your local address. With `tailscale serve` alone it isn't needed.
+
+To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 
 ### Your media folder
 
-- Subfolders show up as groups in the library. For several folders without Docker, use `MEDIA_DIRS=/a,/b`.
+- Subfolders show up as groups in the library. For several folders without Docker, use `MEDIA_DIRS=/a,/b` (on Windows, `D:/Movies;E:/Shows`).
 - New files appear within a minute, or press **Rescan** in the library.
 - Subtitles: put a `.srt` or `.vtt` next to the video with the same name (`Movie.mp4` + `Movie.srt`, or `Movie.en.srt`).
 - MP4 files with H.264 video and AAC audio play everywhere. See [Troubleshooting](#troubleshooting) for other formats.
@@ -57,7 +102,7 @@ Note the name difference: Docker uses `MEDIA_PATH` in `.env`, plain Node uses `M
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `WATCH_PASSWORD` | required | Shared password for everyone. Changing it signs everyone out. |
-| `MEDIA_PATH` / `MEDIA_DIR` | `./media` | Movie folder (Docker / plain Node). |
+| `MEDIA_PATH` | `./media` | Movie folder. `MEDIA_DIR` also works without Docker; `MEDIA_DIRS` takes several. |
 | `PORT` | `8080` | Port the server listens on. |
 | `ICE_SERVERS` | Google public STUN | STUN/TURN servers for voice, as JSON. Only needed if voice won't connect for someone. |
 | `TRUST_PROXY` | `loopback` | Which proxies to believe about a visitor's real address. Leave it alone with `tailscale serve`; only change it for a proxy on another machine. |

@@ -34,6 +34,9 @@ npm run build
 WATCH_PASSWORD=change-me MEDIA_DIR=/path/to/movies npm start
 ```
 
+Or put the settings in `.env` (copy `.env.example`); the server reads it, and shell variables override it.
+On Windows, see the [guide's PowerShell steps](docs/guide.md#windows-powershell).
+
 ### Settings
 
 | Variable | Default | |
