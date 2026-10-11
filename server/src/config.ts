@@ -14,6 +14,11 @@ export interface Config {
   webDir: string;
   /** STUN/TURN servers handed to clients for voice chat. */
   iceServers: IceServer[];
+  /**
+   * Which proxies' X-Forwarded-For to believe, in Express "trust proxy" syntax. The login rate
+   * limit is per client address, so behind a proxy like `tailscale serve` it must see the real one.
+   */
+  trustProxy: string;
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -51,5 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowNoPassword: env.ALLOW_NO_PASSWORD === "1",
     webDir: path.resolve(env.WEB_DIR ?? new URL("../../web/dist", import.meta.url).pathname),
     iceServers: parseIceServers(env.ICE_SERVERS),
+    trustProxy: env.TRUST_PROXY?.trim() || "loopback",
   };
 }
