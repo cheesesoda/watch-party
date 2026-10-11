@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import type {
   ChatMessage,
   ClientMessage,
+  IceServer,
   MediaItem,
   Member,
   PlaybackState,
   RoomSummary,
   ServerMessage,
+  SignalData,
 } from "../../shared/protocol.ts";
 import { expectedPosition } from "../../shared/protocol.ts";
 
@@ -17,6 +19,19 @@ export type Clock = () => number;
 const CHAT_HISTORY = 100;
 const MAX_CHAT_LENGTH = 500;
 const MAX_NAME_LENGTH = 32;
+const MAX_SIGNAL_LENGTH = 12_000;
+
+export const DEFAULT_ICE_SERVERS: IceServer[] = [{ urls: ["stun:stun.l.google.com:19302"] }];
+
+/** Accepts an offer/answer or ICE candidate shaped object; anything else is dropped. */
+function validSignal(data: unknown): data is SignalData {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, any>;
+  if (JSON.stringify(d).length > MAX_SIGNAL_LENGTH) return false;
+  if (d.sdp) return (d.sdp.type === "offer" || d.sdp.type === "answer") && typeof d.sdp.sdp === "string";
+  if (d.candidate) return typeof d.candidate.candidate === "string";
+  return false;
+}
 
 function fmtTime(seconds: number): string {
   const s = Math.floor(seconds);
@@ -46,6 +61,7 @@ export class Room {
     readonly id: string,
     private lookup: LookupMedia,
     private now: Clock = Date.now,
+    private iceServers: IceServer[] = DEFAULT_ICE_SERVERS,
   ) {
     this.state = { mediaId: null, paused: true, position: 0, updatedAt: now() };
     this.emptySince = now();
@@ -60,7 +76,7 @@ export class Room {
   }
 
   join(name: string, send: Send): Member {
-    const member: Member = { id: crypto.randomUUID(), name: cleanName(name) };
+    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true };
     this.members.set(member.id, { member, send });
     send({
       type: "welcome",
@@ -71,6 +87,7 @@ export class Room {
       members: this.memberList(),
       chat: this.chat,
       serverTime: this.now(),
+      iceServers: this.iceServers,
     });
     this.broadcast({ type: "members", members: this.memberList() });
     this.notice(`${member.name} joined`);
@@ -110,6 +127,27 @@ export class Room {
         const text = typeof msg.text === "string" ? msg.text.trim().slice(0, MAX_CHAT_LENGTH) : "";
         if (!text) return;
         this.pushChat({ id: crypto.randomUUID(), from: member.name, text, ts: now });
+        return;
+      }
+
+      case "voice": {
+        const on = msg.on === true;
+        const wasOn = member.voice;
+        member.voice = on;
+        member.muted = !on || msg.muted !== false;
+        if (on && !wasOn) {
+          const peers = this.memberList().filter((m) => m.voice && m.id !== member.id).map((m) => m.id);
+          send({ type: "voice-peers", peers });
+        }
+        this.broadcast({ type: "members", members: this.memberList() });
+        if (on !== wasOn) this.notice(`${member.name} ${on ? "joined" : "left"} voice`);
+        return;
+      }
+
+      case "signal": {
+        const target = typeof msg.to === "string" ? this.members.get(msg.to) : undefined;
+        if (!member.voice || !target?.member.voice || !validSignal(msg.data)) return;
+        target.send({ type: "signal", from: member.id, data: msg.data });
         return;
       }
 
@@ -176,6 +214,7 @@ export class RoomManager {
     private lookup: LookupMedia,
     private now: Clock = Date.now,
     private idleMs = 30 * 60_000,
+    private iceServers: IceServer[] = DEFAULT_ICE_SERVERS,
   ) {}
 
   create(mediaId?: string): Room {
@@ -183,7 +222,7 @@ export class RoomManager {
     do {
       id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
     } while (this.rooms.has(id));
-    const room = new Room(id, this.lookup, this.now);
+    const room = new Room(id, this.lookup, this.now, this.iceServers);
     if (mediaId) room.select(mediaId);
     this.rooms.set(id, room);
     return room;

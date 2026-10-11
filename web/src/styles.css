@@ -245,6 +245,11 @@ input:focus {
   place-content: center;
   justify-items: center;
   gap: 8px;
+  /* Covers the whole room, so let clicks through to the top bar. */
+  pointer-events: none;
+}
+.room-empty > * {
+  pointer-events: auto;
 }
 
 .join-overlay {
@@ -268,6 +273,47 @@ input:focus {
   color: var(--error);
   padding: 8px 14px;
   border-radius: 8px;
+}
+
+.toast.info {
+  color: var(--text, #eceef3);
+}
+
+/* Voice chat: who is in it, who is talking. Stays visible when the top bar hides. */
+.voice-strip {
+  position: absolute;
+  left: 12px;
+  top: 64px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+.voice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(10, 11, 14, 0.72);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+.voice-chip svg {
+  color: var(--muted);
+}
+.voice-chip.talking {
+  border-color: var(--accent);
+}
+.voice-chip.broken {
+  border-color: var(--error);
+  border-style: dashed;
+  pointer-events: auto;
+}
+.room.idle .voice-strip {
+  top: 12px;
 }
 
 /* Chat overlay: sits above the native controls in the bottom-right. */

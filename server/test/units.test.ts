@@ -65,3 +65,13 @@ test("FailureLimiter blocks after the limit and forgets old failures", () => {
   lim.reset("a");
   assert.equal(lim.blockedFor("a"), 0);
 });
+
+test("ICE_SERVERS parsing normalizes urls and rejects junk", async () => {
+  const { parseIceServers } = await import("../src/config.ts");
+  assert.deepEqual(parseIceServers(undefined), [{ urls: ["stun:stun.l.google.com:19302"] }]);
+  assert.deepEqual(parseIceServers('[{"urls":"turn:t.example:3478","username":"u","credential":"p"}]'), [
+    { urls: ["turn:t.example:3478"], username: "u", credential: "p" },
+  ]);
+  assert.throws(() => parseIceServers("{}"));
+  assert.throws(() => parseIceServers("[{}]"));
+});

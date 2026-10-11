@@ -40,6 +40,7 @@ WATCH_PASSWORD=change-me MEDIA_DIR=/path/to/movies npm start
 | `MEDIA_DIR` | `./media` | Folder to index. Use `MEDIA_DIRS` with commas for several. Subfolders show up as groups. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
+| `ICE_SERVERS` | Google's public STUN | JSON list of STUN/TURN servers for voice chat, e.g. `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]`. See [Voice chat](#voice-chat). |
 
 The library rescans every minute when someone browses it, and there's a Rescan button.
 
@@ -107,6 +108,21 @@ server timestamp. Anyone can play, pause, seek or change the video, and the serv
 state. Each client estimates its clock offset from the server with pings, works out where playback
 should be right now, and nudges playback speed to fix small drift or seeks to fix big drift. People who
 join late land at the right spot.
+
+## Voice chat
+
+Press **Join voice** in a room to talk with everyone else who joined. A ring lights up around whoever is
+talking, and the movie gets quieter while someone else talks.
+
+- **Browsers only allow the mic over HTTPS** (or on `localhost`). Over plain `http://` you can still join
+  voice and hear everyone, but you can't talk. With Tailscale, `tailscale serve --bg 8080` gives the server
+  an HTTPS address like `https://your-pc.tail1234.ts.net`.
+- **Use headphones.** Echo cancellation keeps most of the movie out of your mic, but not all of it.
+- **Audio goes straight between viewers**, not through your server. Each person connects to every other
+  person, which works well for small groups (around 5).
+- **If someone's name has a dashed red outline,** your connection to them couldn't be set up. That happens
+  on some strict home routers and mobile networks. Being on the same tailnet usually fixes it; otherwise
+  run a TURN server (such as [coturn](https://github.com/coturn/coturn)) and list it in `ICE_SERVERS`.
 
 ## Development
 

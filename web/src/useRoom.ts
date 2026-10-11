@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ClientMessage, MediaItem, Member, PlaybackState, ServerMessage } from "../../shared/protocol.ts";
+import type { ChatMessage, ClientMessage, IceServer, MediaItem, Member, PlaybackState, ServerMessage, SignalData } from "../../shared/protocol.ts";
 
 export interface RoomView {
   status: "connecting" | "open" | "closed" | "missing";
@@ -9,11 +9,17 @@ export interface RoomView {
   media: MediaItem | null;
   state: PlaybackState | null;
   error: string | null;
+  iceServers: IceServer[];
 }
 
 export interface RoomHandlers {
   onState?: (state: PlaybackState) => void;
   onPong?: (clientTime: number, serverTime: number) => void;
+  /** Fires after every (re)connect, which gives us a new member id. */
+  onWelcome?: (me: Member) => void;
+  onMembers?: (members: Member[]) => void;
+  onVoicePeers?: (peers: string[]) => void;
+  onSignal?: (from: string, data: SignalData) => void;
 }
 
 /** Connects to a room over WebSocket, reconnecting with backoff until unmounted. */
@@ -26,6 +32,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
     media: null,
     state: null,
     error: null,
+    iceServers: [],
   });
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef(handlers);
@@ -67,8 +74,10 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
               media: msg.media,
               state: msg.state,
               error: null,
+              iceServers: msg.iceServers ?? [],
             });
             handlersRef.current.onState?.(msg.state);
+            handlersRef.current.onWelcome?.(msg.you);
             break;
           case "state":
             setView((v) => ({ ...v, state: msg.state, media: msg.media }));
@@ -76,6 +85,13 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
             break;
           case "members":
             setView((v) => ({ ...v, members: msg.members }));
+            handlersRef.current.onMembers?.(msg.members);
+            break;
+          case "voice-peers":
+            handlersRef.current.onVoicePeers?.(msg.peers);
+            break;
+          case "signal":
+            void handlersRef.current.onSignal?.(msg.from, msg.data);
             break;
           case "chat":
             setView((v) => ({ ...v, chat: [...v.chat.slice(-199), msg.message] }));

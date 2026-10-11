@@ -32,7 +32,23 @@ export interface PlaybackState {
 export interface Member {
   id: string;
   name: string;
+  /** In the room's voice chat. */
+  voice: boolean;
+  /** Not sending audio: muted, or listening only (no mic). */
+  muted: boolean;
 }
+
+/** An RTCIceServer, with `urls` always an array so typed clients can parse it. */
+export interface IceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** WebRTC negotiation data, relayed between two voice members as-is. */
+export type SignalData =
+  | { sdp: { type: "offer" | "answer"; sdp: string } }
+  | { candidate: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null } };
 
 export interface ChatMessage {
   id: string;
@@ -55,7 +71,10 @@ export type ClientMessage =
   | { type: "seek"; position: number }
   | { type: "select"; mediaId: string }
   | { type: "chat"; text: string }
-  | { type: "ping"; clientTime: number };
+  | { type: "ping"; clientTime: number }
+  /** Join or leave voice, or change mute while in it. */
+  | { type: "voice"; on: boolean; muted: boolean }
+  | { type: "signal"; to: string; data: SignalData };
 
 export type ServerMessage =
   | {
@@ -67,11 +86,15 @@ export type ServerMessage =
       members: Member[];
       chat: ChatMessage[];
       serverTime: number;
+      iceServers: IceServer[];
     }
   | { type: "state"; state: PlaybackState; media: MediaItem | null; by: string | null }
   | { type: "members"; members: Member[] }
   | { type: "chat"; message: ChatMessage }
   | { type: "pong"; clientTime: number; serverTime: number }
+  /** Sent to a member who just joined voice: the members they should send offers to. */
+  | { type: "voice-peers"; peers: string[] }
+  | { type: "signal"; from: string; data: SignalData }
   | { type: "error"; message: string };
 
 /** Where playback should be right now, given a state and the current server time. */
