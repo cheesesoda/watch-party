@@ -40,6 +40,7 @@ WATCH_PASSWORD=change-me MEDIA_DIR=/path/to/movies npm start
 | `MEDIA_DIR` | `./media` | Folder to index. Use `MEDIA_DIRS` with commas for several. Subfolders show up as groups. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
+| `TRUST_PROXY` | `loopback` | Proxies whose `X-Forwarded-For` header is believed, so the login limit counts each visitor separately. The Docker setup also trusts Docker's own network. Use Express ["trust proxy"](https://expressjs.com/en/guide/behind-proxies.html) syntax. |
 | `ICE_SERVERS` | Google's public STUN | JSON list of STUN/TURN servers for voice chat, e.g. `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]`. See [Voice chat](#voice-chat). |
 
 The library rescans every minute when someone browses it, and there's a Rescan button.
@@ -63,7 +64,8 @@ this code gets their own empty server and can't see yours.
 - Prefer Tailscale over opening a port, so strangers can't reach the server at all.
 - If the server is reachable from the internet, use a long random password and HTTPS.
 - After 10 wrong passwords from one address in 15 minutes, logins from that address are refused until
-  the window passes. Behind a reverse proxy every visitor shares the proxy's address, so the limit is shared.
+  the window passes. Behind a proxy on the same machine (like `tailscale serve`) the limit uses each visitor's
+  real address from `X-Forwarded-For`; for a proxy on another machine, add its address to `TRUST_PROXY`.
 - Changing `WATCH_PASSWORD` signs everyone out, including the Android app.
 
 Upload speed matters: each viewer streams the file directly from your server, so a 10 Mbps 1080p file
