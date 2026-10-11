@@ -59,8 +59,8 @@ Note the name difference: Docker uses `MEDIA_PATH` in `.env`, plain Node uses `M
 | `WATCH_PASSWORD` | required | Shared password for everyone. Changing it signs everyone out. |
 | `MEDIA_PATH` / `MEDIA_DIR` | `./media` | Movie folder (Docker / plain Node). |
 | `PORT` | `8080` | Port the server listens on. |
-| `TRUST_PROXY` | `loopback` | Which proxies to believe about a visitor's real address. Leave it alone with `tailscale serve`; only change it for a proxy on another machine. |
 | `ICE_SERVERS` | Google public STUN | STUN/TURN servers for voice, as JSON. Only needed if voice won't connect for someone. |
+| `TRUST_PROXY` | `loopback` | Which proxies to believe about a visitor's real address. Leave it alone with `tailscale serve`; only change it for a proxy on another machine. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
 
 **Upload speed matters.** Each friend streams straight from your computer, so a 10 Mbps movie watched by three friends needs about 30 Mbps of upload.
