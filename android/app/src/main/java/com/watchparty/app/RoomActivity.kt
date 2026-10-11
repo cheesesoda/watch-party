@@ -497,16 +497,14 @@ class RoomActivity : ComponentActivity() {
     }
 
     /**
-     * Chat opens as a panel on the right and the video shrinks to make room, so nothing covers the
-     * picture. Back or the remote's Menu button closes it.
+     * Chat opens as a see-through panel along the right edge, so the movie stays full size and visible
+     * behind it. Back or the remote's Menu button closes it.
      */
     private fun openChat() {
         if (chatPanel.visibility == View.VISIBLE) return
         chatPanel.visibility = View.VISIBLE
         closeChatOnBack.isEnabled = true
-        (playerView.layoutParams as FrameLayout.LayoutParams).marginEnd = dp(CHAT_PANEL_DP)
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = dp(CHAT_PANEL_DP)
-        playerView.requestLayout()
         topBar.requestLayout()
         renderChat()
         chatPanelInput.requestFocus()
@@ -516,22 +514,24 @@ class RoomActivity : ComponentActivity() {
         if (chatPanel.visibility != View.VISIBLE) return
         chatPanel.visibility = View.GONE
         closeChatOnBack.isEnabled = false
-        (playerView.layoutParams as FrameLayout.LayoutParams).marginEnd = 0
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = 0
-        playerView.requestLayout()
         topBar.requestLayout()
         hideKeyboard(chatPanelInput)
         playerView.requestFocus()
     }
 
     private fun buildChatPanel(): LinearLayout {
-        chatPanelHistory = text(15f, Color.WHITE)
+        // A soft shadow keeps text readable over bright scenes now that the panel is see-through.
+        chatPanelHistory = text(15f, Color.WHITE).apply { setShadowLayer(4f, 0f, 1f, Color.BLACK) }
         chatPanelInput = chatInput()
         val send = { sendChat(chatPanelInput) }
         chatPanelInput.setOnEditorActionListener { _, actionId, _ -> sendOnAction(actionId, send) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(24, 27, 34))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.argb(90, 10, 11, 14), Color.argb(170, 10, 11, 14)),
+            )
             setPadding(dp(16), dp(16), dp(16), dp(12))
             visibility = View.GONE
             val header = LinearLayout(this@RoomActivity).apply {
@@ -699,7 +699,7 @@ class RoomActivity : ComponentActivity() {
         const val EXTRA_ROOM = "room"
         private const val CHAT_FADE_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
-        private const val CHAT_PANEL_DP = 340
+        private const val CHAT_PANEL_DP = 320
 
         fun start(context: Context, roomId: String) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId))
