@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
 import { LogOutIcon, PencilIcon } from "./Icons.tsx";
-import { Library } from "./Library.tsx";
+import { Library, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 
@@ -137,15 +137,27 @@ export function Home(props: {
         )}
 
         <section className="parties">
-          <h2>Watch parties</h2>
+          <div className="section-head">
+            <h2>Watch parties</h2>
+            <form className="join-code" onSubmit={join}>
+              <input
+                placeholder="Party code"
+                aria-label="Party code"
+                value={code}
+                maxLength={12}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+              />
+              <button>Join</button>
+            </form>
+          </div>
           {rooms.length === 0 ? (
             <p className="muted">No parties right now.</p>
           ) : (
-            <ul className="rooms">
+            <Shelf className="party-shelf">
               {rooms.map((r) => (
-                <li key={r.id}>
+                <div key={r.id} className="party-card">
                   <button
-                    className="item party"
+                    className="party-open"
                     onClick={() => navigate(`/room/${r.id}`)}
                   >
                     <span className="title">
@@ -154,13 +166,9 @@ export function Home(props: {
                     </span>
                     <span className="meta">
                       {r.members.length === 0
-                        ? "empty"
-                        : [...new Set(r.members.map((m) => m.name))].join(
-                            ", ",
-                          )}{" "}
-                      · code {r.id.toUpperCase()}
+                        ? "Nobody here yet"
+                        : [...new Set(r.members.map((m) => m.name))].join(", ")}
                     </span>
-                    <span className="action">Join</span>
                     {r.playback && (
                       <Progress
                         playback={r.playback}
@@ -168,22 +176,19 @@ export function Home(props: {
                       />
                     )}
                   </button>
-                  <button className="end" onClick={() => end(r)}>
-                    End
-                  </button>
-                </li>
+                  <div className="party-actions">
+                    <span className="party-card-code">{r.id.toUpperCase()}</span>
+                    <button className="end" onClick={() => end(r)}>
+                      End
+                    </button>
+                    <button className="primary" onClick={() => navigate(`/room/${r.id}`)}>
+                      Join
+                    </button>
+                  </div>
+                </div>
               ))}
-            </ul>
+            </Shelf>
           )}
-          <form className="row join-code" onSubmit={join}>
-            <input
-              placeholder="Party code"
-              value={code}
-              maxLength={12}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-            />
-            <button>Join</button>
-          </form>
         </section>
 
         <section className="start-party">

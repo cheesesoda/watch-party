@@ -685,7 +685,7 @@ const EXTRAS = -1;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** A row of cards with no scrollbar: arrow buttons page through it when it doesn't all fit. Swiping still works. */
-function Shelf(props: { children: ReactNode }) {
+export function Shelf(props: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
   const update = () => {
@@ -701,7 +701,7 @@ function Shelf(props: { children: ReactNode }) {
   const page = (direction: number) => ref.current?.scrollBy({ left: direction * ref.current.clientWidth * 0.9, behavior: "smooth" });
   return (
     <div className="shelf-wrap">
-      <div className="shelf" ref={ref} onScroll={update}>
+      <div className={props.className ? `shelf ${props.className}` : "shelf"} ref={ref} onScroll={update}>
         {props.children}
       </div>
       {edges.left && (
