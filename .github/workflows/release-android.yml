@@ -1,21 +1,35 @@
 name: Android release
 
-# Builds a signed app bundle (.aab) for Google Play. Run it from the Actions tab.
+# Builds a signed app bundle (.aab) for Google Play and, when the PLAY_SERVICE_ACCOUNT_JSON
+# secret is set, publishes it to the internal testing track. Runs on every push to main that
+# changes the app, or from the Actions tab.
 # Needs the ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
 # and ANDROID_KEY_PASSWORD repository secrets (see docs/play-release.md).
 on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - ".github/workflows/release-android.yml"
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Version shown to users, e.g. 0.2.0"
-        required: true
+        description: "Version shown to users, e.g. 0.2.0 (leave empty for 0.2.<run number>)"
+        required: false
       version_code:
         description: "Play version code (leave empty to use this workflow's run number)"
         required: false
 
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
 jobs:
   bundle:
     runs-on: ubuntu-latest
+    env:
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      VERSION_NAME: ${{ inputs.version_name || format('0.2.{0}', github.run_number) }}
     timeout-minutes: 20
     defaults:
       run:
@@ -41,11 +55,21 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code || github.run_number }}
         run: ./gradlew --no-daemon bundleRelease -PversionName="$VERSION_NAME" -PversionCode="$VERSION_CODE"
       - uses: actions/upload-artifact@v4
         with:
-          name: watch-party-${{ inputs.version_name }}-aab
+          name: watch-party-${{ env.VERSION_NAME }}-aab
           path: android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
+      # Testers get it as an update from the Play Store. Skipped until the secret is set.
+      - name: Publish to internal testing
+        if: env.PLAY_SERVICE_ACCOUNT_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.cheeseparty.app
+          releaseFiles: android/app/build/outputs/bundle/release/*.aab
+          releaseName: ${{ env.VERSION_NAME }}
+          track: internal
+          status: completed
