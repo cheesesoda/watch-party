@@ -58,6 +58,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.composed
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -137,12 +140,12 @@ private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
             Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
             notice?.let { Text(it, color = ErrorColor) }
             if (isTv) {
-                Button(onClick = { mode = "phone" }, modifier = Modifier.fillMaxWidth()) { Text("Sign in with your phone") }
-                OutlinedButton(onClick = { mode = "join" }, modifier = Modifier.fillMaxWidth()) { Text("Type a party code") }
+                Button(onClick = { mode = "phone" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Sign in with your phone") }
+                OutlinedButton(onClick = { mode = "join" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Type a party code") }
             } else {
-                Button(onClick = { mode = "join" }, modifier = Modifier.fillMaxWidth()) { Text("Join a party") }
+                Button(onClick = { mode = "join" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Join a party") }
             }
-            OutlinedButton(onClick = { mode = "start" }, modifier = Modifier.fillMaxWidth()) { Text("Start a party") }
+            OutlinedButton(onClick = { mode = "start" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Start a party") }
             Text("Joining needs the party code from your host. Starting one needs the server password.", color = Muted, fontSize = 13.sp)
         }
     }
@@ -171,7 +174,7 @@ private fun ServerChoice(other: Boolean, defaultServer: String, server: String, 
     } else {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Server: ${defaultServer.substringAfter("://")}", color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = onOther) { Text("Other server") }
+            TextButton(onClick = onOther, modifier = Modifier.focusRing()) { Text("Other server") }
         }
     }
 }
@@ -255,10 +258,10 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
             modifier = Modifier.fillMaxWidth(),
         )
         error?.let { Text(it, color = ErrorColor) }
-        Button(onClick = submit, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = submit, enabled = !busy, modifier = Modifier.focusRing().fillMaxWidth()) {
             Text(if (busy) "Connecting…" else "Continue")
         }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        OutlinedButton(onClick = onBack, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Back") }
     }
 }
 
@@ -322,10 +325,10 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
         )
         NameField(name) { name = it }
         error?.let { Text(it, color = ErrorColor) }
-        Button(onClick = submit, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = submit, enabled = !busy, modifier = Modifier.focusRing().fillMaxWidth()) {
             Text(if (busy) "Joining…" else "Join")
         }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        OutlinedButton(onClick = onBack, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Back") }
     }
 }
 
@@ -406,7 +409,7 @@ private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
                 Text("Sign in with your phone", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text("Scan the code with your phone's camera, then enter the party code and a name. The TV joins on its own.", color = Muted)
                 error?.let { Text(it, color = ErrorColor) }
-                OutlinedButton(onClick = onBack) { Text("Back") }
+                OutlinedButton(onClick = onBack, modifier = Modifier.focusRing()) { Text("Back") }
             }
         }
     }
@@ -458,7 +461,7 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
         FormCard {
             Text("All set", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("Your TV is signing in now.", color = Muted)
-            Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+            Button(onClick = onClose, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Done") }
         }
         return
     }
@@ -493,13 +496,13 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
             modifier = Modifier.fillMaxWidth(),
         )
         error?.let { Text(it, color = ErrorColor) }
-        Button(onClick = submit, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = submit, enabled = !busy, modifier = Modifier.focusRing().fillMaxWidth()) {
             Text(if (busy) "Signing in…" else if (asHost) "Sign in TV as host" else "Join on the TV")
         }
-        OutlinedButton(onClick = { asHost = !asHost }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { asHost = !asHost }, modifier = Modifier.focusRing().fillMaxWidth()) {
             Text(if (asHost) "Join a party instead" else "I'm the host")
         }
-        TextButton(onClick = onClose) { Text("Cancel") }
+        TextButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Cancel") }
     }
 }
 
@@ -565,7 +568,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text("Hosting as ${prefs.name} on ${prefs.serverUrl}", color = Muted, fontSize = 13.sp)
                 }
-                OutlinedButton(onClick = { onSignedOut(null) }) { Text("Settings") }
+                OutlinedButton(onClick = { onSignedOut(null) }, modifier = Modifier.focusRing()) { Text("Settings") }
             }
         }
         error?.let { item { Text(it, color = ErrorColor) } }
@@ -582,7 +585,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 ) {
                     Text("Party ready for ${room.media?.title ?: "your movie"}. Share the code, then join when you're ready to watch.", color = Muted)
                     Text(room.id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
-                    Button(onClick = { RoomActivity.start(context, room.id) }) { Text("Join party") }
+                    Button(onClick = { RoomActivity.start(context, room.id) }, modifier = Modifier.focusRing()) { Text("Join party") }
                 }
             }
         }
@@ -609,7 +612,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     modifier = Modifier.weight(1f),
                 )
-                Button(onClick = joinCode) { Text("Join") }
+                Button(onClick = joinCode, modifier = Modifier.focusRing()) { Text("Join") }
             }
         }
         item { SectionTitle("Start a party") }
@@ -624,7 +627,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 )
                 OutlinedButton(onClick = {
                     scope.launch { guard { api.library() }?.let { library = it } }
-                }) { Text("Refresh") }
+                }, modifier = Modifier.focusRing()) { Text("Refresh") }
             }
         }
         val lib = library
@@ -698,6 +701,18 @@ private fun FocusRow(title: String, subtitle: String, action: String, onClick: (
         Spacer(Modifier.width(12.dp))
         Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/**
+ * A white ring and a slight zoom on the button a TV remote has selected. Material's own focus tint is too faint
+ * to see from the couch. Touch doesn't focus buttons, so phones never show it.
+ */
+private fun Modifier.focusRing(): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    this
+        .onFocusChanged { focused = it.isFocused }
+        .scale(if (focused) 1.06f else 1f)
+        .border(3.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(50))
 }
 
 private fun formatSize(bytes: Long): String {
