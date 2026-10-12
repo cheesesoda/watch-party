@@ -45,12 +45,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
@@ -81,18 +80,30 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.composed
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-private val Bg = Color(0xFF1A0933)
-private val Panel = Color(0xFF2A1250)
-private val PanelFocused = Color(0xFF3D1D6E)
-private val Accent = Color(0xFFFF8E44)
-private val Muted = Color(0xFFC4B3E0)
-private val ErrorColor = Color(0xFFFF5252)
-/** The pink-to-purple sweep from cheesesoda.com, behind the home and sign-in screens. */
-private val BrandGradient = Brush.linearGradient(listOf(Color(0xFFF91362), Color(0xFF35126A)))
+// Muted versions of the cheesesoda.com colors, the same as the web app: a dusky plum and a soft amber.
+private val Bg = Color(0xFF18131F)
+private val Panel = Color(0xFF231C2D)
+private val PanelFocused = Color(0xFF31283E)
+private val Accent = Color(0xFFE09A62)
+private val Muted = Color(0xFFB0A6BF)
+private val ErrorColor = Color(0xFFE06666)
+/** The muted pink-to-purple sweep from cheesesoda.com, behind the sign-in screens. The home screen is plain plum. */
+private val BrandGradient = Brush.linearGradient(listOf(Color(0xFF8A3A5A), Color(0xFF2B2140)))
+// What a TV remote is on turns white with dark text and grows a little, as on Google TV. No colored outlines.
+private val FocusFill = Color(0xFFF2EEF7)
+private val OnFocus = Color(0xFF18131F)
+private val OnFocusMuted = Color(0xFF5B5068)
 
 class MainActivity : ComponentActivity() {
     /** A TV sign-in link (server, pairing id) this phone was opened with, from the TV's QR code. */
@@ -151,20 +162,22 @@ class MainActivity : ComponentActivity() {
                     surface = Panel,
                     surfaceContainerHigh = Panel,
                     onSurfaceVariant = Muted,
-                    outline = Color(0xFF9A86C2),
+                    outline = Color(0xFF8A7F9A),
                     error = ErrorColor,
                 ),
+                typography = BrandTypography,
             ) {
                 var setUp by remember { mutableStateOf(prefs.isSetUp) }
                 var notice by remember { mutableStateOf<String?>(null) }
+                val link = pairLink.value
+                val invite = joinLink.value
+                val home = link == null && invite == null && setUp
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(BrandGradient)
+                        .then(if (home) Modifier.background(Bg) else Modifier.background(BrandGradient))
                         .safeDrawingPadding(),
                 ) {
-                    val link = pairLink.value
-                    val invite = joinLink.value
                     if (link != null) {
                         PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null })
                     } else if (invite != null) {
@@ -200,7 +213,7 @@ private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
         "join" -> JoinForm(prefs, onBack = { mode = null })
         "phone" -> TvPairScreen(prefs, onDone, onBack = { mode = null })
         else -> FormCard {
-            Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            LogoTitle()
             notice?.let { Text(it, color = ErrorColor) }
             if (isTv) {
                 Button(onClick = { mode = "phone" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Sign in with your phone") }
@@ -651,13 +664,15 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
     var started by remember { mutableStateOf<RoomSummary?>(null) }
     var library by remember { mutableStateOf<List<MediaItem>?>(null) }
-    var query by remember { mutableStateOf("") }
-    var view by remember { mutableStateOf(LibraryView.All) }
-    var sort by remember { mutableStateOf(LibrarySort.AZ) }
-    var subsOnly by remember { mutableStateOf(false) }
-    var showName by remember { mutableStateOf<String?>(null) }
-    var season by remember { mutableStateOf<Int?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var view by rememberSaveable { mutableStateOf(LibraryView.All) }
+    var sort by rememberSaveable { mutableStateOf(LibrarySort.AZ) }
+    var subsOnly by rememberSaveable { mutableStateOf(false) }
+    var showName by rememberSaveable { mutableStateOf<String?>(null) }
+    var season by rememberSaveable { mutableStateOf<Int?>(null) }
     var openExtras by remember { mutableStateOf<String?>(null) }
+    // The video whose details window is open (tapping a video opens it; Start party is its own button).
+    var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -727,20 +742,37 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         )
     }
 
+    val lib = library
+    // queue: a binge, played in order from its first video.
+    val startParty = { media: MediaItem, queue: List<String>? ->
+        scope.launch {
+            guard { api.createRoom(media.id, queue) }?.let { room ->
+                started = room
+                rooms = rooms.filter { it.id != room.id } + room
+                listState.animateScrollToItem(0)
+            }
+        }
+        Unit
+    }
+    val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
+    // The server found TMDB details for something, so show posters (with empty frames where there are none).
+    val details = lib?.any { it.meta != null } == true
+    val mediaMeta = { media: MediaItem ->
+        (media.extra?.let { x ->
+            x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
+        } ?: "") + (media.part?.let { "${it.ids.size} parts" } ?: media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+    }
     LazyColumn(
         Modifier
             .fillMaxSize()
-            // A deep purple sheet over the gradient keeps the small grey text readable.
-            .padding(12.dp)
-            .background(Bg.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 24.dp),
         state = listState,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Row(Modifier.padding(top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LogoTitle()
                     Text("Hosting as ${prefs.name} on ${prefs.serverUrl}", color = Muted, fontSize = 13.sp)
                 }
                 OutlinedButton(onClick = { onSignedOut(null) }, modifier = Modifier.focusRing()) { Text("Settings") }
@@ -828,26 +860,6 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 }, modifier = Modifier.focusRing()) { Text("Refresh") }
             }
         }
-        val lib = library
-        // queue: a binge, played in order from its first video.
-        val startParty = { media: MediaItem, queue: List<String>? ->
-            scope.launch {
-                guard { api.createRoom(media.id, queue) }?.let { room ->
-                    started = room
-                    rooms = rooms.filter { it.id != room.id } + room
-                    listState.animateScrollToItem(0)
-                }
-            }
-            Unit
-        }
-        val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
-        // The server found TMDB details for something, so show posters (with empty frames where there are none).
-        val details = lib?.any { it.meta != null } == true
-        val mediaMeta = { media: MediaItem ->
-            (media.extra?.let { x ->
-                x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
-            } ?: "") + (media.part?.let { "${it.ids.size} parts" } ?: media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
-        }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
         } else if (lib.isEmpty()) {
@@ -877,7 +889,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                 FocusTile(
                                     title = media.title,
                                     subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
-                                    onClick = { startParty(media, media.part?.ids) },
+                                    onClick = { shownInfo = media.id },
                                     poster = if (details) ({ Poster(api, media.meta?.posterPath, "w185", 50.dp, 75.dp) }) else null,
                                 )
                             }
@@ -898,11 +910,11 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                     FocusRow(
                                         title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
                                         subtitle = mediaMeta(row.item),
-                                        action = "Start party",
-                                        onClick = { startParty(row.item, row.item.part?.ids) },
+                                        onClick = { shownInfo = row.item.id },
                                         leading = if (details) ({ Poster(api, row.item.meta?.posterPath, "w92", 36.dp, 54.dp) }) else null,
                                     )
                                 }
+                                StartButton { startParty(row.item, row.item.part?.ids) }
                                 if (own != null) {
                                     OutlinedButton(
                                         onClick = { openExtras = if (openExtras == row.item.id) null else row.item.id },
@@ -912,9 +924,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             }
                             if (own != null && openExtras == row.item.id) {
                                 own.forEach { x ->
-                                    Box(Modifier.padding(start = 24.dp)) {
-                                        FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x, null) })
-                                    }
+                                    Box(Modifier.padding(start = 24.dp)) { MediaRow(x.title, mediaMeta(x), { shownInfo = x.id }, { startParty(x, null) }) }
                                 }
                             }
                         }
@@ -958,7 +968,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                     Text(
                                         show.name + (showMeta.year?.let { "  $it" } ?: ""),
                                         color = Color.White,
-                                        fontSize = 20.sp,
+                                        fontSize = 24.sp,
+                                        fontFamily = BarlowCondensed,
                                         fontWeight = FontWeight.Bold,
                                     )
                                     showMeta.showOverview?.let { Text(it, color = Muted, fontSize = 14.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
@@ -968,41 +979,34 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     } else {
                         item(key = "show-title") { SectionTitle(show.name, small = true) }
                     }
-                    if (show.seasons.size > 1 || showExtras != null) {
-                        item(key = "seasons") {
-                            ChipRow {
+                    // Season chips, then the binge links: small, so they don't outweigh the seasons.
+                    item(key = "seasons") {
+                        ChipRow {
+                            if (show.seasons.size > 1 || showExtras != null) {
                                 show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } }
                                 if (showExtras != null) Chip("Extras", shownSeason == -1) { season = -1 }
                             }
-                        }
-                    }
-                    if (shownSeason != -1) {
-                        item(key = "binge") {
-                            val season = show.episodes.filter { it.episode!!.season == shownSeason }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-                                Button(onClick = { startParty(season.first(), season.map { it.id }) }, modifier = Modifier.focusRing()) {
-                                    Text("Binge season $shownSeason")
-                                }
+                            if (shownSeason != -1) {
+                                val inSeason = show.episodes.filter { it.episode!!.season == shownSeason }
+                                LinkButton("Binge season $shownSeason") { startParty(inSeason.first(), inSeason.map { it.id }) }
                                 if (show.seasons.size > 1) {
-                                    OutlinedButton(onClick = { startParty(show.episodes.first(), show.episodes.map { it.id }) }, modifier = Modifier.focusRing()) {
-                                        Text("Binge all ${show.seasons.size} seasons")
-                                    }
+                                    LinkButton("Binge all ${show.seasons.size} seasons") { startParty(show.episodes.first(), show.episodes.map { it.id }) }
                                 }
                             }
                         }
                     }
                     if (shownSeason == -1 && showExtras != null) {
                         items(showExtras, key = { "extra-" + it.id }) { x ->
-                            FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x, null) })
+                            MediaRow(x.title, mediaMeta(x), { shownInfo = x.id }, { startParty(x, null) })
                         }
                     }
                     items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
                         val ep = media.episode!!
-                        FocusRow(
+                        MediaRow(
                             title = "E${ep.episode}   " + (ep.title ?: "Episode ${ep.episode}"),
                             subtitle = mediaMeta(media),
-                            action = "Start party",
-                            onClick = { startParty(media, media.part?.ids) },
+                            onClick = { shownInfo = media.id },
+                            onStart = { startParty(media, media.part?.ids) },
                             leading = if (details) ({ Poster(api, media.meta?.stillPath, "w300", 112.dp, 63.dp) }) else null,
                             detail = media.meta?.overview,
                         )
@@ -1022,14 +1026,30 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         }
         item { Spacer(Modifier.padding(bottom = 24.dp)) }
     }
+    // Outside the list, so it stays open however far the list scrolls.
+    val shownMedia = shownInfo?.let { id -> lib?.firstOrNull { it.id == id } }
+    if (lib != null && shownMedia != null) {
+        val media: MediaItem = shownMedia
+        val show = media.episode?.let { shows(lib).firstOrNull { s -> media in s.episodes } }
+        DetailsDialog(
+            api = api,
+            media = media,
+            length = mediaMeta(media),
+            credit = details,
+            onStart = { shownInfo = null; startParty(media, media.part?.ids) },
+            onBingeFrom = show?.let { s -> { shownInfo = null; startParty(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
+            onClose = { shownInfo = null },
+        )
+    }
 }
 
 @Composable
 private fun SectionTitle(text: String, small: Boolean = false) {
     Text(
         text,
-        fontSize = if (small) 15.sp else 18.sp,
-        fontWeight = FontWeight.SemiBold,
+        fontSize = if (small) 19.sp else 24.sp,
+        fontFamily = BarlowCondensed,
+        fontWeight = FontWeight.Bold,
         color = Color.White,
         modifier = Modifier.padding(top = if (small) 10.dp else 16.dp, bottom = 4.dp),
     )
@@ -1049,7 +1069,7 @@ private fun ChipRow(label: String? = null, content: @Composable () -> Unit) {
     }
 }
 
-/** A pill-shaped choice: orange when selected, with an orange outline when a TV remote is on it. */
+/** A pill-shaped choice: orange when selected, white when a TV remote is on it. */
 @Composable
 private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
@@ -1057,9 +1077,10 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
     Box(
         Modifier
+            .scale(if (focused) 1.06f else 1f)
             .clip(shape)
-            .background(if (selected) Accent else if (focused) PanelFocused else Color.Transparent)
-            .border(if (focused) 2.dp else 1.dp, if (focused) (if (selected) Color.White else Accent) else if (selected) Accent else Muted.copy(alpha = 0.35f), shape)
+            .background(if (focused) FocusFill else if (selected) Accent else Color.Transparent, shape)
+            .border(1.dp, if (focused || selected) Color.Transparent else Muted.copy(alpha = 0.35f), shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .heightIn(min = 36.dp)
             .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1067,7 +1088,7 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             label,
-            color = if (selected) Bg else if (focused) Color.White else Muted,
+            color = if (selected || focused) OnFocus else Muted,
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
         )
@@ -1092,9 +1113,10 @@ private fun FocusTile(
         Modifier
             .width((if (large) 220.dp else 176.dp) + if (poster != null) 76.dp else 0.dp)
             .heightIn(min = 96.dp)
+            .scale(if (focused) 1.04f else 1f)
             .clip(shape)
-            .background(if (focused || selected) PanelFocused else Panel)
-            .border(2.dp, if (focused) Accent else if (selected) Accent.copy(alpha = 0.6f) else Color.Transparent, shape)
+            .background(if (focused) FocusFill else if (selected) PanelFocused else Panel)
+            .border(2.dp, if (selected && !focused) Accent.copy(alpha = 0.6f) else Color.Transparent, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = if (poster != null) 10.dp else 14.dp, vertical = if (poster != null) 10.dp else 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1103,14 +1125,14 @@ private fun FocusTile(
     Column(Modifier.weight(1f).heightIn(min = 72.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Text(
             title,
-            color = Color.White,
+            color = if (focused) OnFocus else Color.White,
             fontWeight = if (large) FontWeight.Bold else FontWeight.SemiBold,
             fontSize = if (large) 18.sp else 15.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(10.dp))
-        Text(subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(subtitle, color = if (focused) OnFocusMuted else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
     }
 }
@@ -1120,7 +1142,7 @@ private fun FocusTile(
 private fun Poster(api: Api, path: String?, size: String, width: Dp, height: Dp) {
     val image by produceState<ImageBitmap?>(null, path, size) { value = path?.let { api.image(it, size) } }
     val shape = RoundedCornerShape(6.dp)
-    val frame = Modifier.width(width).height(height).clip(shape).background(Color(0xFF3D1D6E))
+    val frame = Modifier.width(width).height(height).clip(shape).background(PanelFocused)
     image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = frame) } ?: Box(frame)
 }
 
@@ -1129,7 +1151,8 @@ private fun Poster(api: Api, path: String?, size: String, width: Dp, height: Dp)
 private fun FocusRow(
     title: String,
     subtitle: String,
-    action: String,
+    // Orange text at the end saying what a click does; none when the row has its own button beside it.
+    action: String? = null,
     onClick: () -> Unit,
     // Called with true when it sits in its own middle column (wide screens), false when it goes under the subtitle.
     progress: (@Composable (inline: Boolean) -> Unit)? = null,
@@ -1146,9 +1169,9 @@ private fun FocusRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .scale(if (focused) 1.02f else 1f)
             .clip(shape)
-            .background(if (focused) PanelFocused else Panel)
-            .border(2.dp, if (focused) Accent else Color.Transparent, shape)
+            .background(if (focused) FocusFill else Panel)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = if (leading != null) 12.dp else 16.dp, vertical = if (leading != null) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1158,23 +1181,206 @@ private fun FocusRow(
             Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.Medium)
-            if (detail != null && wide) Text(detail, color = Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = Muted, fontSize = 13.sp)
+            Text(title, color = if (focused) OnFocus else Color.White, fontWeight = FontWeight.Medium)
+            if (detail != null && wide) Text(detail, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp)
             if (!wide) progress?.invoke(false)
         }
         if (wide && progress != null) {
             Spacer(Modifier.width(16.dp))
             Box(Modifier.width((width * 0.32f).coerceAtMost(360.dp))) { progress(true) }
         }
-        Spacer(Modifier.width(12.dp))
-        Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        if (action != null) {
+            Spacer(Modifier.width(12.dp))
+            Text(action, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
     }
 }
 
+/** A video's row: tapping it opens its details, and Start party sits beside it. */
+@Composable
+private fun MediaRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    onStart: () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    detail: String? = null,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.weight(1f)) { FocusRow(title = title, subtitle = subtitle, onClick = onClick, leading = leading, detail = detail) }
+        StartButton(onClick = onStart)
+    }
+}
+
+/** The orange Start party button beside a video's row, styled like the rows so the pair reads as one. */
+@Composable
+private fun StartButton(label: String = "Start party", onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        Modifier
+            .scale(if (focused) 1.06f else 1f)
+            .clip(shape)
+            .background(if (focused) FocusFill else Panel)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A small orange text button, for the binge links after a show's season chips. */
+@Composable
+private fun LinkButton(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .scale(if (focused) 1.06f else 1f)
+            .clip(shape)
+            .background(if (focused) FocusFill else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A video's details: poster, title, summary, and Start party (plus Binge from here for an episode). */
+@Composable
+private fun DetailsDialog(
+    api: Api,
+    media: MediaItem,
+    length: String,
+    credit: Boolean,
+    onStart: () -> Unit,
+    onBingeFrom: (() -> Unit)?,
+    onClose: () -> Unit,
+) {
+    val m = media.meta
+    val ep = media.episode
+    val start = remember { FocusRequester() }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        BoxWithConstraints(Modifier.padding(16.dp).widthIn(max = 720.dp)) {
+            val wide = maxWidth >= 520.dp
+            Column(
+                Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Panel)
+                    .border(1.dp, Muted.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                val text: @Composable () -> Unit = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            (if (ep != null) m?.show ?: ep.show else m?.title ?: media.title) + ((m?.year ?: media.year)?.let { "  $it" } ?: ""),
+                            color = Color.White,
+                            fontFamily = BarlowCondensed,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 28.sp,
+                            lineHeight = 30.sp,
+                        )
+                        if (ep != null) {
+                            Text(
+                                "Season ${ep.season}, episode ${ep.episode}" + (ep.title?.let { " · $it" } ?: ""),
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Text(length, color = Muted, fontSize = 13.sp)
+                        m?.overview?.let { Text(it, color = Color.White.copy(alpha = 0.9f), fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp)) }
+                    }
+                }
+                val poster = m?.posterPath ?: m?.stillPath
+                if (wide && poster != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Poster(api, poster, "w342", 140.dp, 210.dp)
+                        Box(Modifier.weight(1f)) { text() }
+                    }
+                } else {
+                    if (poster != null) Poster(api, poster, "w342", 100.dp, 150.dp)
+                    text()
+                }
+                FlowRowButtons {
+                    Button(onClick = onStart, modifier = Modifier.focusRing().focusRequester(start)) { Text("Start party") }
+                    onBingeFrom?.let { OutlinedButton(onClick = it, modifier = Modifier.focusRing()) { Text("Binge from here") } }
+                    OutlinedButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Close") }
+                }
+                if (credit) {
+                    Text(
+                        "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                        color = Muted,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+    }
+    // A TV remote lands on Start party.
+    LaunchedEffect(media.id) { runCatching { start.requestFocus() } }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowButtons(content: @Composable () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+}
+
+/** Material's buttons, except the one a TV remote is on turns white with dark text (with [focusRing]'s zoom). */
+@Composable
+private fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    androidx.compose.material3.Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        interactionSource = interaction,
+        colors = ButtonDefaults.buttonColors(containerColor = if (focused) FocusFill else Accent, contentColor = OnFocus),
+        content = content,
+    )
+}
+
+@Composable
+private fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    androidx.compose.material3.OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        interactionSource = interaction,
+        colors = if (focused) ButtonDefaults.outlinedButtonColors(containerColor = FocusFill, contentColor = OnFocus) else ButtonDefaults.outlinedButtonColors(),
+        border = if (focused) null else ButtonDefaults.outlinedButtonBorder(enabled),
+        content = content,
+    )
+}
+
+@Composable
+private fun TextButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    androidx.compose.material3.TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        interactionSource = interaction,
+        colors = if (focused) ButtonDefaults.textButtonColors(containerColor = FocusFill, contentColor = OnFocus) else ButtonDefaults.textButtonColors(),
+        content = content,
+    )
+}
+
 /**
- * A white ring and a slight zoom on the button a TV remote has selected. Material's own focus tint is too faint
+ * A slight zoom on the button a TV remote has selected (the buttons above also turn white). Material's own focus tint is too faint
  * to see from the couch. Touch doesn't focus buttons, so phones never show it.
  */
 private fun Modifier.focusRing(): Modifier = composed {
@@ -1182,9 +1388,8 @@ private fun Modifier.focusRing(): Modifier = composed {
     this
         .onFocusChanged { focused = it.isFocused }
         .scale(if (focused) 1.06f else 1f)
-        .border(3.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(50))
-        // Material pads a 40 dp button out to a 48 dp touch target, which left a gap between the ring and the
-        // button. Making the button itself 48 dp tall removes the padding, so the ring sits on its edge.
+        // Material pads a 40 dp button out to a 48 dp touch target; making the button itself 48 dp tall
+        // keeps the white fill the same size as the button's touch area.
         .heightIn(min = 48.dp)
 }
 
@@ -1202,7 +1407,7 @@ private fun PartyProgress(playback: RoomPlayback, sinceFetchMs: Long, inline: Bo
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF3D1D6E)),
+                    .background(PanelFocused),
             ) {
                 Box(
                     Modifier

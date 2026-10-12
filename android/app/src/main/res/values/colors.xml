@@ -1,7 +1,8 @@
 <resources>
-    <color name="bg">#1A0933</color>
-    <color name="panel">#2A1250</color>
-    <color name="accent">#FF8E44</color>
-    <color name="brand_pink">#F91362</color>
-    <color name="brand_purple">#35126A</color>
+    <!-- Muted versions of the cheesesoda.com colors, matching the web app. -->
+    <color name="bg">#18131F</color>
+    <color name="panel">#231C2D</color>
+    <color name="accent">#E09A62</color>
+    <color name="brand_pink">#8A3A5A</color>
+    <color name="brand_purple">#2B2140</color>
 </resources>
