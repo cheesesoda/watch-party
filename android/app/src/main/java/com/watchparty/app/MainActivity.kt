@@ -72,6 +72,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val Bg = Color(0xFF1A0933)
 private val Panel = Color(0xFF2A1250)
@@ -477,8 +478,10 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
     val api = remember { Api(server, if (signedInHost) prefs.token else "") }
     val scope = rememberCoroutineScope()
     var asHost by remember { mutableStateOf(false) }
-    // The party this phone was last in, so joining the TV to it is one tap.
-    var code by remember { mutableStateOf(prefs.lastRoom.uppercase()) }
+    // The party this phone was last in, so joining the TV to it is one tap. Filled in only once the server
+    // says it's still running, so an ended party's code never shows.
+    var code by remember { mutableStateOf("") }
+    var checkingLast by remember { mutableStateOf(prefs.lastRoom.isNotEmpty()) }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(prefs.name) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -537,6 +540,27 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
                 busy = false
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        val last = prefs.lastRoom
+        if (last.isEmpty()) return@LaunchedEffect
+        val sameServer = Prefs.normalizeUrl(prefs.serverUrl) == Prefs.normalizeUrl(server)
+        val live = sameServer && withTimeoutOrNull(3_000) {
+            try {
+                Api(server, prefs.token).room(last)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        } == true
+        if (live) code = last.uppercase() else prefs.lastRoom = ""
+        checkingLast = false
+    }
+
+    if (checkingLast) {
+        FormCard { Text("Checking your last party…", color = Muted) }
+        return
     }
 
     if (done) {
