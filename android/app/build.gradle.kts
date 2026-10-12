@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         // Play identity: permanent once the first build is uploaded to Play Console.
-        applicationId = "io.github.cheesesoda.watchparty"
+        applicationId = "com.cheeseparty.app"
         minSdk = 26
         targetSdk = 36
         // The release workflow passes these; local and PR builds use the defaults.
