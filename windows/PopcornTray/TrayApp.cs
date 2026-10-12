@@ -313,7 +313,7 @@ sealed class TrayApp : ApplicationContext
             : running ? "Starting…"
             : "Stopped";
         tray.Text = $"Popcorn Club: {statusItem.Text}";
-        var dot = updating || (running && !server.Listening) ? Color.FromArgb(0xE5, 0xA0, 0x0D)
+        var dot = updating || (running && !server.Listening) ? Color.FromArgb(0xFF, 0x8E, 0x44)
             : server.Listening ? Color.FromArgb(0x3F, 0xB9, 0x50)
             : Color.FromArgb(0x8A, 0x8A, 0x8A);
         var oldDot = statusItem.Image;

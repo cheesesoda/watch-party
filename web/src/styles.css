@@ -1,12 +1,14 @@
 :root {
-  --bg: #0f1115;
-  --panel: #181b22;
-  --panel-2: #222631;
-  --text: #eceef3;
-  --muted: #9097a6;
-  --accent: #e5a00d;
-  --accent-text: #15120a;
-  --error: #ff7a6b;
+  --bg: #1a0933;
+  --panel: #2a1250;
+  --panel-2: #3d1d6e;
+  --text: #f3eefa;
+  --muted: #c4b3e0;
+  --accent: #ff8e44;
+  --accent-text: #1a0933;
+  --error: #ff5252;
+  /* The pink-to-purple sweep from cheesesoda.com. */
+  --brand: linear-gradient(120deg, #f91362 0%, #35126a 100%);
   --radius: 10px;
   color-scheme: dark;
 }
@@ -22,7 +24,12 @@ body,
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font:
+    15px/1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
 h1,
@@ -95,6 +102,10 @@ input:focus {
   visibility: hidden;
 }
 
+.center,
+.page-wrap {
+  background: var(--brand) fixed;
+}
 .center {
   min-height: 100%;
   display: grid;
@@ -119,10 +130,17 @@ input:focus {
 }
 
 /* Home */
+.page-wrap {
+  min-height: 100%;
+  padding: 16px;
+}
+/* A deep purple sheet over the gradient keeps the small grey text readable. */
 .page {
   max-width: 960px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 20px;
+  background: rgba(26, 9, 51, 0.9);
+  border-radius: 20px;
 }
 .page > section {
   margin-top: 28px;
@@ -184,7 +202,7 @@ input:focus {
   font-size: 13px;
 }
 .item .meta .warn {
-  color: #d9a35b;
+  color: #ffb37a;
 }
 .item .action {
   grid-area: action;
@@ -223,7 +241,7 @@ input:focus {
   transition: opacity 0.3s;
 }
 .room-top button {
-  background: rgba(30, 33, 42, 0.85);
+  background: rgba(42, 18, 80, 0.85);
 }
 .room-top button.on {
   background: var(--accent);
@@ -302,7 +320,7 @@ input:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(10, 11, 14, 0.72);
+  background: rgba(26, 9, 51, 0.72);
   border: 2px solid transparent;
   border-radius: 999px;
   padding: 3px 10px;
@@ -344,7 +362,7 @@ input:focus {
 }
 .chat.expanded .chat-list {
   pointer-events: auto;
-  background: rgba(10, 11, 14, 0.7);
+  background: rgba(26, 9, 51, 0.7);
   border-radius: 16px;
   padding: 10px;
   max-height: 55vh;
@@ -353,7 +371,7 @@ input:focus {
 /* Pop-ups over the video: compact pills with the sender's name. */
 .chat-msg {
   align-self: flex-start;
-  background: rgba(10, 11, 14, 0.78);
+  background: rgba(26, 9, 51, 0.78);
   border-radius: 16px;
   padding: 6px 12px;
   max-width: 100%;
@@ -404,7 +422,7 @@ input:focus {
   pointer-events: auto;
 }
 .chat input {
-  background: rgba(10, 11, 14, 0.78);
+  background: rgba(26, 9, 51, 0.78);
   border-color: transparent;
   border-radius: 22px;
   padding-left: 14px;
@@ -461,7 +479,9 @@ input:focus {
   border: 2px solid var(--muted);
   position: relative;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 .switch-row input[type="checkbox"]::after {
   content: "";
@@ -472,7 +492,12 @@ input:focus {
   height: 16px;
   border-radius: 50%;
   background: var(--muted);
-  transition: transform 0.15s, width 0.15s, height 0.15s, top 0.15s, background 0.15s;
+  transition:
+    transform 0.15s,
+    width 0.15s,
+    height 0.15s,
+    top 0.15s,
+    background 0.15s;
 }
 .switch-row input[type="checkbox"]:checked {
   background: var(--accent);

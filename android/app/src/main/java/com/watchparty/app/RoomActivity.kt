@@ -416,7 +416,7 @@ class RoomActivity : ComponentActivity() {
 
         // Who is in voice and who is talking; stays visible when the controls hide.
         voiceStrip = text(14f, Color.WHITE).apply {
-            background = pill(Color.argb(200, 0x1D, 0x20, 0x27))
+            background = pill(Color.argb(200, 0x1A, 0x09, 0x33))
             setPadding(dp(14), dp(6), dp(14), dp(7))
             visibility = View.GONE
         }
@@ -434,7 +434,7 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         statusText = text(14f, ON_SURFACE).apply {
-            background = pill(Color.argb(220, 0x1D, 0x20, 0x27))
+            background = pill(Color.argb(220, 0x1A, 0x09, 0x33))
             setPadding(dp(20), dp(10), dp(20), dp(10))
             visibility = View.GONE
         }
@@ -542,8 +542,8 @@ class RoomActivity : ComponentActivity() {
                 if (m.muted) append(" · muted")
                 if (m.id in brokenVoice) append(" · can't connect")
                 val color = when {
-                    m.id in brokenVoice -> Color.rgb(255, 122, 107)
-                    m.id in speaking -> Color.rgb(229, 160, 13)
+                    m.id in brokenVoice -> Color.rgb(0xFF, 0x52, 0x52)
+                    m.id in speaking -> ACCENT
                     else -> Color.WHITE
                 }
                 setSpan(ForegroundColorSpan(color), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -579,7 +579,7 @@ class RoomActivity : ComponentActivity() {
 
     private fun messageView(m: ChatMessage, run: Boolean, otherColor: Int): View {
         if (m.system) {
-            return text(12f, Color.rgb(0x90, 0x97, 0xA6)).apply {
+            return text(12f, ON_SURFACE_VARIANT).apply {
                 text = m.text
                 gravity = Gravity.CENTER
                 setShadowLayer(3f, 0f, 1f, Color.BLACK)
@@ -660,7 +660,7 @@ class RoomActivity : ComponentActivity() {
             val age = serverNow - m.ts
             val view = text(14f, if (m.system) Color.LTGRAY else Color.WHITE).apply {
                 text = formatMessage(m)
-                background = GradientDrawable().apply { setColor(Color.argb(200, 10, 11, 14)); cornerRadius = dp(16).toFloat() }
+                background = GradientDrawable().apply { setColor(Color.argb(200, 0x1A, 0x09, 0x33)); cornerRadius = dp(16).toFloat() }
                 setPadding(dp(12), dp(6), dp(12), dp(7))
                 alpha = ((CHAT_FADE_MS - age) / 2000f).coerceIn(0f, 1f)
             }
@@ -721,7 +721,7 @@ class RoomActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             // A see-through side sheet: rounded on the movie's side, so the film stays visible behind it.
             background = GradientDrawable().apply {
-                setColor(Color.argb(180, 0x12, 0x14, 0x19))
+                setColor(Color.argb(180, 0x1A, 0x09, 0x33))
                 val r = dp(28).toFloat()
                 cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
             }
@@ -1047,19 +1047,19 @@ class RoomActivity : ComponentActivity() {
         private const val SKIP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
-        /** The app's amber, as on the home screen. */
-        private val ACCENT = Color.rgb(0xE5, 0xA0, 0x0D)
-        // Material 3 dark roles, built around the amber.
-        private val ON_ACCENT = Color.rgb(0x15, 0x12, 0x0A)
-        private val SURFACE = Color.rgb(0x0F, 0x11, 0x15)
-        private val SURFACE_HIGH = Color.rgb(0x22, 0x26, 0x31)
-        private val TONAL = Color.argb(200, 0x2B, 0x2F, 0x3A)
+        /** The app's orange, as on the home screen. */
+        private val ACCENT = Color.rgb(0xFF, 0x8E, 0x44)
+        // Material 3 dark roles, built around the orange on deep purple.
+        private val ON_ACCENT = Color.rgb(0x1A, 0x09, 0x33)
+        private val SURFACE = Color.rgb(0x1A, 0x09, 0x33)
+        private val SURFACE_HIGH = Color.rgb(0x3D, 0x1D, 0x6E)
+        private val TONAL = Color.argb(200, 0x2A, 0x12, 0x50)
         private val ON_SURFACE = Color.rgb(0xEC, 0xEE, 0xF3)
-        private val ON_SURFACE_VARIANT = Color.rgb(0xA4, 0xAB, 0xB8)
+        private val ON_SURFACE_VARIANT = Color.rgb(0xC4, 0xB3, 0xE0)
         private val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         /** Other people's bubbles: solid on the phone's chat screen, see-through over the movie. */
-        private val BUBBLE_SOLID = Color.rgb(0x22, 0x26, 0x31)
-        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x22, 0x26, 0x31)
+        private val BUBBLE_SOLID = Color.rgb(0x3D, 0x1D, 0x6E)
+        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x2A, 0x12, 0x50)
         private val NAME_COLORS = intArrayOf(
             Color.rgb(0x7C, 0xC4, 0xFF), Color.rgb(0x8E, 0xE0, 0x9B), Color.rgb(0xF4, 0x8F, 0xB1),
             Color.rgb(0xB3, 0x9D, 0xFF), Color.rgb(0x6F, 0xE0, 0xD6), Color.rgb(0xFF, 0xB0, 0x7A),

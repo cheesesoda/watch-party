@@ -22,7 +22,7 @@ sealed class LogWindow : Form
             ScrollBars = ScrollBars.Both,
             WordWrap = false,
             Font = new Font("Consolas", 10f),
-            BackColor = Color.FromArgb(15, 17, 21),
+            BackColor = Color.FromArgb(0x1A, 0x09, 0x33),
             ForeColor = Color.FromArgb(236, 238, 243),
         };
         var openFile = new Button { Text = "Open log file", AutoSize = true, Dock = DockStyle.Right };

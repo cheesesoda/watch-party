@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The pink-to-purple sweep from cheesesoda.com. Shown while the app starts, before Compose draws the same thing. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="315"
+        android:endColor="@color/brand_purple"
+        android:startColor="@color/brand_pink"
+        android:type="linear" />
+</shape>
