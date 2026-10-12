@@ -11,8 +11,10 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.content.res.ColorStateList
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -34,7 +36,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
-import android.widget.PopupMenu
+import android.widget.PopupWindow
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -249,6 +251,10 @@ class RoomActivity : ComponentActivity() {
      * only sees them while it has focus, and nothing else picks them up since the app has no media session.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (showsControlsFirst(event)) {
+            playerView.showController()
+            return true
+        }
         if (companion || !isMediaKey(event.keyCode)) return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
@@ -263,6 +269,16 @@ class RoomActivity : ComponentActivity() {
         }
         return true
     }
+
+    /**
+     * Any arrow or OK press on the remote brings the controls up while they're hidden, as on YouTube for TV.
+     * Left to the views, only right and down did: with nothing focused, Android looks for something to the right
+     * of or below the top-left corner, and up or left find nothing.
+     */
+    private fun showsControlsFirst(event: KeyEvent): Boolean =
+        !companion && event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS &&
+            !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE &&
+            currentFocus.let { it == null || it === playerView || isInside(it, playerView) }
 
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
@@ -912,12 +928,40 @@ class RoomActivity : ComponentActivity() {
         }.also { view -> padForSystemBars(view, dp(16), dp(12), dp(16), dp(12)) }
     }
 
+    /**
+     * The ⋮ menu on the phone's chat screen, drawn as a Material 3 menu: a rounded raised surface just below
+     * the button, with an icon on each row. (The platform PopupMenu still draws the old square gray menu.)
+     */
     private fun showCompanionMenu(anchor: View) {
-        PopupMenu(this, anchor).apply {
-            menu.add("Watch on this phone").setOnMenuItemClickListener { exitCompanion(); true }
-            if (voice != null) menu.add("Leave voice").setOnMenuItemClickListener { stopVoice(); true }
-            menu.add("Leave party").setOnMenuItemClickListener { confirmLeave(); true }
-        }.show()
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+            minimumWidth = dp(200)
+            background = GradientDrawable().apply { setColor(SURFACE_HIGH); cornerRadius = dp(16).toFloat() }
+            clipToOutline = true
+            elevation = dp(6).toFloat()
+        }
+        val popup = PopupWindow(list, WRAP_CONTENT, WRAP_CONTENT, true).apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(6).toFloat()
+        }
+        fun item(label: String, icon: Int, onClick: () -> Unit) = list.addView(TextView(this).apply {
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(ON_SURFACE)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(24), 0)
+            compoundDrawablePadding = dp(12)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
+            compoundDrawableTintList = ColorStateList.valueOf(ON_SURFACE_VARIANT)
+            background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), null, ColorDrawable(Color.WHITE))
+            isFocusable = true
+            setOnClickListener { popup.dismiss(); onClick() }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, dp(48)))
+        item("Watch on this phone", R.drawable.ic_phone) { exitCompanion() }
+        if (voice != null) item("Leave voice", R.drawable.ic_mic_off) { stopVoice() }
+        item("Leave party", R.drawable.ic_leave) { confirmLeave() }
+        popup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
     }
 
     /** Who's here and how far along the video is, on the phone's chat screen. Runs once a second. */
@@ -1382,6 +1426,10 @@ class RoomActivity : ComponentActivity() {
         private const val FORWARD_MS = 15_000L
         private const val SEEK_BAR_STEP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
+        private val DPAD_KEYS = setOf(
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+        )
         private const val CHAT_PANEL_DP = 320
         /** The app's muted orange, as on the home screen. */
         private val ACCENT = Color.rgb(0xE0, 0x9A, 0x62)
