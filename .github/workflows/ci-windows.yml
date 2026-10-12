@@ -1,0 +1,18 @@
+name: Windows tray app
+
+# Checks that the tray app compiles. Nothing is published: each PC builds its own copy from the checkout.
+on:
+  pull_request:
+    paths: ["windows/**", ".github/workflows/ci-windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet publish windows/PopcornTray/PopcornTray.csproj -c Release -o out
