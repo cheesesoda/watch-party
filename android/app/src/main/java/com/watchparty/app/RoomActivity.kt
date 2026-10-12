@@ -84,6 +84,7 @@ class RoomActivity : ComponentActivity() {
     private lateinit var chatPanelHistory: LinearLayout
     private lateinit var chatPanelInput: EditText
     private lateinit var popupsButton: Button
+    private lateinit var barPopupsButton: Button
     private lateinit var companionView: LinearLayout
     private lateinit var companionTitle: TextView
     private lateinit var companionVoice: TextView
@@ -388,6 +389,9 @@ class RoomActivity : ComponentActivity() {
         titles.addView(membersText)
         topBar.addView(titles, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         topBar.addView(barButton("Chat") { openChat() })
+        // Each device keeps its own setting: pop-ups on the TV, the phone, both or neither.
+        barPopupsButton = barButton(popupsLabel()) { toggleChatPopups() }
+        topBar.addView(barPopupsButton)
         if (host) topBar.addView(barButton("Change video") { pickVideo() })
         voiceButton = barButton("Join voice") { toggleVoice() }
         topBar.addView(voiceButton)
@@ -612,8 +616,13 @@ class RoomActivity : ComponentActivity() {
     /** Turns the messages that pop up over the video on or off; remembered on this device. */
     private fun toggleChatPopups() {
         prefs.chatPopups = !prefs.chatPopups
-        popupsButton.text = popupsLabel()
+        for (b in listOf(popupsButton, barPopupsButton)) b.text = popupsLabel()
         renderChatOverlay()
+        Toast.makeText(
+            this,
+            if (prefs.chatPopups) "New messages will pop up over the video on this device." else "Messages won't pop up on this device. Open Chat to read them.",
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     /** Shows the last few messages for 10 seconds each, like a game chat. */

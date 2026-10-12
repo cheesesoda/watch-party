@@ -207,7 +207,7 @@ On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change
 
 ### Chat
 
-New messages float over the video for a few seconds. On the TV, **Chat** (or the remote's Menu button) opens the full chat as a see-through panel on the right, with the movie still full size behind it. To stop messages popping up over the movie, press **Pop-ups** in the web player's bar, or **Pop-ups on** in the app's chat panel. Each device remembers its own setting, and the full chat still opens as usual.
+New messages float over the video for a few seconds. On the TV, **Chat** (or the remote's Menu button) opens the full chat as a see-through panel on the right, with the movie still full size behind it. To stop messages popping up over the movie, press **Pop-ups** in the player's top bar (web, phone and TV; it's also in the app's chat panel). Each device remembers its own setting, so you can have pop-ups on the TV and not on your phone, or the other way round. The full chat still opens as usual.
 
 ### Voice
 
