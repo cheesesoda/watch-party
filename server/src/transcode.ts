@@ -184,6 +184,12 @@ export class Transcoder {
     return null;
   }
 
+  /** Duration from an earlier probe, without touching the disk. Undefined when the file hasn't been probed. */
+  cachedDuration(file: string): number | null | undefined {
+    const cached = this.probes.get(file);
+    return cached ? cached.result.duration || null : undefined;
+  }
+
   /** Codecs and duration, cached until the file changes. Null when ffprobe is missing or fails. */
   async probe(file: string): Promise<ProbeResult | null> {
     const stat = await fsp.stat(file).catch(() => null);

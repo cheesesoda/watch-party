@@ -26,6 +26,61 @@ export function titleFromFilename(file: string): string {
   return base.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** Release tags that mark the end of a title in a file name, e.g. "Movie 1080p BluRay x264". */
+const JUNK = /^(\d{3,4}p|4k|uhd|hdr\d*|dv|bluray|blu-ray|bdrip|brrip|web|webrip|web-dl|webdl|hdtv|dvdrip|remux|x26[45]|h26[45]|hevc|avc|aac\d*|ac3|dts|ddp?\d*|atmos|10bit|proper|repack|extended|unrated|imax)$/i;
+
+function clean(text: string): string {
+  return text.replace(/[._]+/g, " ").replace(/\s+/g, " ").replace(/^[\s\-–·:]+|[\s\-–·:(\[]+$/g, "").trim();
+}
+
+/** Drops release tags from the first one onward: "Movie 1080p BluRay" -> "Movie". */
+function untag(text: string): string {
+  const words = clean(text).split(" ");
+  const cut = words.findIndex((w, i) => i > 0 && JUNK.test(w.replace(/[()[\]]/g, "")));
+  return clean((cut === -1 ? words : words.slice(0, cut)).join(" "));
+}
+
+export interface ParsedName {
+  title: string;
+  year: number | null;
+  episode: { show: string; season: number; episode: number; title: string | null } | null;
+}
+
+/**
+ * Reads a title, year and TV episode from a path like "Alien (1979).mkv", "The.Matrix.1999.1080p.mp4",
+ * "Severance.S02E04.Woes.Hollow.mkv" or "Severance/Season 2/S02E04.mkv".
+ */
+export function parseName(relPath: string): ParsedName {
+  const parts = relPath.split("/");
+  const base = path.basename(parts[parts.length - 1], path.extname(parts[parts.length - 1]));
+  const ep = base.match(/(?:^|[\s._\-[(])s(\d{1,2})[\s._-]?e(\d{1,3})(?:-?e\d{1,3})?(?=$|[\s._\-\])])/i) ?? base.match(/(?:^|[\s._-])(\d{1,2})x(\d{2,3})(?=$|[\s._-])/i);
+  if (ep) {
+    // "Doctor.Who.2005.S01E01": the year only tells shows with the same name apart, so it's dropped.
+    let show = clean(untag(base.slice(0, ep.index! + (/^[\s._\-[(]/.test(ep[0]) ? 1 : 0))).replace(/\(?(19|20)\d{2}\)?$/, ""));
+    if (!show) {
+      // "Show/Season 2/S02E04.mkv": use the nearest folder that isn't a season folder.
+      const folders = parts.slice(0, -1).reverse();
+      show = clean(folders.find((f) => !/^(season|series|s)\s*\d+$/i.test(clean(f))) ?? "");
+    }
+    const season = Number(ep[1]);
+    const episode = Number(ep[2]);
+    const epTitle = untag(base.slice(ep.index! + ep[0].length)) || null;
+    const name = show || titleFromFilename(base);
+    return {
+      title: `${name} S${season} E${episode}${epTitle ? ` · ${epTitle}` : ""}`,
+      year: null,
+      episode: { show: name, season, episode, title: epTitle },
+    };
+  }
+  // The last 19xx/20xx that isn't the start of the name is the year, so "2001 A Space Odyssey 1968" works.
+  const years = [...base.matchAll(/(?<=^|[\s._\-[(])((?:19|20)\d{2})(?=$|[\s._\-\])])/g)].filter((m) => m.index! > 0);
+  const y = years[years.length - 1];
+  if (y && Number(y[1]) <= new Date().getFullYear() + 1) {
+    return { title: untag(base.slice(0, y.index!)) || titleFromFilename(base), year: Number(y[1]), episode: null };
+  }
+  return { title: untag(base) || titleFromFilename(base), year: null, episode: null };
+}
+
 export function mediaId(rootIndex: number, relPath: string): string {
   return crypto.createHash("sha1").update(`${rootIndex}:${relPath}`).digest("hex").slice(0, 16);
 }
@@ -111,10 +166,14 @@ export class Library {
         }
 
         const id = mediaId(rootIndex, relPath);
+        const { title, year, episode } = parseName(relPath);
+        // A copied file keeps its old modified time but gets a new created time, so the later of the two is
+        // when it landed in the library.
+        const addedAt = Math.round(Math.max(stat.mtimeMs, stat.birthtimeMs || 0));
         next.set(id, {
           absPath: f,
           subtitlePaths,
-          item: { id, title: titleFromFilename(f), relPath, folder, size: stat.size, mime, subtitles },
+          item: { id, title, relPath, folder, size: stat.size, mime, subtitles, addedAt, year, episode },
         });
       }
     }

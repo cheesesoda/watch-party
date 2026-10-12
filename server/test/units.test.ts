@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { expectedPosition } from "../../shared/protocol.ts";
 import { checkPassword, tokenFor } from "../src/auth.ts";
-import { subtitleTag, titleFromFilename } from "../src/library.ts";
+import { parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
 import { parseRange } from "../src/range.ts";
 import { FailureLimiter } from "../src/ratelimit.ts";
 import { srtToVtt } from "../src/subtitles.ts";
@@ -23,6 +23,26 @@ test("parseRange", () => {
 test("titleFromFilename", () => {
   assert.equal(titleFromFilename("/m/The.Matrix.1999.1080p.mp4"), "The Matrix 1999 1080p");
   assert.equal(titleFromFilename("my_home__video.mkv"), "my home video");
+});
+
+test("parseName reads titles, years and episodes from file names", () => {
+  const movie = (title: string, year: number | null) => ({ title, year, episode: null });
+  assert.deepEqual(parseName("Movies/The.Matrix.1999.1080p.BluRay.x264.mp4"), movie("The Matrix", 1999));
+  assert.deepEqual(parseName("Alien (1979).mkv"), movie("Alien", 1979));
+  assert.deepEqual(parseName("2001 A Space Odyssey (1968).mkv"), movie("2001 A Space Odyssey", 1968));
+  assert.deepEqual(parseName("2001.mkv"), movie("2001", null));
+  assert.deepEqual(parseName("Blade Runner 2049 (2017).mp4"), movie("Blade Runner 2049", 2017));
+  assert.deepEqual(parseName("my_home__video.mkv"), movie("my home video", null));
+  assert.deepEqual(parseName("Arrival.2160p.WEB-DL.mkv"), movie("Arrival", null));
+
+  assert.deepEqual(parseName("TV/Severance.S02E04.Woes.Hollow.1080p.WEB.mkv"), {
+    title: "Severance S2 E4 · Woes Hollow",
+    year: null,
+    episode: { show: "Severance", season: 2, episode: 4, title: "Woes Hollow" },
+  });
+  assert.deepEqual(parseName("TV/Doctor Who (2005)/Season 1/Doctor.Who.2005.S01E01.mkv").episode, { show: "Doctor Who", season: 1, episode: 1, title: null });
+  assert.deepEqual(parseName("TV/The Bear/Season 3/S03E10.mkv").episode, { show: "The Bear", season: 3, episode: 10, title: null });
+  assert.deepEqual(parseName("Planet Earth II - 1x02 - Mountains.mp4").episode, { show: "Planet Earth II", season: 1, episode: 2, title: "Mountains" });
 });
 
 test("subtitleTag", () => {

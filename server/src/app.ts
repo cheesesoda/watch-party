@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, RoomSummary, ServerMessage } from "../../shared/protocol.ts";
+import type { ClientMessage, MediaItem, RoomSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -198,7 +198,23 @@ export function createApp(config: Config): App {
   });
 
   // convert: the server can turn any file into something browsers play (ffmpeg is installed).
-  const libraryResponse = async () => ({ items: await library.list(), convert: (await transcoder.encoderName()) !== null });
+  const libraryResponse = async () => ({ items: withDurations(await library.list()), convert: (await transcoder.encoderName()) !== null });
+
+  // Lengths come from ffprobe, which takes a moment per file, so they're read one file at a time in the
+  // background and show up on later loads of the library.
+  const queued = new Set<string>();
+  let probing: Promise<unknown> = Promise.resolve();
+  const withDurations = (items: MediaItem[]): MediaItem[] =>
+    items.map((item) => {
+      const entry = library.peek(item.id);
+      if (!entry) return item;
+      const duration = transcoder.cachedDuration(entry.absPath);
+      if (duration === undefined && !queued.has(entry.absPath)) {
+        queued.add(entry.absPath);
+        probing = probing.then(() => transcoder.probe(entry.absPath)).catch(() => null);
+      }
+      return duration ? { ...item, duration } : item;
+    });
 
   app.get("/api/library", async (_req, res) => {
     res.json(await libraryResponse());
