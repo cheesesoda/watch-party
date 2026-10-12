@@ -275,6 +275,11 @@ input:focus {
 .room-top button.on {
   background: var(--accent);
 }
+/* The video's own fullscreen button would show only the video, without chat or the toolbar, so it's
+   turned off (controlsList="nofullscreen"). Chrome and Edge still draw it greyed out; hide it there. */
+.room video::-webkit-media-controls-fullscreen-button {
+  display: none;
+}
 .room-top button.icon {
   display: grid;
   place-items: center;
