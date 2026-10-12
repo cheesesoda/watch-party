@@ -4,7 +4,12 @@ import android.app.UiModeManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.ImageBitmap
@@ -97,6 +102,25 @@ class MainActivity : ComponentActivity() {
         return "${uri.scheme}://${uri.host}$port" to id
     }
 
+    /** Opens Google's QR scanner and follows a TV sign-in code or a party invite, as if it had been tapped. */
+    fun scanCode() {
+        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        GmsBarcodeScanning.getClient(this, options).startScan()
+            .addOnSuccessListener { code ->
+                val link = Intent(Intent.ACTION_VIEW, Uri.parse(code.rawValue.orEmpty()))
+                val pair = pairLinkFrom(link)
+                val join = joinLinkFrom(link)
+                when {
+                    pair != null -> pairLink.value = pair
+                    join != null -> joinLink.value = join
+                    else -> Toast.makeText(this, "That isn't a Popcorn Club code.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .addOnFailureListener { e ->
+                Toast.makeText(this, "Couldn't open the scanner: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(this)
@@ -158,6 +182,7 @@ private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
                 OutlinedButton(onClick = { mode = "join" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Type a party code") }
             } else {
                 Button(onClick = { mode = "join" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Join a party") }
+                OutlinedButton(onClick = { (context as? MainActivity)?.scanCode() }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Scan a TV or invite code") }
             }
             OutlinedButton(onClick = { mode = "start" }, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Start a party") }
             Text("Joining needs the party code from your host. Starting one needs the server password.", color = Muted, fontSize = 13.sp)
@@ -571,6 +596,9 @@ private fun qrBitmap(text: String, size: Int = 480): ImageBitmap {
 private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     val api = remember { Api(prefs.serverUrl, prefs.token) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val isTv = remember {
+        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
     var started by remember { mutableStateOf<RoomSummary?>(null) }
@@ -645,6 +673,13 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     Text("Hosting as ${prefs.name} on ${prefs.serverUrl}", color = Muted, fontSize = 13.sp)
                 }
                 OutlinedButton(onClick = { onSignedOut(null) }, modifier = Modifier.focusRing()) { Text("Settings") }
+            }
+        }
+        if (!isTv) {
+            item {
+                OutlinedButton(onClick = { (context as? MainActivity)?.scanCode() }, modifier = Modifier.focusRing().fillMaxWidth()) {
+                    Text("Scan TV code")
+                }
             }
         }
         error?.let { item { Text(it, color = ErrorColor) } }
