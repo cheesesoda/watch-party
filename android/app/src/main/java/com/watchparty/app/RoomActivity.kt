@@ -104,6 +104,8 @@ class RoomActivity : ComponentActivity() {
     private lateinit var companionLength: TextView
 
     private val main = Handler(Looper.getMainLooper())
+    /** The player control a TV remote was last on, so it's there again when the controls come back. */
+    private var lastControlFocus: Int? = null
     private val chat = mutableListOf<ChatMessage>()
     private var me: Member? = null
     private var loadedMediaId: String? = null
@@ -253,8 +255,8 @@ class RoomActivity : ComponentActivity() {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> player.playWhenReady = !player.playWhenReady
                 KeyEvent.KEYCODE_MEDIA_PLAY -> player.playWhenReady = true
                 KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> player.playWhenReady = false
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SKIP_MS)
-                KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo(maxOf(0L, player.currentPosition - SKIP_MS))
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> sync.seekTo(player.currentPosition + SKIP_MS)
+                KeyEvent.KEYCODE_MEDIA_REWIND -> sync.seekTo(player.currentPosition - SKIP_MS)
                 KeyEvent.KEYCODE_MEDIA_NEXT -> bingeStep(1)?.let { playForEveryone(it) }
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS -> bingeStep(-1)?.let { playForEveryone(it) }
             }
@@ -408,9 +410,12 @@ class RoomActivity : ComponentActivity() {
             setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                 topBar.visibility = visibility
                 hideControlsOnBack.isEnabled = visibility == View.VISIBLE
+                // Media3 puts the remote back on play/pause each time the controls appear; go back to where it was.
+                if (visibility == View.VISIBLE) lastControlFocus?.let { id -> post { findViewById<View>(id)?.takeIf { it.isShown }?.requestFocus() } }
             })
         }
         highlightControlFocus()
+        skipButtons()
         root.addView(playerView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         topBar = LinearLayout(this).apply {
@@ -1172,6 +1177,30 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The 5 s back and 15 s ahead buttons seek through [PlayerSync.seekTo], so the room hears about the jump at once.
+     * The seek bar moves 10 s per press of the remote instead of Media3's default of 1/20 of the video
+     * (90 s on a half-hour episode). The last control the remote was on is remembered for the next time the
+     * controls appear.
+     */
+    private fun skipButtons() {
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_rew)?.setOnClickListener { sync.seekTo(player.currentPosition - REWIND_MS) }
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_ffwd)?.setOnClickListener { sync.seekTo(player.currentPosition + FORWARD_MS) }
+        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(SEEK_BAR_STEP_MS)
+        playerView.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused ->
+            if (focused != null && focused.id != View.NO_ID && focused !== playerView && isInside(focused, playerView)) lastControlFocus = focused.id
+        }
+    }
+
+    private fun isInside(view: View, parent: View): Boolean {
+        var v: View? = view
+        while (v != null) {
+            if (v === parent) return true
+            v = v.parent as? View
+        }
+        return false
+    }
+
     /** Grows a view a little while a TV remote is on it, alongside its white focused background. */
     private fun growOnFocus(view: View) {
         val previous = view.onFocusChangeListener
@@ -1333,6 +1362,10 @@ class RoomActivity : ComponentActivity() {
         private const val CHAT_FADE_MS = 10_000L
         /** How far the remote's fast-forward and rewind buttons jump. */
         private const val SKIP_MS = 10_000L
+        /** The on-screen skip buttons, labelled 5 and 15 by Media3. */
+        private const val REWIND_MS = 5_000L
+        private const val FORWARD_MS = 15_000L
+        private const val SEEK_BAR_STEP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
         /** The app's muted orange, as on the home screen. */
