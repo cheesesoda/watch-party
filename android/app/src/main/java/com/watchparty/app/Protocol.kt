@@ -89,6 +89,9 @@ sealed interface ServerMessage {
 
     /** WebRTC negotiation from another voice member: `{sdp: {type, sdp}}` or `{candidate: {...}}`. */
     data class Signal(val from: String, val data: JsonObject) : ServerMessage
+
+    /** Someone ended the party; the server disconnects everyone right after. */
+    data class Ended(val by: String) : ServerMessage
 }
 
 object Protocol {
@@ -131,6 +134,9 @@ object Protocol {
     @Serializable
     private data class SignalDto(val from: String, val data: JsonObject)
 
+    @Serializable
+    private data class EndedDto(val by: String = "")
+
     /** Returns null for message types this app version doesn't know. */
     fun parse(text: String): ServerMessage? {
         val obj: JsonObject = json.parseToJsonElement(text).jsonObject
@@ -145,6 +151,7 @@ object Protocol {
             "error" -> ServerMessage.Error(json.decodeFromJsonElement<ErrorDto>(obj).message)
             "voice-peers" -> ServerMessage.VoicePeers(json.decodeFromJsonElement<VoicePeersDto>(obj).peers)
             "signal" -> json.decodeFromJsonElement<SignalDto>(obj).let { ServerMessage.Signal(it.from, it.data) }
+            "ended" -> ServerMessage.Ended(json.decodeFromJsonElement<EndedDto>(obj).by)
             else -> null
         }
     }
@@ -168,6 +175,8 @@ object Protocol {
         put("type", "ping")
         put("clientTime", clientTime)
     }.toString()
+
+    fun end(): String = buildJsonObject { put("type", "end") }.toString()
 
     fun voice(on: Boolean, muted: Boolean): String = buildJsonObject {
         put("type", "voice")

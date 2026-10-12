@@ -222,11 +222,24 @@ export function Room(props: { roomId: string; name: string }) {
     }
   };
 
-  if (view.status === "missing") {
+  // Once the party is gone, release the mic.
+  useEffect(() => {
+    if ((view.status === "ended" || view.status === "missing") && voiceRef.current) {
+      voiceRef.current.stop();
+      voiceRef.current = null;
+      setVoiceStatus("off");
+    }
+  }, [view.status]);
+
+  const endParty = () => {
+    if (confirm("End this watch party for everyone?")) send({ type: "end" });
+  };
+
+  if (view.status === "missing" || view.status === "ended") {
     return (
       <div className="center">
         <div className="card">
-          <p>This watch party has ended or the code is wrong.</p>
+          <p>{view.status === "ended" ? `${view.endedBy ?? "Someone"} ended the watch party.` : "This watch party has ended or the code is wrong."}</p>
           <button className="primary" onClick={() => navigate("/")}>
             Back to library
           </button>
@@ -283,6 +296,9 @@ export function Room(props: { roomId: string; name: string }) {
           Chat
         </button>
         <button onClick={toggleFullscreen}>Fullscreen</button>
+        <button onClick={endParty} disabled={view.status !== "open"}>
+          End party
+        </button>
       </div>
 
       {!media && !picking && (

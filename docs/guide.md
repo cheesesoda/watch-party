@@ -150,6 +150,8 @@ Any modern browser on a computer or phone works; nothing to install.
 
 Anyone in a party can play, pause, seek or change the movie, and it changes for everyone. If you join late, you land at the right spot.
 
+To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone goes back to the home screen and the party disappears from the list. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
+
 Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) are converted by the server while you watch, like Plex does, if the host has FFmpeg installed. This happens on its own: the browser checks the file and asks for the converted copy when it needs it. A **Convert** button in the top bar shows when it's on and lets you switch by hand if the picture or sound is missing. Converted video is 1080p H.264 with stereo sound. Each viewer's browser decides for itself, and the Android app still plays the original file.
 
 ## Install the Android app (phone or TV)
@@ -181,7 +183,7 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 2. Enter your name and the password.
 3. Join a party from the list, type its code, or paste an invite link.
 
-On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video**, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video.
+On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video**, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video. **Leave** asks whether to just leave or to end the party for everyone.
 
 ## Chat, voice and phone chat mode
 
@@ -221,7 +223,8 @@ The see-through TV panel and phone chat mode need an APK built after October 11,
 | --- | --- | --- |
 | Movie won't play in a browser, or has sound but no picture, or picture but no sound | The browser can't decode the file's video (often HEVC) or audio (AC3/DTS), and the server isn't converting it. | Press **Convert** in the top bar. If there's no Convert button, the host installs FFmpeg and restarts the server; its console says "transcode: converting with …" when it's ready. Or watch in the Android app. |
 | Converted movie stutters or keeps buffering | The server converts slower than real time, usually because it's using the CPU. | The server console says which encoder it picked. With an NVIDIA card it should say `h264_nvenc`; update the GPU driver if it says `libx264`. |
-| No sound in the Android app | AC3/DTS audio depends on the device or the soundbar it's plugged into. | Try another device, or convert the audio to AAC with the command above. |
+| No sound in the Android app | AC3/DTS audio depends on the device or the soundbar it's plugged into. | Try another device, or convert the audio to AAC as below. |
+| A file always needs converting for its sound (AC3 / DTS, often 5.1 MKVs) | Most browsers and many phones can't decode AC3 or DTS. | Convert just the audio once, which takes seconds and leaves the picture untouched: `ffmpeg -i in.mkv -map 0 -c copy -c:a aac -b:a 384k out.mkv`. Save it as `.mp4` instead (and add `-movflags +faststart`) if it should also play in browsers without converting. |
 | Can hear voice but can't talk (browser) | Browsers only allow the mic over HTTPS. | Use the `https://…ts.net` address from the host, not `http://`. |
 | Others hear the movie or themselves echo | Your mic picks up your speakers. | Wear headphones. On a TV, talk through phone chat mode with headphones on the phone. |
 | Dashed red outline around someone's name | Your voice connection to them couldn't be set up, usually a strict router or mobile network. | Both join through Tailscale. Otherwise the host runs a TURN server and lists it in `ICE_SERVERS`. |

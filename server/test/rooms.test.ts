@@ -141,3 +141,18 @@ test("a second device under the same name joins quietly", () => {
   const members = a.filter((m) => m.type === "members").at(-1);
   assert.ok(members?.type === "members" && members.members.every((m) => m.device === "web"));
 });
+
+test("ending a party tells everyone, disconnects them and removes the room", () => {
+  const { mgr, room, a, b, alice } = setup();
+  let closed = 0;
+  room.join("Cat", () => {}, "web", () => closed++);
+  room.handle(alice.id, { type: "end" });
+  assert.deepEqual(a.at(-1), { type: "ended", by: "Alice" });
+  assert.deepEqual(b.at(-1), { type: "ended", by: "Alice" });
+  assert.equal(closed, 1);
+  assert.equal(mgr.get(room.id), undefined);
+  // Late leave events from the closing sockets don't post "left" notices.
+  const before = a.length;
+  room.leave(alice.id);
+  assert.equal(a.length, before);
+});

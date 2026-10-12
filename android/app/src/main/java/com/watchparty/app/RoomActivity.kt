@@ -91,6 +91,7 @@ class RoomActivity : ComponentActivity() {
     /** Phone showing only chat, because its owner is watching on a TV. */
     private var companion = false
     private var autoSwitched = false
+    private var ended = false
 
     private val closeChatOnBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closeChat()
@@ -206,6 +207,12 @@ class RoomActivity : ComponentActivity() {
             is ServerMessage.Error -> Toast.makeText(this, msg.message, Toast.LENGTH_SHORT).show()
             is ServerMessage.VoicePeers -> voice?.callAll(msg.peers)
             is ServerMessage.Signal -> voice?.onSignal(msg.from, msg.data)
+            is ServerMessage.Ended -> {
+                ended = true
+                val who = msg.by.ifBlank { "Someone" }
+                Toast.makeText(this, "$who ended the watch party.", Toast.LENGTH_LONG).show()
+                finish()
+            }
         }
     }
 
@@ -215,6 +222,7 @@ class RoomActivity : ComponentActivity() {
             RoomConnection.Status.CONNECTING -> showStatus("Connecting…")
             RoomConnection.Status.RECONNECTING -> showStatus("Reconnecting…")
             RoomConnection.Status.ROOM_GONE -> {
+                if (ended) return
                 Toast.makeText(this, "This watch party has ended.", Toast.LENGTH_LONG).show()
                 finish()
             }
@@ -292,7 +300,8 @@ class RoomActivity : ComponentActivity() {
         muteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
         topBar.addView(muteButton)
         if (!isTv) topBar.addView(barButton("Chat only") { enterCompanion(auto = false) })
-        topBar.addView(barButton("Leave") { finish() })
+        // One button for both, so the bar still fits on a phone: leave alone, or end it for everyone.
+        topBar.addView(barButton("Leave") { confirmLeave() })
         root.addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
 
         chatOverlay = LinearLayout(this).apply {
@@ -651,6 +660,16 @@ class RoomActivity : ComponentActivity() {
 
     private fun hideKeyboard(view: View) {
         getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(view.windowToken, 0)
+    }
+
+    private fun confirmLeave() {
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Leave the watch party?")
+            .setMessage("Leave just takes you out. End party sends everyone back to the home screen.")
+            .setPositiveButton("Leave") { _, _ -> finish() }
+            .setNeutralButton("End party") { _, _ -> connection.send(Protocol.end()) }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun pickVideo() {
