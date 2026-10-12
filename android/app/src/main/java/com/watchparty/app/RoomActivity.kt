@@ -964,7 +964,7 @@ class RoomActivity : ComponentActivity() {
     private fun bingeLabel(): String {
         val items = queue?.items ?: return ""
         val at = items.indexOfFirst { it.id == lastMedia?.id }
-        return if (at < 0) "" else "Binge ${at + 1} of ${items.size} · "
+        return if (at < 0) "" else "${if (lastMedia?.part != null) "Part" else "Binge"} ${at + 1} of ${items.size} · "
     }
 
     private fun setQueue(q: Queue?) {

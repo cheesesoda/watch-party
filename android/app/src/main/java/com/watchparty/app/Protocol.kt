@@ -35,7 +35,12 @@ data class MediaItem(
     val extra: ExtraInfo? = null,
     /** Details from TMDB, when the server has a TMDB token and found a match. */
     val meta: MediaMeta? = null,
+    /** One piece of a movie split into files ("Pt 1", "Pt 2"): which one, and every part's id in order. */
+    val part: PartInfo? = null,
 )
+
+@Serializable
+data class PartInfo(val index: Int, val ids: List<String>)
 
 /** Movie or episode details from TMDB. Image paths are TMDB file paths, loaded through the server. */
 @Serializable

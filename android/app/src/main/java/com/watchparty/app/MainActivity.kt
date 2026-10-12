@@ -846,7 +846,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         val mediaMeta = { media: MediaItem ->
             (media.extra?.let { x ->
                 x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
-            } ?: "") + (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+            } ?: "") + (media.part?.let { "${it.ids.size} parts" } ?: media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
         }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
@@ -856,8 +856,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             val allShows = shows(lib)
             // One menu: All videos, Movies and TV shows (when there are any), plus the subtitles filter.
             val counts = mapOf(
-                LibraryView.All to lib.count { !it.ownedExtra },
-                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra },
+                LibraryView.All to lib.count { !it.ownedExtra && !it.laterPart },
+                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra && !it.laterPart },
                 LibraryView.Shows to allShows.size,
             )
             item(key = "views") {
@@ -877,7 +877,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                 FocusTile(
                                     title = media.title,
                                     subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
-                                    onClick = { startParty(media, null) },
+                                    onClick = { startParty(media, media.part?.ids) },
                                     poster = if (details) ({ Poster(api, media.meta?.posterPath, "w185", 50.dp, 75.dp) }) else null,
                                 )
                             }
@@ -899,7 +899,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                         title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
                                         subtitle = mediaMeta(row.item),
                                         action = "Start party",
-                                        onClick = { startParty(row.item, null) },
+                                        onClick = { startParty(row.item, row.item.part?.ids) },
                                         leading = if (details) ({ Poster(api, row.item.meta?.posterPath, "w92", 36.dp, 54.dp) }) else null,
                                     )
                                 }
@@ -1002,7 +1002,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             title = "E${ep.episode}   " + (ep.title ?: "Episode ${ep.episode}"),
                             subtitle = mediaMeta(media),
                             action = "Start party",
-                            onClick = { startParty(media, null) },
+                            onClick = { startParty(media, media.part?.ids) },
                             leading = if (details) ({ Poster(api, media.meta?.stillPath, "w300", 112.dp, 63.dp) }) else null,
                             detail = media.meta?.overview,
                         )

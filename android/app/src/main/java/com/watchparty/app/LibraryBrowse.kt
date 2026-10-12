@@ -64,6 +64,9 @@ fun shows(items: List<MediaItem>): List<Show> =
 fun extrasOfShow(show: Show, extras: Map<String, List<MediaItem>>): List<MediaItem>? =
     show.aliases.flatMap { extras[it] ?: emptyList() }.takeIf { it.isNotEmpty() }
 
+/** A movie split into files is listed once, as its first part. */
+val MediaItem.laterPart: Boolean get() = part != null && part.index > 1
+
 /** An extra that belongs to a movie or show, so it's listed under that instead of on its own. */
 val MediaItem.ownedExtra: Boolean get() = extra != null && (extra.of != null || extra.show != null)
 
@@ -87,7 +90,7 @@ fun libraryRows(
 ): List<LibraryRow> {
     val list = items.filter {
         // While searching, matching extras show up on their own too.
-        (folder == null || topFolder(it) == folder) && (query.isNotBlank() || !it.ownedExtra) &&
+        !it.laterPart && (folder == null || topFolder(it) == folder) && (query.isNotBlank() || !it.ownedExtra) &&
             (view == LibraryView.All || it.extra?.show == null) && (!subsOnly || it.subtitles.isNotEmpty()) && matches(it, query)
     }
     val rows = list.filter { it.episode == null }.map { LibraryRow.Video(it) } +
@@ -110,7 +113,7 @@ fun libraryRows(
 
 /** The newest films for the Recently added row. */
 fun recentlyAdded(items: List<MediaItem>, folder: String?, count: Int = 8): List<MediaItem> =
-    items.filter { it.episode == null && it.extra == null && (folder == null || topFolder(it) == folder) }.sortedByDescending { it.addedAt }.take(count)
+    items.filter { it.episode == null && it.extra == null && !it.laterPart && (folder == null || topFolder(it) == folder) }.sortedByDescending { it.addedAt }.take(count)
 
 /** 7260.0 -> "2:01:00", 3000.0 -> "50:00" */
 fun formatLength(seconds: Double): String {
