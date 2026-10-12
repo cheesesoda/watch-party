@@ -19,10 +19,6 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.WatchParty">
-        <!-- Downloads the code scanner with the app instead of on its first use. -->
-        <meta-data
-            android:name="com.google.mlkit.vision.DEPENDENCIES"
-            android:value="barcode_ui" />
 
         <!-- The banner is repeated here: some TV launchers read the launcher activity's, not the app's. -->
         <activity
