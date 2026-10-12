@@ -5,8 +5,13 @@ enum class LibraryView(val label: String) { All("All videos"), Movies("Movies"),
 
 enum class LibrarySort(val label: String) { Recent("Recently added"), AZ("A–Z"), Length("Length"), Size("Size") }
 
-/** A TV show built from the episodes whose file names say which show, season and episode they are. */
-data class Show(val name: String, val episodes: List<MediaItem>) {
+/**
+ * A TV show built from the episodes whose file names say which show, season and episode they are. With TMDB,
+ * folders it matches to the same show ("Franklin & Bash", "Franklin and Bash") are one show under TMDB's name;
+ * [aliases] are the names from the file names, which extras are filed under.
+ */
+data class Show(val name: String, val episodes: List<MediaItem>, val aliases: List<String> = listOf(name)) {
+    val meta: MediaMeta? = episodes.firstOrNull { it.meta != null }?.meta
     val seasons: List<Int> = episodes.map { it.episode!!.season }.distinct()
     val addedAt: Long = episodes.maxOfOrNull { it.addedAt } ?: 0
     val size: Long = episodes.sumOf { it.size }
@@ -45,9 +50,19 @@ fun naturalCompare(a: String, b: String): Int {
 
 fun shows(items: List<MediaItem>): List<Show> =
     items.filter { it.episode != null }
-        .groupBy { it.episode!!.show }
-        .map { (name, eps) -> Show(name, eps.sortedWith(compareBy({ it.episode!!.season }, { it.episode!!.episode }))) }
+        .groupBy { it.meta?.tmdbId?.let { id -> "tmdb:$id" } ?: it.episode!!.show }
+        .map { (_, eps) ->
+            Show(
+                name = eps.firstNotNullOfOrNull { it.meta?.show } ?: eps.first().episode!!.show,
+                episodes = eps.sortedWith(compareBy({ it.episode!!.season }, { it.episode!!.episode })),
+                aliases = eps.map { it.episode!!.show }.distinct(),
+            )
+        }
         .sortedWith(compareBy(byName) { it.name })
+
+/** A show's extras, filed under any of the names its folders have. */
+fun extrasOfShow(show: Show, extras: Map<String, List<MediaItem>>): List<MediaItem>? =
+    show.aliases.flatMap { extras[it] ?: emptyList() }.takeIf { it.isNotEmpty() }
 
 /** An extra that belongs to a movie or show, so it's listed under that instead of on its own. */
 val MediaItem.ownedExtra: Boolean get() = extra != null && (extra.of != null || extra.show != null)

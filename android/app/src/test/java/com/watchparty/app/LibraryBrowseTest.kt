@@ -42,6 +42,17 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun foldersTmdbMatchesToOneShowAreGroupedUnderItsName() {
+        val meta = MediaMeta(tmdbId = 1, title = "Pilot", show = "Franklin & Bash")
+        val list = listOf(ep("Franklin and Bash", 1, 1).copy(meta = meta), ep("Franklin And Bash", 1, 2).copy(meta = meta), ep("Other", 1, 1))
+        val grouped = shows(list)
+        assertEquals(listOf("Franklin & Bash", "Other"), grouped.map { it.name })
+        assertEquals(listOf("Franklin and Bash", "Franklin And Bash"), grouped.first().aliases)
+        val extra = movie("Gag reel").copy(extra = ExtraInfo("Extra", show = "Franklin And Bash"))
+        assertEquals(listOf(extra), extrasOfShow(grouped.first(), extrasByOwner(list + extra)))
+    }
+
+    @Test
     fun foldersAndSearchNarrowTheList() {
         assertEquals(listOf("Severance", "The Bear"), titles(libraryRows(items, LibraryView.All, "TV", false, "", LibrarySort.AZ)))
         assertEquals(listOf("Episode 2", "Episode 10"), titles(libraryRows(items, LibraryView.Movies, null, false, "episode", LibrarySort.AZ)))

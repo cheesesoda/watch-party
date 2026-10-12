@@ -53,6 +53,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -832,6 +835,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             Unit
         }
         val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
+        // The server found TMDB details for something, so show posters (with empty frames where there are none).
+        val details = lib?.any { it.meta != null } == true
         val mediaMeta = { media: MediaItem ->
             (media.extra?.let { x ->
                 x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
@@ -867,6 +872,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                     title = media.title,
                                     subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
                                     onClick = { startParty(media) },
+                                    poster = if (details) ({ Poster(api, media.meta?.posterPath, "w185", 50.dp, 75.dp) }) else null,
                                 )
                             }
                         }
@@ -888,6 +894,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                         subtitle = mediaMeta(row.item),
                                         action = "Start party",
                                         onClick = { startParty(row.item) },
+                                        leading = if (details) ({ Poster(api, row.item.meta?.posterPath, "w92", 36.dp, 54.dp) }) else null,
                                     )
                                 }
                                 if (own != null) {
@@ -907,8 +914,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         }
                         is LibraryRow.ShowRow -> FocusRow(
                             title = row.show.name,
-                            subtitle = "TV show · " + row.show.summary + (extras[row.show.name]?.let { " · " + plural(it.size, "extra") } ?: ""),
+                            subtitle = "TV show · " + row.show.summary + (extrasOfShow(row.show, extras)?.let { " · " + plural(it.size, "extra") } ?: ""),
                             action = "Episodes",
+                            leading = if (details) ({ Poster(api, row.show.meta?.showPosterPath, "w92", 36.dp, 54.dp) }) else null,
                             onClick = {
                                 view = LibraryView.Shows
                                 showName = row.show.name
@@ -927,15 +935,33 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             FocusTile(title = s.name, subtitle = s.summary, selected = s == show, large = true, onClick = {
                                 showName = s.name
                                 season = null
-                            })
+                            }, poster = if (details) ({ Poster(api, s.meta?.showPosterPath, "w185", 50.dp, 75.dp) }) else null)
                         }
                     }
                 }
                 if (show != null) {
                     // -1 is the Extras chip after the seasons.
-                    val showExtras = extras[show.name]
+                    val showExtras = extrasOfShow(show, extras)
                     val shownSeason = season?.takeIf { it in show.seasons || (it == -1 && showExtras != null) } ?: show.seasons.first()
-                    item(key = "show-title") { SectionTitle(show.name, small = true) }
+                    val showMeta = show.meta
+                    if (showMeta != null) {
+                        item(key = "show-head") {
+                            Row(Modifier.padding(top = 10.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Poster(api, showMeta.showPosterPath, "w185", 80.dp, 120.dp)
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        show.name + (showMeta.year?.let { "  $it" } ?: ""),
+                                        color = Color.White,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    showMeta.showOverview?.let { Text(it, color = Muted, fontSize = 14.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
+                                }
+                            }
+                        }
+                    } else {
+                        item(key = "show-title") { SectionTitle(show.name, small = true) }
+                    }
                     if (show.seasons.size > 1 || showExtras != null) {
                         item(key = "seasons") {
                             ChipRow {
@@ -956,9 +982,21 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             subtitle = mediaMeta(media),
                             action = "Start party",
                             onClick = { startParty(media) },
+                            leading = if (details) ({ Poster(api, media.meta?.stillPath, "w300", 112.dp, 63.dp) }) else null,
+                            detail = media.meta?.overview,
                         )
                     }
                 }
+            }
+        }
+        if (details) {
+            item(key = "tmdb-credit") {
+                Text(
+                    "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
             }
         }
         item { Spacer(Modifier.padding(bottom = 24.dp)) }
@@ -1017,21 +1055,31 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
 
 /** A card in a sideways row: Recently added films, or the shows. */
 @Composable
-private fun FocusTile(title: String, subtitle: String, onClick: () -> Unit, selected: Boolean = false, large: Boolean = false) {
+private fun FocusTile(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    selected: Boolean = false,
+    large: Boolean = false,
+    // A TMDB poster to the left of the title.
+    poster: (@Composable () -> Unit)? = null,
+) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
-    Column(
+    Row(
         Modifier
-            .width(if (large) 220.dp else 176.dp)
+            .width((if (large) 220.dp else 176.dp) + if (poster != null) 76.dp else 0.dp)
             .heightIn(min = 96.dp)
             .clip(shape)
             .background(if (focused || selected) PanelFocused else Panel)
             .border(2.dp, if (focused) Accent else if (selected) Accent.copy(alpha = 0.6f) else Color.Transparent, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+            .padding(horizontal = if (poster != null) 10.dp else 14.dp, vertical = if (poster != null) 10.dp else 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+    if (poster != null) poster()
+    Column(Modifier.weight(1f).heightIn(min = 72.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Text(
             title,
             color = Color.White,
@@ -1043,6 +1091,16 @@ private fun FocusTile(title: String, subtitle: String, onClick: () -> Unit, sele
         Spacer(Modifier.height(10.dp))
         Text(subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
+    }
+}
+
+/** A TMDB poster or still loaded through the server, or an empty frame the same size while it loads or if there's none. */
+@Composable
+private fun Poster(api: Api, path: String?, size: String, width: Dp, height: Dp) {
+    val image by produceState<ImageBitmap?>(null, path, size) { value = path?.let { api.image(it, size) } }
+    val shape = RoundedCornerShape(6.dp)
+    val frame = Modifier.width(width).height(height).clip(shape).background(Color(0xFF3D1D6E))
+    image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = frame) } ?: Box(frame)
 }
 
 /** A list row that shows a clear highlight when focused with a TV remote. */
@@ -1054,6 +1112,9 @@ private fun FocusRow(
     onClick: () -> Unit,
     // Called with true when it sits in its own middle column (wide screens), false when it goes under the subtitle.
     progress: (@Composable (inline: Boolean) -> Unit)? = null,
+    // A poster or episode still before the title, and a summary under it.
+    leading: (@Composable () -> Unit)? = null,
+    detail: String? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -1068,11 +1129,16 @@ private fun FocusRow(
             .background(if (focused) PanelFocused else Panel)
             .border(2.dp, if (focused) Accent else Color.Transparent, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = if (leading != null) 12.dp else 16.dp, vertical = if (leading != null) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(14.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(title, color = Color.White, fontWeight = FontWeight.Medium)
+            if (detail != null && wide) Text(detail, color = Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(subtitle, color = Muted, fontSize = 13.sp)
             if (!wide) progress?.invoke(false)
         }
