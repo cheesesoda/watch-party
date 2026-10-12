@@ -34,6 +34,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.PopupMenu
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -47,6 +48,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import android.text.TextUtils
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -94,6 +98,10 @@ class RoomActivity : ComponentActivity() {
     private lateinit var companionHistory: LinearLayout
     private lateinit var companionVoiceButton: Button
     private lateinit var companionMuteButton: Button
+    private lateinit var companionWho: TextView
+    private lateinit var companionProgress: View
+    private lateinit var companionTime: TextView
+    private lateinit var companionLength: TextView
 
     private val main = Handler(Looper.getMainLooper())
     private val chat = mutableListOf<ChatMessage>()
@@ -151,6 +159,7 @@ class RoomActivity : ComponentActivity() {
     private val chatTicker = object : Runnable {
         override fun run() {
             renderChatOverlay()
+            renderCompanionStatus()
             main.postDelayed(this, 1000)
         }
     }
@@ -336,6 +345,7 @@ class RoomActivity : ComponentActivity() {
             ?: if (host) "Nothing playing. Use Change video to pick something. Friends join with code $roomCode."
             else "Waiting for the host to pick something."
         companionTitle.text = media?.title ?: "Nothing playing"
+        renderCompanionStatus()
         updateBingeButtons()
         if (::membersText.isInitialized) showMembers(members)
         if (companion) return
@@ -537,7 +547,9 @@ class RoomActivity : ComponentActivity() {
         if (!withMic) {
             Toast.makeText(this, "No mic available, so you're listening only.", Toast.LENGTH_LONG).show()
         }
-        for (b in listOf(voiceButton, companionVoiceButton)) label(b, "Leave voice", R.drawable.ic_mic_off)
+        label(voiceButton, "Leave voice", R.drawable.ic_mic_off)
+        companionVoiceButton.visibility = if (chat.hasMic) View.GONE else View.VISIBLE
+        label(companionVoiceButton, "Leave voice", R.drawable.ic_mic_off)
         for (b in listOf(muteButton, companionMuteButton)) {
             label(b, "Mute", R.drawable.ic_mic_off)
             b.visibility = if (chat.hasMic) View.VISIBLE else View.GONE
@@ -552,6 +564,7 @@ class RoomActivity : ComponentActivity() {
         brokenVoice.clear()
         if (::player.isInitialized) player.volume = 1f
         for (b in listOf(voiceButton, companionVoiceButton)) label(b, "Join voice", R.drawable.ic_mic)
+        companionVoiceButton.visibility = View.VISIBLE
         for (b in listOf(muteButton, companionMuteButton)) b.visibility = View.GONE
         renderVoice()
     }
@@ -628,25 +641,33 @@ class RoomActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = if (mine) Gravity.END else Gravity.START
         }
-        if (!mine && !run) {
-            column.addView(text(12f, nameColor(m.from)).apply {
-                text = m.from
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(dp(12), 0, dp(12), dp(2))
-                setShadowLayer(3f, 0f, 1f, Color.BLACK)
-            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
-        }
-        // WRAP_CONTENT: a vertical LinearLayout otherwise stretches each bubble to the full width.
-        column.addView(text(15f, if (mine) Color.BLACK else Color.WHITE).apply {
-            text = m.text
-            maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt().coerceAtMost(dp(280))
+        // Rounded like the web's bubbles, with a tighter corner at the bottom on the sender's side.
+        val r = dp(18).toFloat()
+        val tail = dp(6).toFloat()
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 setColor(if (mine) ACCENT else otherColor)
-                cornerRadius = dp(18).toFloat()
+                cornerRadii = if (mine) floatArrayOf(r, r, r, r, tail, tail, r, r) else floatArrayOf(r, r, r, r, r, r, tail, tail)
             }
             setPadding(dp(12), dp(7), dp(12), dp(8))
+        }
+        val maxText = (resources.displayMetrics.widthPixels * 0.75f).toInt().coerceAtMost(dp(280)) - dp(24)
+        if (!mine && !run) {
+            bubble.addView(text(12f, nameColor(m.from)).apply {
+                text = m.from
+                setTypeface(typeface, Typeface.BOLD)
+                maxWidth = maxText
+                setPadding(0, 0, 0, dp(2))
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        }
+        bubble.addView(text(15f, if (mine) ON_ACCENT else Color.WHITE).apply {
+            text = m.text
+            maxWidth = maxText
             setLineSpacing(0f, 1.1f)
         }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        // WRAP_CONTENT: a vertical LinearLayout otherwise stretches each bubble to the full width.
+        column.addView(bubble, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
         return column
     }
 
@@ -698,7 +719,12 @@ class RoomActivity : ComponentActivity() {
             val age = serverNow - m.ts
             val view = text(14f, if (m.system) Color.LTGRAY else Color.WHITE).apply {
                 text = formatMessage(m)
-                background = GradientDrawable().apply { setColor(Color.argb(200, 0x18, 0x13, 0x1F)); cornerRadius = dp(16).toFloat() }
+                background = GradientDrawable().apply {
+                    setColor(OVERLAY_GRAY)
+                    val r = dp(16).toFloat()
+                    val tail = dp(6).toFloat()
+                    cornerRadii = floatArrayOf(r, r, r, r, r, r, tail, tail)
+                }
                 setPadding(dp(12), dp(6), dp(12), dp(7))
                 alpha = ((CHAT_FADE_MS - age) / 2000f).coerceIn(0f, 1f)
             }
@@ -770,7 +796,7 @@ class RoomActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             // A see-through side sheet: rounded on the movie's side, so the film stays visible behind it.
             background = GradientDrawable().apply {
-                setColor(Color.argb(180, 0x18, 0x13, 0x1F))
+                setColor(Color.argb(150, 0x10, 0x10, 0x10))
                 val r = dp(28).toFloat()
                 cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
             }
@@ -828,36 +854,101 @@ class RoomActivity : ComponentActivity() {
     // --- phone as a chat screen ---
 
     private fun buildCompanionView(): LinearLayout {
-        companionTitle = text(22f, ON_SURFACE).apply { typeface = MEDIUM; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        companionVoice = text(14f, ON_SURFACE).apply { visibility = View.GONE }
+        companionTitle = text(22f, ON_SURFACE).apply {
+            typeface = ResourcesCompat.getFont(this@RoomActivity, R.font.barlow_condensed_bold)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        companionWho = text(13f, ON_SURFACE_VARIANT).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        companionVoice = text(13f, ON_SURFACE).apply { visibility = View.GONE }
         companionHistory = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(8)) }
+        // Join voice sits in the header; once in, it gives way to Mute and Leave voice moves to the ⋮ menu.
         companionVoiceButton = barButton("Join voice", R.drawable.ic_mic) { toggleVoice() }
         companionMuteButton = barButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
+        companionProgress = View(this).apply { background = pill(ACCENT) }
+        companionTime = text(12f, ON_SURFACE_VARIANT)
+        companionLength = text(12f, ON_SURFACE_VARIANT)
         val input = chatInput()
         val send = { sendChat(input) }
         input.setOnEditorActionListener { _, actionId, _ -> sendOnAction(actionId, send) }
+        lateinit var more: Button
+        more = barButton("More", R.drawable.ic_more_vert, iconOnly = true) { showCompanionMenu(more) }
+        // A thin track with the played part in amber, as on the web's running parties.
+        val track = FrameLayout(this).apply {
+            background = pill(SURFACE_HIGH)
+            addView(companionProgress, FrameLayout.LayoutParams(0, MATCH_PARENT))
+        }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(SURFACE)
             visibility = View.GONE
+            // One slim header: logo, what's on and who's here, voice, and a ⋮ menu for the rest.
             addView(LinearLayout(this@RoomActivity).apply {
                 gravity = Gravity.CENTER_VERTICAL
+                addView(ComposeView(this@RoomActivity).apply { setContent { LogoMark(30.dp) } }, LinearLayout.LayoutParams(dp(30), dp(30)))
                 addView(LinearLayout(this@RoomActivity).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(companionTitle)
-                    addView(text(14f, ON_SURFACE_VARIANT).apply { text = "Chat only. The video plays on your TV."; maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-                addView(barButton("Watch here", R.drawable.ic_phone) { exitCompanion() })
-            })
-            addView(LinearLayout(this@RoomActivity).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                addView(companionVoice, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                    addView(companionWho)
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
                 addView(companionVoiceButton)
                 addView(companionMuteButton)
-            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(12) })
+                addView(more)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = dp(10) })
+            addView(View(this@RoomActivity).apply { setBackgroundColor(Color.argb(31, 0xB0, 0xA6, 0xBF)) }, LinearLayout.LayoutParams(MATCH_PARENT, dp(1)))
+            addView(track, LinearLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { topMargin = dp(10) })
+            addView(LinearLayout(this@RoomActivity).apply {
+                addView(companionTime, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(companionLength)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
+            addView(companionVoice, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6) })
             addView(ScrollView(this@RoomActivity).apply { isVerticalScrollBarEnabled = false; addView(companionHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
             addView(composer(input, send), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
         }.also { view -> padForSystemBars(view, dp(16), dp(12), dp(16), dp(12)) }
+    }
+
+    private fun showCompanionMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add("Watch on this phone").setOnMenuItemClickListener { exitCompanion(); true }
+            if (voice != null) menu.add("Leave voice").setOnMenuItemClickListener { stopVoice(); true }
+            menu.add("Leave party").setOnMenuItemClickListener { confirmLeave(); true }
+        }.show()
+    }
+
+    /** Who's here and how far along the video is, on the phone's chat screen. Runs once a second. */
+    private fun renderCompanionStatus() {
+        if (!companion) return
+        // Your TV and phone share a name, so each person shows once.
+        val names = members.map { it.name }.distinct()
+        companionWho.text = if (names.isEmpty()) "On the TV" else "On the TV · " + names.joinToString(", ")
+        val state = lastState
+        val media = lastMedia
+        if (state == null || media == null) {
+            companionTime.text = ""
+            companionLength.text = ""
+            setCompanionProgress(0f)
+            return
+        }
+        val position = state.expectedPosition(sync.clock.serverNow())
+        val length = media.duration
+        companionTime.text = clock(position) + if (state.paused) " · Paused" else " · Playing"
+        companionLength.text = if (length != null && length > 0) clock(length) else ""
+        setCompanionProgress(if (length != null && length > 0) (position / length).toFloat() else 0f)
+    }
+
+    private fun setCompanionProgress(fraction: Float) {
+        val track = companionProgress.parent as View
+        track.post {
+            companionProgress.layoutParams = companionProgress.layoutParams.apply { width = (track.width * fraction.coerceIn(0f, 1f)).toInt() }
+        }
+    }
+
+    private fun clock(seconds: Double): String {
+        val s = seconds.toLong().coerceAtLeast(0)
+        val h = s / 3600
+        val m = (s % 3600) / 60
+        val sec = s % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
     }
 
     private fun enterCompanion(auto: Boolean) {
@@ -876,8 +967,9 @@ class RoomActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         renderChat()
         renderVoice()
+        renderCompanionStatus()
         if (auto) {
-            Toast.makeText(this, "You're on the TV too, so this phone is now just chat. Tap Watch here to switch back.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "You're on the TV too, so this phone is now just chat. Use the ⋮ menu to watch here instead.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1257,7 +1349,9 @@ class RoomActivity : ComponentActivity() {
         private val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         /** Other people's bubbles: solid on the phone's chat screen, see-through over the movie. */
         private val BUBBLE_SOLID = Color.rgb(0x31, 0x28, 0x3E)
-        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x23, 0x1C, 0x2D)
+        private val BUBBLE_SEE_THROUGH = Color.argb(150, 0x50, 0x50, 0x50)
+        /** Chat over the movie is plain see-through gray, not the app's purple, so it doesn't tint the picture. */
+        private val OVERLAY_GRAY = Color.argb(170, 0x26, 0x26, 0x26)
         private val NAME_COLORS = intArrayOf(
             Color.rgb(0x7C, 0xC4, 0xFF), Color.rgb(0x8E, 0xE0, 0x9B), Color.rgb(0xF4, 0x8F, 0xB1),
             Color.rgb(0xB3, 0x9D, 0xFF), Color.rgb(0x6F, 0xE0, 0xD6), Color.rgb(0xFF, 0xB0, 0x7A),
