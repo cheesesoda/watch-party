@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -148,7 +149,7 @@ private fun NameField(value: String, onChange: (String) -> Unit) {
 
 @Composable
 private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack: () -> Unit) {
-    var server by remember { mutableStateOf(prefs.serverUrl) }
+    var server by remember { mutableStateOf(prefs.serverUrl.ifBlank { BuildConfig.DEFAULT_SERVER }) }
     var name by remember { mutableStateOf(prefs.name) }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(notice) }
@@ -169,8 +170,9 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
         error = null
         scope.launch {
             try {
-                val token = Api(url, "").login(password)
-                prefs.serverUrl = url
+                val resolved = Api.resolveServer(url)
+                val token = Api(resolved, "").login(password)
+                prefs.serverUrl = resolved
                 prefs.token = token
                 prefs.name = name.trim().take(32)
                 prefs.markSignedIn(true)
@@ -208,6 +210,8 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
 @Composable
 private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val defaultServer = BuildConfig.DEFAULT_SERVER
+    var otherServer by remember { mutableStateOf(defaultServer.isBlank()) }
     var server by remember { mutableStateOf(prefs.serverUrl) }
     var code by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(prefs.name) }
@@ -217,7 +221,7 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
 
     val submit: () -> Unit = submit@{
         val isLink = code.contains("://") || code.contains("/#/")
-        val url = Prefs.normalizeUrl(if (isLink) code else server)
+        val url = Prefs.normalizeUrl(if (isLink) code else if (otherServer) server else defaultServer)
         val id = Prefs.roomCode(code)
         if (url.isEmpty()) {
             error = "Enter the server address from your host, or paste their invite link."
@@ -235,8 +239,9 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
         error = null
         scope.launch {
             try {
-                val joined = Api(url, "").join(id)
-                prefs.serverUrl = url
+                val resolved = Api.resolveServer(url)
+                val joined = Api(resolved, "").join(id)
+                prefs.serverUrl = resolved
                 prefs.token = joined.token.orEmpty()
                 prefs.name = name.trim().take(32)
                 RoomActivity.start(context, joined.room.id, host = false)
@@ -250,7 +255,14 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
 
     FormCard {
         Text("Join a party", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        ServerField(server) { server = it }
+        if (otherServer) {
+            ServerField(server) { server = it }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Server: ${defaultServer.substringAfter("://")}", color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { otherServer = true }) { Text("Other server") }
+            }
+        }
         OutlinedTextField(
             value = code,
             onValueChange = { code = if (it.contains("/")) it else it.uppercase() },

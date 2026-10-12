@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -92,6 +93,18 @@ class Api(private val baseUrl: String, private val token: String) {
         if (token.isEmpty()) url else url.toHttpUrl().newBuilder().addQueryParameter("token", token).build().toString()
 
     companion object {
+        /**
+         * Follows any redirect (say, a short domain forwarding to a ts.net address) and returns the server it lands on,
+         * so later calls, including POSTs and the websocket, go straight there.
+         */
+        suspend fun resolveServer(url: String): String = withContext(Dispatchers.IO) {
+            client.newCall(Request.Builder().url("$url/api/health").build()).execute().use { res ->
+                val final = res.request.url
+                val port = if (final.port != HttpUrl.defaultPort(final.scheme)) ":${final.port}" else ""
+                "${final.scheme}://${final.host}$port"
+            }
+        }
+
         val client: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
