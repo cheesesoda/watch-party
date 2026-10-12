@@ -170,7 +170,7 @@ The exact admin console wording may have changed since this was written; [Tailsc
 Optional. Friends open the dashboard at `https://app.tv.chzsda.com`, and invite links look like `https://tv.chzsda.com/join/ABC123`. A small proxy on Railway (the `proxy/` folder) passes pages, sign-in, chat and sync to your PC over the ts.net address. Video, subtitles and posters still load straight from your PC, so Railway never carries the heavy traffic. When your PC is off, those addresses show a short "the party server is off" page.
 
 1. **Railway:** the `popcorn-proxy` service runs `proxy/` with these variables: `UPSTREAM` (your `https://…ts.net` address), `APP_HOST=app.tv.chzsda.com`, `INVITE_HOST=tv.chzsda.com` and `PROXY_KEY` (a long random string).
-2. **DNS** (DreamHost, for chzsda.com): add the two CNAME records Railway shows for `app.tv` and `tv`. Email and the rest of the domain are untouched.
+2. **DNS** (DreamHost, for chzsda.com): add the records Railway shows for each address: a CNAME for `app.tv` and `tv`, and a TXT for `_railway-verify.app.tv` and `_railway-verify.tv`. If `tv.chzsda.com` is set up as a hosted site, remove that first, since a CNAME can't sit next to the site's own records. Email and the rest of the domain are untouched.
 3. **`.env` on your PC**, then restart (or **Update now**):
    ```
    INVITE_URL=https://tv.chzsda.com
