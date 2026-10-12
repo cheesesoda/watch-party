@@ -99,7 +99,7 @@ export function Home(props: {
           <h1>Popcorn Club</h1>
           <span className="spacer" />
           <button className="name-link" onClick={props.onRename} title="Change name">
-            Hosting as <strong>{props.name}</strong>
+            <span className="hosting-as">Hosting as</span> <strong>{props.name}</strong>
             <PencilIcon size={15} />
           </button>
           <button className="icon-button" onClick={props.onSignOut} title="Sign out" aria-label="Sign out">
