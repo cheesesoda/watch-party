@@ -27,7 +27,7 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
   return (
     <div className="page">
       <header className="topbar">
-        <h1>Watch Party</h1>
+        <h1>Popcorn Club</h1>
         <span className="spacer" />
         <span className="muted">
           Watching as <strong>{props.name}</strong>

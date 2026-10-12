@@ -136,7 +136,7 @@ private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Watch Party", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
             OutlinedTextField(
                 value = server,
                 onValueChange = { server = it },
@@ -220,7 +220,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         item {
             Row(Modifier.padding(top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Watch Party", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text("${prefs.name} on ${prefs.serverUrl}", color = Muted, fontSize = 13.sp)
                 }
                 OutlinedButton(onClick = { onSignedOut(null) }) { Text("Settings") }

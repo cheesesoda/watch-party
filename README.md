@@ -1,4 +1,4 @@
-# Watch Party
+# Popcorn Club
 
 Self-hosted watch parties for you and your friends, a bit like Plex's Watch Together but much smaller.
 Run the server on the machine that has your movies. Friends open a link, everyone sees the same library,

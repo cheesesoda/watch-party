@@ -24,7 +24,7 @@ await app.library.scan();
 const count = (await app.library.list()).length;
 
 app.server.listen(config.port, config.host, () => {
-  console.log(`watch-party listening on http://${config.host}:${config.port}`);
+  console.log(`Popcorn Club listening on http://${config.host}:${config.port}`);
   console.log(`library: ${count} video(s) in ${config.mediaDirs.join(", ")}`);
 });
 

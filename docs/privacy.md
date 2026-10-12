@@ -1,13 +1,13 @@
 ---
-title: Watch Party privacy policy
+title: Popcorn Club privacy policy
 permalink: /privacy/
 ---
 
-# Watch Party privacy policy
+# Popcorn Club privacy policy
 
 _Last updated: 12 October 2026_
 
-Watch Party is an app for watching videos together with friends. It has no central service: every party runs on a server that the host sets up and runs themselves, and the app only talks to the server address you type in. The app's developer does not run that server and receives none of your data.
+Popcorn Club is an app for watching videos together with friends. It has no central service: every party runs on a server that the host sets up and runs themselves, and the app only talks to the server address you type in. The app's developer does not run that server and receives none of your data.
 
 ## What the app handles
 
