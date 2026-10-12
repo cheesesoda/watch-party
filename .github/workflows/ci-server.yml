@@ -25,6 +25,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Proxy tests (app.tv.chzsda.com)
+        run: node --test
+        working-directory: proxy
       - run: npm run build
       # Same job as the tests, so the image check doesn't cost its own rounded-up minute.
       - run: docker build -t watch-party .

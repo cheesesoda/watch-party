@@ -129,7 +129,9 @@ The log is also saved to `%APPDATA%\Popcorn Club\server.log`.
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | Where FFmpeg is, if it isn't on your PATH. |
 | `TRANSCODE_DIR` | system temp folder | Where converted pieces go while a movie plays. They're deleted a few minutes after everyone stops watching. |
 | `ANDROID_CERT_SHA256` | empty | The app's signing fingerprint, so phones open the TV's QR link in the app instead of the browser. Copy the SHA-256 from Play Console, under Test and release, App integrity, App signing key certificate. Several are allowed, separated by commas. |
-| `INVITE_URL` | empty | Your own address for invite links, such as `https://tv.chzsda.com`. That address must forward `/join/CODE` to this server (see "Invite links on your own domain"). Empty: invite links use the ts.net address. |
+| `INVITE_URL` | empty | Your own address for invite links, such as `https://tv.chzsda.com`. That address must forward `/join/CODE` to this server (the Railway proxy below does). Empty: invite links use the ts.net address. |
+| `MEDIA_URL` | empty | This server's own public address (the `https://…ts.net` one) when the pages come through the Railway proxy, so video, subtitles and posters still load straight from your PC. |
+| `PROXY_KEY` | empty | A long random string shared with the Railway proxy. It lets the proxy say which friend each request is from, so a wrong password only locks out that friend. Must match the proxy's `PROXY_KEY`. |
 | `TMDB_TOKEN` | empty | Turns on movie and episode details (episode names, posters, summaries) from TMDB. Make a free account at themoviedb.org, then under Settings, API, copy the **API Read Access Token** (the long one, not the API Key). The server keeps what it finds in `data/metadata.json`, so each movie and season is looked up once. |
 | `TMDB_LANGUAGE` | `en-US` | Language for TMDB titles and summaries. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
@@ -162,6 +164,21 @@ To turn the HTTPS address off: `tailscale serve --https=443 off` (or `tailscale 
 The Android app doesn't need HTTPS for voice, so friends on the same Wi-Fi can also use your local address like `192.168.1.20:8080`. Web browsers do need HTTPS to send voice.
 
 The exact admin console wording may have changed since this was written; [Tailscale's serve docs](https://tailscale.com/kb/1312/serve) are the reference.
+
+## Your own address (app.tv.chzsda.com)
+
+Optional. Friends open the dashboard at `https://app.tv.chzsda.com`, and invite links look like `https://tv.chzsda.com/join/ABC123`. A small proxy on Railway (the `proxy/` folder) passes pages, sign-in, chat and sync to your PC over the ts.net address. Video, subtitles and posters still load straight from your PC, so Railway never carries the heavy traffic. When your PC is off, those addresses show a short "the party server is off" page.
+
+1. **Railway:** the `popcorn-proxy` service runs `proxy/` with these variables: `UPSTREAM` (your `https://…ts.net` address), `APP_HOST=app.tv.chzsda.com`, `INVITE_HOST=tv.chzsda.com` and `PROXY_KEY` (a long random string).
+2. **DNS** (DreamHost, for chzsda.com): add the two CNAME records Railway shows for `app.tv` and `tv`. Email and the rest of the domain are untouched.
+3. **`.env` on your PC**, then restart (or **Update now**):
+   ```
+   INVITE_URL=https://tv.chzsda.com
+   MEDIA_URL=https://your-pc.tail1234.ts.net
+   PROXY_KEY=the same string as on Railway
+   ```
+
+The Android app keeps talking to the ts.net address directly. Version 0.2.34 and later open tv.chzsda.com invites in the app.
 
 ## Join on the web
 

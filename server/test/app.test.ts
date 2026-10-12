@@ -141,7 +141,7 @@ test("a party code lets a viewer into that party only, until it ends", async () 
   assert.match(res.headers.get("set-cookie") ?? "", /wp_token=g\./);
   const as = { Authorization: `Bearer ${guest}` };
 
-  assert.deepEqual(await (await fetch(`${base}/api/me`, { headers: as })).json(), { ok: true, role: "guest", room: room.id });
+  assert.deepEqual(await (await fetch(`${base}/api/me`, { headers: as })).json(), { ok: true, role: "guest", room: room.id, token: guest });
   assert.equal((await fetch(`${base}/api/rooms/${room.id}`, { headers: as })).status, 200);
   for (const path of ["/api/library", "/api/rooms", `/api/rooms/${other.id}`, `/api/media/${items[0].id}/stream`]) {
     assert.equal((await fetch(base + path, { headers: as })).status, 403, path);

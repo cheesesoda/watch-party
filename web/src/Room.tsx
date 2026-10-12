@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MediaInfo, MediaItem } from "../../shared/protocol.ts";
-import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
+import { api, hlsUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
 import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
@@ -294,6 +294,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     <div className={`room ${idle && !picking ? "idle" : ""}`} ref={containerRef}>
       <video
         ref={videoRef}
+        // Video from the host's own address (MEDIA_URL) is another site; CORS mode lets its subtitles load.
+        crossOrigin={mediaElsewhere() ? "anonymous" : undefined}
         className={media ? "" : "hidden"}
         controls
         controlsList="nofullscreen"

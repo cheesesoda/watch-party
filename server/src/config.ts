@@ -37,6 +37,16 @@ export interface Config {
    * Empty: invite links use the address the page was opened on.
    */
   inviteUrl?: string;
+  /**
+   * The server's own public address (the ts.net one), for video, subtitles and posters when the pages are
+   * served through a proxy on another address (app.tv.chzsda.com), so the video doesn't pass through it.
+   */
+  mediaUrl?: string;
+  /**
+   * Shared with that proxy. A request carrying it may say which visitor it's from, so sign-in limits apply
+   * per friend rather than to the proxy as a whole.
+   */
+  proxyKey?: string;
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -87,6 +97,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       file: path.resolve(env.METADATA_FILE?.trim() || fileURLToPath(new URL("../../data/metadata.json", import.meta.url))),
     },
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
+    mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,
+    proxyKey: env.PROXY_KEY?.trim() || undefined,
     transcode: {
       ffmpeg: env.FFMPEG_PATH?.trim() || "ffmpeg",
       ffprobe: env.FFPROBE_PATH?.trim() || "ffprobe",
