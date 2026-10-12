@@ -77,8 +77,17 @@ data class ChatMessage(
     val system: Boolean = false,
 )
 
+/** Where a party is in its video, in seconds. Duration is null when the server can't read it. */
 @Serializable
-data class RoomSummary(val id: String, val media: MediaItem? = null, val members: List<Member> = emptyList())
+data class RoomPlayback(val position: Double, val paused: Boolean, val duration: Double? = null)
+
+@Serializable
+data class RoomSummary(
+    val id: String,
+    val media: MediaItem? = null,
+    val members: List<Member> = emptyList(),
+    val playback: RoomPlayback? = null,
+)
 
 sealed interface ServerMessage {
     data class Welcome(

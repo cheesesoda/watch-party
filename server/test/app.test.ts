@@ -241,3 +241,21 @@ test("login is rate limited after repeated wrong passwords", async () => {
   assert.equal(blocked.status, 429);
   assert.ok(Number(blocked.headers.get("retry-after")) > 0);
 });
+
+test("the party list shows where each party is in its video", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const res = await fetch(`${base}/api/rooms`, { method: "POST", headers: { "content-type": "application/json", ...auth() }, body: JSON.stringify({ mediaId: items[0].id }) });
+  const { room } = await res.json();
+  const host = connect(room.id, "Jake");
+  await host.next((m) => m.type === "welcome");
+  host.ws.send(JSON.stringify({ type: "pause", position: 95 }));
+  await host.next((m) => m.type === "state");
+
+  const { rooms } = await (await fetch(`${base}/api/rooms`, { headers: auth() })).json();
+  const listed = rooms.find((r: { id: string }) => r.id === room.id);
+  // The test file isn't a real video, so ffprobe can't tell its length.
+  assert.deepEqual(listed.playback, { position: 95, paused: true, duration: null });
+  const one = await (await fetch(`${base}/api/rooms/${room.id}`, { headers: auth() })).json();
+  assert.equal(one.room.playback.position, 95);
+  host.ws.close();
+});
