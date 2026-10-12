@@ -176,7 +176,8 @@ export class Transcoder {
         return enc;
       }
       if (r.code === null) break; // ffmpeg itself is missing
-      const why = r.stderr.trim().split(/\r?\n/).filter(Boolean).slice(-2).join(" / ");
+      // The first lines carry the cause (e.g. "Driver does not support the required nvenc API version"); the rest is fallout.
+      const why = r.stderr.trim().split(/\r?\n/).filter(Boolean).slice(0, 2).join(" / ");
       console.warn(`transcode: ${enc} isn't usable${why ? `: ${why}` : ""}`);
     }
     console.warn(`transcode: off (no working ffmpeg at "${this.config.ffmpeg}" with ${wanted.join(" or ")}). Install ffmpeg to play HEVC/AC3 files in browsers.`);
