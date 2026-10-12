@@ -35,7 +35,18 @@ jobs:
           A = "{http://schemas.android.com/apk/res/android}"
           path = glob.glob("app/build/intermediates/merged_manifests/release/**/AndroidManifest.xml", recursive=True)[0]
           bad = []
-          for f in ET.parse(path).getroot().iter("uses-feature"):
+          root = ET.parse(path).getroot()
+          for p in root.iter("uses-permission"):
+              print(f"uses-permission {p.get(A + 'name')}")
+          # Play treats these permissions as requiring hardware unless a uses-feature says otherwise.
+          implied = {"android.permission.CAMERA": "android.hardware.camera", "android.permission.RECORD_AUDIO": "android.hardware.microphone",
+                     "android.permission.ACCESS_FINE_LOCATION": "android.hardware.location.gps", "android.permission.BLUETOOTH": "android.hardware.bluetooth"}
+          declared = {f.get(A + "name") for f in root.iter("uses-feature")}
+          for p in root.iter("uses-permission"):
+              feature = implied.get(p.get(A + "name"))
+              if feature and feature not in declared and not any(d and d.startswith(feature + ".") for d in declared):
+                  bad.append(f"{feature} (implied by {p.get(A + 'name')})")
+          for f in root.iter("uses-feature"):
               name, required = f.get(A + "name"), f.get(A + "required", "true")
               print(f"uses-feature {name} required={required}")
               if required == "true" and name and name != "android.software.leanback" and f.get(A + "glEsVersion") is None:
