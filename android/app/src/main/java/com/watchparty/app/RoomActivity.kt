@@ -60,6 +60,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import androidx.media3.common.MediaItem as ExoMediaItem
@@ -118,6 +119,14 @@ class RoomActivity : ComponentActivity() {
         override fun handleOnBackPressed() = confirmLeave()
     }
 
+    /** While the playback controls are showing, Back just hides them. */
+    private val hideControlsOnBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            playerView.hideController()
+            playerView.requestFocus()
+        }
+    }
+
     private val closeChatOnBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closeChat()
     }
@@ -148,8 +157,9 @@ class RoomActivity : ComponentActivity() {
         host = intent.getBooleanExtra(EXTRA_HOST, true)
         roomCode = roomId.uppercase()
         isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        // Added last wins: an open chat closes first, otherwise Back asks before leaving.
+        // Added last wins: an open chat closes first, then showing controls hide, otherwise Back asks before leaving.
         onBackPressedDispatcher.addCallback(this, confirmLeaveOnBack)
+        onBackPressedDispatcher.addCallback(this, hideControlsOnBack)
         onBackPressedDispatcher.addCallback(this, closeChatOnBack)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -370,8 +380,10 @@ class RoomActivity : ComponentActivity() {
             keepScreenOn = true
             setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                 topBar.visibility = visibility
+                hideControlsOnBack.isEnabled = visibility == View.VISIBLE
             })
         }
+        highlightControlFocus()
         root.addView(playerView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         topBar = LinearLayout(this).apply {
@@ -927,6 +939,36 @@ class RoomActivity : ComponentActivity() {
     }
 
     /** A fully rounded shape, as Material 3 uses for buttons and chips. */
+    /**
+     * Media3's own focus mark on the play/pause, skip and seek-bar controls is a faint grey that's easy to lose from
+     * the couch. Give them the same orange the top bar uses: an orange circle behind the focused button, and an
+     * orange outline around the seek bar while it has focus.
+     */
+    private fun highlightControlFocus() {
+        val focused = intArrayOf(android.R.attr.state_focused)
+        val ids = listOf(
+            androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_rew, androidx.media3.ui.R.id.exo_ffwd,
+            androidx.media3.ui.R.id.exo_prev, androidx.media3.ui.R.id.exo_next, androidx.media3.ui.R.id.exo_settings,
+            androidx.media3.ui.R.id.exo_subtitle, androidx.media3.ui.R.id.exo_overflow_show, androidx.media3.ui.R.id.exo_overflow_hide,
+        )
+        for (id in ids) {
+            val button = playerView.findViewById<View>(id) ?: continue
+            button.background = StateListDrawable().apply {
+                addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) })
+                addState(intArrayOf(), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) })
+            }
+            if (button is ImageButton) button.imageTintList = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
+        }
+        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
+            setPlayedColor(ACCENT)
+            setScrubberColor(ACCENT)
+            background = StateListDrawable().apply {
+                addState(focused, GradientDrawable().apply { setColor(Color.argb(90, 0xFF, 0x8E, 0x44)); setStroke(dp(2), ACCENT); cornerRadius = dp(12).toFloat() })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            }
+        }
+    }
+
     private fun pill(color: Int) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(100).toFloat()
