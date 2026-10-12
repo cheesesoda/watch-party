@@ -27,6 +27,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
@@ -60,6 +61,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import androidx.media3.common.MediaItem as ExoMediaItem
@@ -118,6 +120,14 @@ class RoomActivity : ComponentActivity() {
         override fun handleOnBackPressed() = confirmLeave()
     }
 
+    /** While the playback controls are showing, Back just hides them. */
+    private val hideControlsOnBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            playerView.hideController()
+            playerView.requestFocus()
+        }
+    }
+
     private val closeChatOnBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closeChat()
     }
@@ -148,8 +158,9 @@ class RoomActivity : ComponentActivity() {
         host = intent.getBooleanExtra(EXTRA_HOST, true)
         roomCode = roomId.uppercase()
         isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        // Added last wins: an open chat closes first, otherwise Back asks before leaving.
+        // Added last wins: an open chat closes first, then showing controls hide, otherwise Back asks before leaving.
         onBackPressedDispatcher.addCallback(this, confirmLeaveOnBack)
+        onBackPressedDispatcher.addCallback(this, hideControlsOnBack)
         onBackPressedDispatcher.addCallback(this, closeChatOnBack)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -370,8 +381,10 @@ class RoomActivity : ComponentActivity() {
             keepScreenOn = true
             setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                 topBar.visibility = visibility
+                hideControlsOnBack.isEnabled = visibility == View.VISIBLE
             })
         }
+        highlightControlFocus()
         root.addView(playerView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         topBar = LinearLayout(this).apply {
@@ -698,13 +711,24 @@ class RoomActivity : ComponentActivity() {
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = dp(CHAT_PANEL_DP)
         topBar.requestLayout()
         renderChat()
-        chatPanelInput.requestFocus()
+        // With a remote, the D-pad could wander back into the player and top bar, which grab it and hide the panel's
+        // controls. While chat is open only the panel takes focus; Back or Menu closes it.
+        setBehindChatFocusable(false)
+        chatPanelInput.post { chatPanelInput.requestFocus() }
+    }
+
+    private fun setBehindChatFocusable(focusable: Boolean) {
+        val block = if (focusable) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        playerView.descendantFocusability = block
+        playerView.isFocusable = focusable
+        topBar.descendantFocusability = block
     }
 
     private fun closeChat() {
         if (chatPanel.visibility != View.VISIBLE) return
         chatPanel.visibility = View.GONE
         closeChatOnBack.isEnabled = false
+        setBehindChatFocusable(true)
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = 0
         topBar.requestLayout()
         hideKeyboard(chatPanelInput)
@@ -740,8 +764,13 @@ class RoomActivity : ComponentActivity() {
     /** The message box: a rounded field with a round amber Send button beside it. */
     private fun composer(input: EditText, send: () -> Unit) = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
+        if (input.id == View.NO_ID) input.id = View.generateViewId()
         addView(input, LinearLayout.LayoutParams(0, dp(48), 1f))
         addView(ImageButton(this@RoomActivity).apply {
+            // Left from Send goes to the message box, and Right from the box to Send, whatever else is nearby.
+            id = View.generateViewId()
+            nextFocusLeftId = input.id
+            input.nextFocusRightId = id
             setImageResource(R.drawable.ic_send)
             imageTintList = ColorStateList.valueOf(ON_ACCENT)
             contentDescription = "Send"
@@ -847,7 +876,9 @@ class RoomActivity : ComponentActivity() {
         hint = "Message"
         setSingleLine()
         gravity = Gravity.CENTER_VERTICAL
-        imeOptions = EditorInfo.IME_ACTION_SEND
+        // In landscape Android otherwise swaps the whole screen for a plain white text box with its own SEND button.
+        // Keep the keyboard below the chat panel, so the video and messages stay in view while typing.
+        imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
         setTextColor(Color.WHITE)
         setHintTextColor(Color.GRAY)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
@@ -927,6 +958,36 @@ class RoomActivity : ComponentActivity() {
     }
 
     /** A fully rounded shape, as Material 3 uses for buttons and chips. */
+    /**
+     * Media3's own focus mark on the play/pause, skip and seek-bar controls is a faint grey that's easy to lose from
+     * the couch. Give them the same orange the top bar uses: an orange circle behind the focused button, and an
+     * orange outline around the seek bar while it has focus.
+     */
+    private fun highlightControlFocus() {
+        val focused = intArrayOf(android.R.attr.state_focused)
+        val ids = listOf(
+            androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_rew, androidx.media3.ui.R.id.exo_ffwd,
+            androidx.media3.ui.R.id.exo_prev, androidx.media3.ui.R.id.exo_next, androidx.media3.ui.R.id.exo_settings,
+            androidx.media3.ui.R.id.exo_subtitle, androidx.media3.ui.R.id.exo_overflow_show, androidx.media3.ui.R.id.exo_overflow_hide,
+        )
+        for (id in ids) {
+            val button = playerView.findViewById<View>(id) ?: continue
+            button.background = StateListDrawable().apply {
+                addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) })
+                addState(intArrayOf(), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) })
+            }
+            if (button is ImageButton) button.imageTintList = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
+        }
+        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
+            setPlayedColor(ACCENT)
+            setScrubberColor(ACCENT)
+            background = StateListDrawable().apply {
+                addState(focused, GradientDrawable().apply { setColor(Color.argb(90, 0xFF, 0x8E, 0x44)); setStroke(dp(2), ACCENT); cornerRadius = dp(12).toFloat() })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            }
+        }
+    }
+
     private fun pill(color: Int) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(100).toFloat()
