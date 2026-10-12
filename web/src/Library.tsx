@@ -76,6 +76,9 @@ export function Library(props: {
 
   // Extras (behind the scenes, trailers…) that belong to a movie or show are listed under it, not on their own.
   const owned = (i: MediaItem) => !!(i.extra && (i.extra.of || i.extra.show));
+  // A movie split into files ("Pt 1", "Pt 2") is listed once, as its first part, and plays all of them.
+  const laterPart = (i: MediaItem) => !!i.part && i.part.index > 1;
+  const pick = (item: MediaItem) => (item.part && props.onBinge ? props.onBinge(item.part.ids) : props.onPick(item));
   const { movieExtras, showExtras: extrasByFolderName, byId } = useMemo(() => {
     const movieExtras = new Map<string, MediaItem[]>();
     const showExtras = new Map<string, MediaItem[]>();
@@ -121,7 +124,7 @@ export function Library(props: {
   const rows = useMemo(() => {
     const list = (items ?? []).filter(
       // While searching, matching extras show up on their own too, labeled with what they belong to.
-      (i) => (view === "all" || (!i.episode && !i.extra?.show)) && (q || !owned(i)) && (!subsOnly || i.subtitles.length > 0) && matches(i),
+      (i) => !laterPart(i) && (view === "all" || (!i.episode && !i.extra?.show)) && (q || !owned(i)) && (!subsOnly || i.subtitles.length > 0) && matches(i),
     );
     const singles = list.filter((i) => !i.episode);
     const showRows = view === "all" ? shows.filter((s) => s.episodes.some((e) => list.includes(e))) : [];
@@ -140,10 +143,17 @@ export function Library(props: {
     return all.sort(cmp[sort]);
   }, [items, shows, view, subsOnly, sort, q]);
 
+  // "2 parts · 3:11:00": the whole length once every part's is known.
+  const partsLabel = (item: MediaItem) => {
+    const parts = item.part!.ids.map((id) => byId.get(id));
+    const total = parts.every((p) => p?.duration) ? parts.reduce((n, p) => n + p!.duration!, 0) : null;
+    return `${parts.length} parts${total ? ` · ${fmtLength(total)}` : ""}`;
+  };
+
   const recent = useMemo(
     () =>
       (items ?? [])
-        .filter((i) => !i.episode && !i.extra)
+        .filter((i) => !i.episode && !i.extra && !laterPart(i))
         .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
         .slice(0, 12),
     [items],
@@ -163,7 +173,7 @@ export function Library(props: {
   const meta = (item: MediaItem) => (
     <>
       {item.extra && `${item.extra.kind}${q && (item.extra.of || item.extra.show) ? ` · ${byId.get(item.extra.of ?? "")?.title ?? item.extra.show}` : ""} · `}
-      {item.duration ? fmtLength(item.duration) : fmtSize(item.size)}
+      {item.part ? partsLabel(item) : item.duration ? fmtLength(item.duration) : fmtSize(item.size)}
       {item.subtitles.length > 0 && " · CC"}
       {/* With ffmpeg the server converts whatever browsers can't play, so there's nothing to warn about. */}
       {!convert && !BROWSER_SAFE.has(item.mime) && (
@@ -175,7 +185,7 @@ export function Library(props: {
     </>
   );
 
-  const listed = (items ?? []).filter((i) => !owned(i));
+  const listed = (items ?? []).filter((i) => !owned(i) && !laterPart(i));
   const movieCount = listed.filter((i) => !i.episode).length;
   const menu: [View, string, number][] = [
     ["all", "All videos", listed.length],
@@ -242,7 +252,7 @@ export function Library(props: {
                   <h3 className="shelf-title">Recently added</h3>
                   <Shelf>
                     {recent.map((item) => (
-                      <button key={item.id} className={details ? "tile has-poster" : "tile"} onClick={() => props.onPick(item)}>
+                      <button key={item.id} className={details ? "tile has-poster" : "tile"} onClick={() => pick(item)}>
                         {details && <Poster path={item.meta?.posterPath} size="w185" />}
                         <span className="title">{item.title}</span>
                         <span className="meta">
@@ -267,7 +277,7 @@ export function Library(props: {
                 {rows.map((r) =>
                   r.kind === "item" ? (
                     <li key={r.item.id} className="row-line">
-                      <button className={details ? "item has-poster" : "item"} onClick={() => props.onPick(r.item)}>
+                      <button className={details ? "item has-poster" : "item"} onClick={() => pick(r.item)}>
                         {details && <Poster path={r.item.meta?.posterPath} size="w92" />}
                         <span className="title">
                           {r.item.title}
@@ -385,7 +395,7 @@ export function Library(props: {
           onPick={() => {
             const item = byId.get(shownInfo)!;
             setShownInfo(null);
-            props.onPick(item);
+            pick(item);
           }}
           onBingeFrom={
             props.onBinge && byId.get(shownInfo)!.episode

@@ -49,7 +49,13 @@ export interface ParsedName {
   episode: { show: string; season: number; episode: number; title: string | null } | null;
   /** For bonus material: what kind, and the folder whose movie or show it belongs to. */
   extra?: { kind: string; ownerFolder: string } | null;
+  /** "Pt 2", "Part 2", "CD2", "Disc 2": one file of a movie split into several, and the title with the part left in. */
+  part?: number | null;
+  fullTitle?: string;
 }
+
+/** "Pt 1", "Part.2", "cd1", "Disc 2" at the end of a movie's file name. */
+const PART = /(?:^|[\s._\-[(])(?:pt|part|cd|disc|disk)[\s._-]?(\d{1,2})\)?$/i;
 
 /** Plex's names for bonus material: a "-trailer" style suffix on the file, or a folder of that kind. */
 const EXTRA_SUFFIXES: Record<string, string> = {
@@ -121,6 +127,11 @@ export function parseName(relPath: string): ParsedName {
       episode: { show: name, season, episode, title: epTitle },
     };
   }
+  const part = clean(base).match(PART);
+  if (part) {
+    const movie = parseName(relPath.slice(0, relPath.length - path.basename(relPath).length) + clean(base).slice(0, part.index) + path.extname(relPath));
+    if (movie.title && !movie.episode) return { ...movie, part: Number(part[1]), fullTitle: untag(base) };
+  }
   // The last 19xx/20xx that isn't the start of the name is the year, so "2001 A Space Odyssey 1968" works.
   const years = [...base.matchAll(/(?<=^|[\s._\-[(])((?:19|20)\d{2})(?=$|[\s._\-\])])/g)].filter((m) => m.index! > 0);
   const y = years[years.length - 1];
@@ -138,7 +149,8 @@ export function parseName(relPath: string): ParsedName {
 export function findFolderExtras(items: MediaItem[], extras: Map<string, { kind: string; ownerFolder: string }>): void {
   const byFolder = new Map<string, MediaItem[]>();
   for (const i of items) {
-    if (i.folder === "" || i.episode || extras.has(i.id)) continue;
+    // A split movie counts once, as its first part.
+    if (i.folder === "" || i.episode || extras.has(i.id) || (i.part && i.part.index > 1)) continue;
     byFolder.set(i.folder, [...(byFolder.get(i.folder) ?? []), i]);
   }
   const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -157,6 +169,29 @@ export function findFolderExtras(items: MediaItem[], extras: Map<string, { kind:
 }
 
 /**
+ * Files of one movie split into parts (same folder, title and year, numbered "Pt 1", "Pt 2"…) learn about each
+ * other, so the library lists the movie once and plays the parts back to back. A lone "Part 2" stays as it is.
+ */
+export function linkParts(items: MediaItem[], parts: Map<string, { part: number; fullTitle: string }>): void {
+  const groups = new Map<string, MediaItem[]>();
+  for (const item of items) {
+    if (!parts.has(item.id)) continue;
+    const key = `${item.folder}|${item.title.toLowerCase()}|${item.year ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  for (const group of groups.values()) {
+    if (new Set(group.map((i) => parts.get(i.id)!.part)).size < 2) {
+      // "Rocky Part 2" on its own is the movie's name, not a piece of it.
+      for (const item of group) item.title = parts.get(item.id)!.fullTitle;
+      continue;
+    }
+    group.sort((a, b) => parts.get(a.id)!.part - parts.get(b.id)!.part);
+    const ids = group.map((i) => i.id);
+    group.forEach((item, n) => (item.part = { index: n + 1, ids }));
+  }
+}
+
+/**
  * Points each extra at what it belongs to: the one movie in its owner folder, or else the show whose episodes are
  * under that folder. Extras that match neither stay as they are, labeled by kind.
  */
@@ -165,7 +200,7 @@ export function linkExtras(items: MediaItem[], extras: Map<string, { kind: strin
     const found = extras.get(item.id);
     if (!found) continue;
     const owner = found.ownerFolder;
-    const movies = items.filter((i) => i.folder === owner && !i.episode && !extras.has(i.id));
+    const movies = items.filter((i) => i.folder === owner && !i.episode && !extras.has(i.id) && !(i.part && i.part.index > 1));
     const under = (i: MediaItem) => owner === "" || i.folder === owner || i.folder.startsWith(owner + "/");
     const shows = [...new Set(items.filter((i) => i.episode && under(i)).map((i) => i.episode!.show))];
     const extra: ExtraInfo = {
@@ -232,6 +267,7 @@ export class Library {
   private async doScan(): Promise<void> {
     const next = new Map<string, LibraryEntry>();
     const extraOwners = new Map<string, { kind: string; ownerFolder: string }>();
+    const partNumbers = new Map<string, { part: number; fullTitle: string }>();
     for (const [rootIndex, root] of this.roots.entries()) {
       const files: string[] = [];
       await walk(root, files);
@@ -263,8 +299,9 @@ export class Library {
         }
 
         const id = mediaId(rootIndex, relPath);
-        const { title, year, episode, extra } = parseName(relPath);
+        const { title, year, episode, extra, part, fullTitle } = parseName(relPath);
         if (extra) extraOwners.set(id, extra);
+        if (part) partNumbers.set(id, { part, fullTitle: fullTitle ?? title });
         // A copied file keeps its old modified time but gets a new created time, so the later of the two is
         // when it landed in the library.
         const addedAt = Math.round(Math.max(stat.mtimeMs, stat.birthtimeMs || 0));
@@ -276,6 +313,7 @@ export class Library {
       }
     }
     const all = [...next.values()].map((e) => e.item);
+    linkParts(all, partNumbers);
     findFolderExtras(all, extraOwners);
     linkExtras(all, extraOwners);
     this.entries = next;

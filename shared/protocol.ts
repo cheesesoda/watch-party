@@ -30,6 +30,15 @@ export interface MediaItem {
   extra?: ExtraInfo | null;
   /** Details from TMDB (themoviedb.org), when the server has a TMDB key and found a match. */
   meta?: MediaMeta | null;
+  /** One piece of a movie split into files ("Grindhouse (2007) Pt 1.mp4"): which one, and the ids of all of them in order. */
+  part?: PartInfo | null;
+}
+
+export interface PartInfo {
+  /** 1-based. */
+  index: number;
+  /** Every part's id, in order, so a client can play them back to back. */
+  ids: string[];
 }
 
 /** Movie or episode details from TMDB. Image paths go after a TMDB image base, e.g. https://image.tmdb.org/t/p/w342. */
