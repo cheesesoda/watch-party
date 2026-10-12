@@ -193,7 +193,7 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 
 The app opens on **Join a party** and **Start a party**.
 
-- **Join a party (friends):** enter the party code and your name. The app already knows the server (`p.jjb.mx`); press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
+- **Join a party (friends):** enter the party code and your name. The app already knows the host's server; press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
 - **Start a party (host):** enter the server address, your name and the password. Then press **Start a party** to get a code and a **Join party** button, and pick the movie with **Change video** once you're in.
 
 The server address is the host's `https://` one, or a local one on the same Wi-Fi like `192.168.1.20:8080`.

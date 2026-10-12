@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 36
         // Where Join a party looks for parties unless someone picks "Other server". Override with -PdefaultServer=…
-        buildConfigField("String", "DEFAULT_SERVER", "\"${project.findProperty("defaultServer") ?: "https://p.jjb.mx"}\"")
+        buildConfigField("String", "DEFAULT_SERVER", "\"${project.findProperty("defaultServer") ?: "https://omnipotent.tail3b2bb0.ts.net"}\"")
         // The release workflow passes these; local and PR builds use the defaults.
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = findProperty("versionName") as String? ?: "0.1.0"
