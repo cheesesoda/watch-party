@@ -129,6 +129,7 @@ The log is also saved to `%APPDATA%\Popcorn Club\server.log`.
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | Where FFmpeg is, if it isn't on your PATH. |
 | `TRANSCODE_DIR` | system temp folder | Where converted pieces go while a movie plays. They're deleted a few minutes after everyone stops watching. |
 | `ANDROID_CERT_SHA256` | empty | The app's signing fingerprint, so phones open the TV's QR link in the app instead of the browser. Copy the SHA-256 from Play Console, under Test and release, App integrity, App signing key certificate. Several are allowed, separated by commas. |
+| `INVITE_URL` | empty | Your own address for invite links, such as `https://tv.chzsda.com`. That address must forward `/join/CODE` to this server (see "Invite links on your own domain"). Empty: invite links use the ts.net address. |
 | `TMDB_TOKEN` | empty | Turns on movie and episode details (episode names, posters, summaries) from TMDB. Make a free account at themoviedb.org, then under Settings, API, copy the **API Read Access Token** (the long one, not the API Key). The server keeps what it finds in `data/metadata.json`, so each movie and season is looked up once. |
 | `TMDB_LANGUAGE` | `en-US` | Language for TMDB titles and summaries. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
-import { api } from "./api.ts";
+import { api, getInviteBase } from "./api.ts";
 import { LogOutIcon, PencilIcon } from "./Icons.tsx";
 import { Library, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
@@ -9,7 +9,7 @@ import { Logo } from "./Logo.tsx";
 /** The link friends open to join; it lands on the join screen with the code filled in. */
 // A real path rather than #/join/, so Android can open it in the app; the server redirects browsers to #/join/.
 export const inviteLink = (code: string) =>
-  `${location.origin}/join/${code.toUpperCase()}`;
+  `${getInviteBase()}/join/${code.toUpperCase()}`;
 
 /** The host's home: pick a movie to start a party (it shows the code; nothing plays until you join), see running parties, or join by code. */
 export function Home(props: {

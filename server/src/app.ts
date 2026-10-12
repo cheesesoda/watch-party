@@ -50,7 +50,7 @@ export function createApp(config: Config): App {
   });
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, authRequired: Boolean(config.password) });
+    res.json({ ok: true, authRequired: Boolean(config.password), inviteUrl: config.inviteUrl ?? null });
   });
 
   const hostToken = config.password ? tokenFor(config.password) : "";

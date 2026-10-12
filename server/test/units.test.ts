@@ -7,6 +7,7 @@ import type { MediaItem } from "../../shared/protocol.ts";
 import { parseRange } from "../src/range.ts";
 import { FailureLimiter } from "../src/ratelimit.ts";
 import { srtToVtt } from "../src/subtitles.ts";
+import { loadConfig } from "../src/config.ts";
 
 test("parseRange", () => {
   assert.equal(parseRange(undefined, 100), null);
@@ -170,4 +171,9 @@ test("a movie split into parts is one movie whose parts know each other", () => 
   const extras = new Map();
   findFolderExtras(items, extras);
   assert.equal(extras.size, 0, "the second part isn't an extra");
+});
+
+test("INVITE_URL drops a trailing slash and is optional", () => {
+  assert.equal(loadConfig({ INVITE_URL: "https://tv.chzsda.com/" }).inviteUrl, "https://tv.chzsda.com");
+  assert.equal(loadConfig({}).inviteUrl, undefined);
 });

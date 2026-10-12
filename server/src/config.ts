@@ -32,6 +32,11 @@ export interface Config {
   androidApp?: { packageName: string; certFingerprints: string[] };
   /** Movie and episode details from TMDB; off without a TMDB token or key. */
   metadata?: MetadataConfig;
+  /**
+   * Where invite links point, e.g. https://tv.chzsda.com, when that address forwards /join/CODE to this server.
+   * Empty: invite links use the address the page was opened on.
+   */
+  inviteUrl?: string;
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -81,6 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       language: env.TMDB_LANGUAGE?.trim() || "en-US",
       file: path.resolve(env.METADATA_FILE?.trim() || fileURLToPath(new URL("../../data/metadata.json", import.meta.url))),
     },
+    inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     transcode: {
       ffmpeg: env.FFMPEG_PATH?.trim() || "ffmpeg",
       ffprobe: env.FFPROBE_PATH?.trim() || "ffprobe",

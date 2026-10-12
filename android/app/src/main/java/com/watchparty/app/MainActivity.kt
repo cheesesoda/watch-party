@@ -357,7 +357,9 @@ private fun JoinForm(prefs: Prefs, invite: String = "", onBack: () -> Unit) {
 
     val submit: () -> Unit = submit@{
         val isLink = code.contains("://") || code.contains("/#/")
-        val url = Prefs.normalizeUrl(if (isLink) code else if (otherServer) server else defaultServer)
+        // A link on the invite domain (tv.chzsda.com) only forwards; the party itself is on the default server.
+        val onInviteHost = isLink && runCatching { Uri.parse(code.trim()).host }.getOrNull().equals(BuildConfig.INVITE_HOST, ignoreCase = true)
+        val url = Prefs.normalizeUrl(if (isLink && !onInviteHost) code else if (otherServer && !onInviteHost) server else defaultServer)
         val id = Prefs.roomCode(code)
         if (url.isEmpty()) {
             error = "Enter the server address from your host, or paste their invite link."

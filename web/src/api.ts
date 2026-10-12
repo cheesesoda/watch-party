@@ -23,6 +23,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Where invite links point; the server's INVITE_URL, or this page's own address. */
+let inviteBase = location.origin;
+export const loadInviteBase = () =>
+  fetch("/api/health")
+    .then((r) => r.json())
+    .then((h: { inviteUrl?: string | null }) => {
+      if (h.inviteUrl) inviteBase = h.inviteUrl;
+    })
+    .catch(() => {});
+export const getInviteBase = () => inviteBase;
+
 export const api = {
   me: () => call<Me>("/api/me"),
   /** Joins one party by its code. Viewers get a pass for that party; the host keeps their sign-in. */
