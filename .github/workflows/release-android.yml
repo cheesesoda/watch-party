@@ -1,7 +1,8 @@
 name: Android release
 
 # Builds a signed app bundle (.aab) for Google Play and, when the PLAY_SERVICE_ACCOUNT_JSON
-# secret is set, publishes it to the internal testing track. Runs on every push to main that
+# secret is set, publishes it to the internal testing track. It also attaches an installable APK
+# to a GitHub release, for Fire TV (no Google Play there; see "Fire TV" in docs/guide.md). Runs on every push to main that
 # changes the app, or from the Actions tab.
 # Needs the ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
 # and ANDROID_KEY_PASSWORD repository secrets (see docs/play-release.md).
@@ -21,7 +22,8 @@ on:
         required: false
 
 permissions:
-  contents: read
+  # write: to publish the Fire TV APK as a GitHub release.
+  contents: write
   actions: read
 
 concurrency:
@@ -96,3 +98,23 @@ jobs:
           track: internal
           status: completed
           whatsNewDirectory: ${{ env.WHATSNEW_DIR }}
+      # Fire TV has no Google Play, so the same build goes up as an APK people can install with the
+      # Downloader app. ".../releases/latest/download/popcorn-club.apk" always points at the newest one.
+      # It's signed with the upload key, not Play's app signing key, so it's for Fire TV only: a phone
+      # with the Play version can't update from it.
+      - name: Build signed APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version_code || github.run_number }}
+        run: |
+          ./gradlew --no-daemon assembleRelease -PversionName="$VERSION_NAME" -PversionCode="$VERSION_CODE"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/popcorn-club.apk"
+      - name: Publish the APK as a GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v$VERSION_NAME" "$RUNNER_TEMP/popcorn-club.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "Popcorn Club $VERSION_NAME" --notes-file "$WHATSNEW_DIR/whatsnew-en-US"

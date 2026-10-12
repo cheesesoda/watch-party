@@ -186,26 +186,26 @@ Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) a
 
 ## Install the Android app (phone or TV)
 
-One app works on Android phones and Android TV / Google TV. It isn't in the Play Store, so you install the APK file directly (sideloading).
+One app works on Android phones, Android TV / Google TV and Amazon Fire TV.
 
-### Getting the APK (host)
+### Phones and Android TV / Google TV
 
-On GitHub, open the repo's **Actions** tab, pick **Android**, press **Run workflow**, and when it finishes download the `watch-party-apk` artifact. It downloads as a zip; the `.apk` is inside. Send that file to friends, or put it somewhere they can download it.
+The app is on Google Play as an internal test, so the host adds each friend's Google account as a tester in Play Console (Test and release, Internal testing, Testers) and sends them the opt-in link. After they accept, Popcorn Club installs and updates from the Play Store like any app.
 
-### On a phone
+### Fire TV
 
-1. Open the `.apk` file on the phone (from Downloads, a chat app, or email).
-2. When Android asks, allow installing apps from that source, then tap **Install**.
+Fire TV has no Google Play, so Fire TV installs the APK file from GitHub instead. This works on Fire TV models that run Fire OS (for example the Fire TV Stick 4K Plus, 4K Max and Cube). It doesn't work on the newer Vega OS models (the Fire TV Stick 4K Select, and the 2026 Fire TV Stick 4K and Fire TV Stick HD), because they can't run Android apps. To check, look at Settings, My Fire TV, About.
 
-### On Android TV / Google TV
+1. On the Fire TV home screen, search for **Downloader** (the orange app by AFTVnews) and install it.
+2. Turn on developer options: go to Settings, My Fire TV, About, and press the select button on your Fire TV's name seven times until it says you're a developer.
+3. Go back to My Fire TV, then Developer options, then **Install unknown apps**, and turn it on for **Downloader**.
+4. Open Downloader and enter this link (or the short code the host gives you):
+   `https://github.com/cheesesoda/watch-party/releases/latest/download/popcorn-club.apk`
+5. Press **Install**. When it's done, Downloader offers to delete the file; say yes. Popcorn Club is now under Your Apps & Channels.
 
-Pick whichever is easiest:
+To update, repeat step 4; your sign-in and settings stay. The phone side works the same as with any TV: scan the Fire TV's QR code with your phone to sign it in or to chat from your phone. Menu names can differ a little between Fire OS versions.
 
-- **Send Files to TV:** install it on your phone and the TV, send the APK across, then open it on the TV.
-- **Downloader app:** if the APK is at a web link, install Downloader on the TV and enter the link.
-- **adb (for the technical):** turn on developer mode and network debugging on the TV, then `adb connect <tv-ip>` and `adb install app-release.apk`.
-
-The TV will ask you to allow unknown apps for whichever app opened the APK; the setting usually sits under Settings, then Privacy or Security, but it varies by brand. Once installed, Popcorn Club shows up on the TV home screen.
+This APK is only for Fire TV. On a phone or Google TV, use the Play Store version, because the two are signed differently and can't update each other.
 
 ### First launch
 
