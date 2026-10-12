@@ -76,6 +76,8 @@ dependencies {
     // Scans the TV's QR code from inside the phone app. Google's scanner runs in Play services, so the
     // app needs no camera permission.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Play services brings an old Fragment library; 1.3.0+ is needed for the mic permission request.
+    implementation("androidx.fragment:fragment:1.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     // Community build of Google's WebRTC for voice chat; Google no longer publishes Android binaries.
     implementation("io.getstream:stream-webrtc-android:1.3.10")
