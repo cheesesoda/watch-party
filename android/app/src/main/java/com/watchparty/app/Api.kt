@@ -98,6 +98,11 @@ class Api(private val baseUrl: String, private val token: String) {
     suspend fun room(id: String): RoomSummary =
         Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms/$id")).room
 
+    /** Ends a party for everyone in it, without joining. Host only. */
+    suspend fun endRoom(id: String, name: String) {
+        request("/api/rooms/$id/end", buildJsonObject { put("name", name) }.toString())
+    }
+
     suspend fun createRoom(mediaId: String?): RoomSummary {
         val body = buildJsonObject { if (mediaId != null) put("mediaId", mediaId) }.toString()
         return Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", body)).room

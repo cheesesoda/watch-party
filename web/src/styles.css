@@ -155,6 +155,13 @@ input:focus {
   display: grid;
   gap: 6px;
 }
+.rooms li {
+  display: flex;
+  gap: 6px;
+}
+.rooms li .end {
+  flex: none;
+}
 .item {
   width: 100%;
   display: grid;

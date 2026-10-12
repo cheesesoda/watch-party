@@ -170,6 +170,23 @@ test("a party code lets a viewer into that party only, until it ends", async () 
   viewer.ws.close();
 });
 
+test("the host ends a party from the home screen; viewers can't", async () => {
+  const post = (path: string, headers: Record<string, string>, body: object = {}) =>
+    fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const { room } = await (await post("/api/rooms", auth())).json();
+  const guest: string = (await (await post("/api/join", { "x-forwarded-for": "100.64.1.2" }, { code: room.id })).json()).token;
+  const viewer = connect(room.id, "Viewer", guest);
+  await viewer.next((m) => m.type === "welcome");
+
+  assert.equal((await post(`/api/rooms/${room.id}/end`, { Authorization: `Bearer ${guest}` })).status, 403);
+  assert.equal((await post(`/api/rooms/${room.id}/end`, auth(), { name: "Jake" })).status, 204);
+  const ended = await viewer.next((m) => m.type === "ended");
+  assert.equal(ended.type === "ended" && ended.by, "Jake");
+  assert.equal((await fetch(`${base}/api/rooms/${room.id}`, { headers: auth() })).status, 404);
+  assert.equal((await post(`/api/rooms/${room.id}/end`, auth())).status, 404);
+  viewer.ws.close();
+});
+
 test("a TV signs in by QR: the phone enters a party code or the password", async () => {
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(base + path, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "100.64.2.1", ...headers }, body: JSON.stringify(body) });

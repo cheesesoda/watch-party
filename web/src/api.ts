@@ -29,6 +29,9 @@ export const api = {
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),
+  /** Ends a party for everyone in it, without joining. Host only. */
+  endRoom: (id: string, name: string) =>
+    call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name }) }),
   createRoom: (mediaId?: string) =>
     call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId }) }).then((r) => r.room),
 };
