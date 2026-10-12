@@ -202,14 +202,21 @@ static class ModernMenu
         // keeps its color, so images are never grayed out.
         protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
         {
-            if (e.Image != null) e.Graphics.DrawImage(e.Image, e.ImageRectangle);
+            if (e.Image != null) e.Graphics.DrawImage(e.Image, Centered(e.Item, e.ImageRectangle));
         }
 
+        // With padded items WinForms puts the image a few pixels lower than the text, so both are
+        // centered on the item's full height instead.
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             e.TextColor = e.Item.Enabled ? Palette.Text : Palette.Disabled;
+            e.TextRectangle = new Rectangle(e.TextRectangle.X, 0, e.TextRectangle.Width, e.Item.Height);
+            e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) | TextFormatFlags.VerticalCenter;
             base.OnRenderItemText(e);
         }
+
+        static Rectangle Centered(ToolStripItem item, Rectangle r) =>
+            new(r.X, (item.Height - r.Height) / 2, r.Width, r.Height);
 
         protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
         {
@@ -221,7 +228,7 @@ static class ModernMenu
         protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
         {
             using var check = Glyph(Check, Palette.Text, e.ImageRectangle.Height);
-            e.Graphics.DrawImage(check, e.ImageRectangle);
+            e.Graphics.DrawImage(check, Centered(e.Item, e.ImageRectangle));
         }
 
         protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
