@@ -4,10 +4,16 @@ import type { ChatMessage, Member } from "../../shared/protocol.ts";
 const FADE_MS = 10_000;
 
 /**
- * Chat drawn over the video. Recent messages float in and fade out; focusing
+ * Chat drawn over the video. Recent messages float in and fade out unless pop-ups are off; focusing
  * the input (press Enter anywhere) or pinning shows the full history.
  */
-export function ChatOverlay(props: { chat: ChatMessage[]; me: Member | null; pinned: boolean; onSend: (text: string) => void }) {
+export function ChatOverlay(props: {
+  chat: ChatMessage[];
+  me: Member | null;
+  pinned: boolean;
+  popups: boolean;
+  onSend: (text: string) => void;
+}) {
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -36,7 +42,11 @@ export function ChatOverlay(props: { chat: ChatMessage[]; me: Member | null; pin
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [props.chat.length, expanded]);
 
-  const visible = expanded ? props.chat.slice(-100) : props.chat.slice(-6).filter((m) => now - m.ts < FADE_MS);
+  const visible = expanded
+    ? props.chat.slice(-100)
+    : props.popups
+      ? props.chat.slice(-6).filter((m) => now - m.ts < FADE_MS)
+      : [];
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -47,7 +57,7 @@ export function ChatOverlay(props: { chat: ChatMessage[]; me: Member | null; pin
   };
 
   return (
-    <div className={`chat ${expanded ? "expanded" : ""}`}>
+    <div className={`chat ${expanded ? "expanded" : ""} ${props.popups ? "" : "quiet"}`}>
       <div className="chat-list" ref={listRef}>
         {visible.map((m) => (
           <div

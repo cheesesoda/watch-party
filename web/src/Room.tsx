@@ -10,12 +10,28 @@ import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
 
+/** Whether chat messages pop up over the video; remembered per browser. */
+const POPUPS_KEY = "chat-popups";
+
 /** `host` is false for viewers who joined with the code: they can't change the video or end the party. */
 export function Room(props: { roomId: string; name: string; host: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const syncRef = useRef<VideoSync | null>(null);
   const [pinned, setPinned] = useState(false);
+  const [popups, setPopups] = useState(() => {
+    try {
+      return localStorage.getItem(POPUPS_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const togglePopups = () => {
+    setPopups(!popups);
+    try {
+      localStorage.setItem(POPUPS_KEY, popups ? "off" : "on");
+    } catch {}
+  };
   const [picking, setPicking] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [idle, setIdle] = useState(false);
@@ -306,6 +322,9 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <button className={pinned ? "on" : ""} onClick={() => setPinned(!pinned)}>
           Chat
         </button>
+        <button className={popups ? "on" : ""} onClick={togglePopups} title="Show new messages over the video">
+          Pop-ups
+        </button>
         <button onClick={toggleFullscreen}>Fullscreen</button>
         {props.host && (
           <button onClick={endParty} disabled={view.status !== "open"}>
@@ -356,7 +375,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         </div>
       )}
 
-      <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} onSend={(text) => send({ type: "chat", text })} />
+      <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} popups={popups} onSend={(text) => send({ type: "chat", text })} />
 
       {picking && props.host && (
         <div className="modal" onClick={() => setPicking(false)}>

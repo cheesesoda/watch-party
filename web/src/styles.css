@@ -374,8 +374,12 @@ input:focus {
   background: rgba(10, 11, 14, 0.72);
   border-color: transparent;
 }
-.room.idle .chat:not(.expanded) input {
+.room.idle .chat:not(.expanded) input,
+.chat.quiet:not(.expanded) input {
   opacity: 0;
+}
+.chat.quiet:not(.expanded) input:hover {
+  opacity: 1;
 }
 
 .modal {

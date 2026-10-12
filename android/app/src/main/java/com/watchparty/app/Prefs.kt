@@ -18,6 +18,11 @@ class Prefs(context: Context) {
         get() = sp.getString("name", "") ?: ""
         set(v) = sp.edit().putString("name", v).apply()
 
+    /** New chat messages pop up over the video. */
+    var chatPopups: Boolean
+        get() = sp.getBoolean("chat_popups", true)
+        set(v) = sp.edit().putBoolean("chat_popups", v).apply()
+
     /** Code of the last party this device joined; fills in the code when signing in a TV. */
     var lastRoom: String
         get() = sp.getString("last_room", "") ?: ""

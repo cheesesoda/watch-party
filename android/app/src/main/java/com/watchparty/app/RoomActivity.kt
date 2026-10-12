@@ -81,6 +81,7 @@ class RoomActivity : ComponentActivity() {
     private lateinit var chatPanel: LinearLayout
     private lateinit var chatPanelHistory: TextView
     private lateinit var chatPanelInput: EditText
+    private lateinit var popupsButton: Button
     private lateinit var companionView: LinearLayout
     private lateinit var companionTitle: TextView
     private lateinit var companionVoice: TextView
@@ -552,11 +553,21 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    private fun popupsLabel() = if (prefs.chatPopups) "Pop-ups on" else "Pop-ups off"
+
+    /** Turns the messages that pop up over the video on or off; remembered on this device. */
+    private fun toggleChatPopups() {
+        prefs.chatPopups = !prefs.chatPopups
+        popupsButton.text = popupsLabel()
+        renderChatOverlay()
+    }
+
     /** Shows the last few messages for 10 seconds each, like a game chat. */
     private fun renderChatOverlay() {
         val now = System.currentTimeMillis()
         val serverNow = sync.clock.serverNow(now)
-        val recent = if (chatPanel.visibility == View.VISIBLE) emptyList() else chat.takeLast(6).filter { serverNow - it.ts < CHAT_FADE_MS }
+        val recent = if (chatPanel.visibility == View.VISIBLE || !prefs.chatPopups) emptyList()
+        else chat.takeLast(6).filter { serverNow - it.ts < CHAT_FADE_MS }
         chatOverlay.removeAllViews()
         for (m in recent) {
             val age = serverNow - m.ts
@@ -637,6 +648,7 @@ class RoomActivity : ComponentActivity() {
             val header = LinearLayout(this@RoomActivity).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(text(20f, Color.WHITE).apply { text = "Chat"; setTypeface(typeface, Typeface.BOLD) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(barButton(popupsLabel()) { toggleChatPopups() }.also { popupsButton = it })
                 addView(barButton("Close") { closeChat() })
             }
             addView(header)
