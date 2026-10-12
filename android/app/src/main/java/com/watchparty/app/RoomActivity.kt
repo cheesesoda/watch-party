@@ -934,7 +934,7 @@ class RoomActivity : ComponentActivity() {
 
     /**
      * A Material 3 tonal button with an icon: icon and label, or a round icon-only button (its name shows
-     * on long-press). Selected with the remote it turns amber with a white ring, so it's unmistakable.
+     * on long-press). Selected with the remote it turns amber.
      */
     private fun barButton(label: String, icon: Int, iconOnly: Boolean = false, onClick: () -> Unit) = Button(this).apply {
         tag = iconOnly
@@ -944,8 +944,9 @@ class RoomActivity : ComponentActivity() {
         setOnClickListener { onClick() }
         val focused = intArrayOf(android.R.attr.state_focused)
         val pressed = intArrayOf(android.R.attr.state_pressed)
+        // Amber marks the focused button; no ring needed on top.
         background = StateListDrawable().apply {
-            addState(focused, pill(ACCENT).apply { setStroke(dp(2), Color.WHITE) })
+            addState(focused, pill(ACCENT))
             addState(pressed, pill(ACCENT))
             addState(intArrayOf(), pill(TONAL))
         }
@@ -1009,13 +1010,13 @@ class RoomActivity : ComponentActivity() {
             }, x, y, x, y)
         }
         trackDrawable = StateListDrawable().apply {
-            addState(checked + focused, track(ACCENT, Color.WHITE))
             addState(checked, track(ACCENT, ACCENT))
-            addState(focused, track(SURFACE, Color.WHITE))
+            addState(focused, track(SURFACE, ACCENT))
             addState(intArrayOf(), track(SURFACE, ON_SURFACE_VARIANT))
         }
         thumbDrawable = StateListDrawable().apply {
-            addState(checked, thumb(ON_ACCENT, 24))
+            // White on amber reads as clearly on; a dark thumb looked switched off.
+            addState(checked, thumb(Color.WHITE, 24))
             addState(intArrayOf(), thumb(ON_SURFACE_VARIANT, 16))
         }
         switchMinWidth = dp(52)
