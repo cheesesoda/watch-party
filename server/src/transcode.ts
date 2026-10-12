@@ -72,7 +72,8 @@ export function ffmpegArgs(opts: { input: string; probe: ProbeResult; start: num
   const at = opts.start * seg;
   const nvenc = opts.encoder === "h264_nvenc";
   const args = ["-hide_banner", "-nostdin", "-loglevel", "error"];
-  if (nvenc) args.push("-hwaccel", "auto");
+  // Decode on the GPU when there is one, even when encoding falls back to the CPU; ffmpeg uses the CPU if it can't.
+  args.push("-hwaccel", "auto");
   if (at > 0) args.push("-ss", String(at));
   args.push("-i", opts.input);
   if (opts.probe.videoIndex !== null) {
@@ -80,7 +81,7 @@ export function ffmpegArgs(opts: { input: string; probe: ProbeResult; start: num
     // Never upscale; 1080p is plenty for streaming to friends. format=yuv420p turns 10-bit into what H.264 players expect.
     args.push("-vf", "scale=-2:min(ih\\,1080),format=yuv420p");
     if (nvenc) args.push("-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-forced-idr", "1");
-    else args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-sc_threshold", "0");
+    else args.push("-c:v", "libx264", "-preset", "superfast", "-crf", "22", "-sc_threshold", "0");
     args.push("-maxrate", "10M", "-bufsize", "20M", "-profile:v", "high");
     args.push("-force_key_frames", `expr:gte(t,n_forced*${seg})`);
   }
@@ -175,6 +176,9 @@ export class Transcoder {
         return enc;
       }
       if (r.code === null) break; // ffmpeg itself is missing
+      // The first lines carry the cause (e.g. "Driver does not support the required nvenc API version"); the rest is fallout.
+      const why = r.stderr.trim().split(/\r?\n/).filter(Boolean).slice(0, 2).join(" / ");
+      console.warn(`transcode: ${enc} isn't usable${why ? `: ${why}` : ""}`);
     }
     console.warn(`transcode: off (no working ffmpeg at "${this.config.ffmpeg}" with ${wanted.join(" or ")}). Install ffmpeg to play HEVC/AC3 files in browsers.`);
     return null;

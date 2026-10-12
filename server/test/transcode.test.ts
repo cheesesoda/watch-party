@@ -46,7 +46,8 @@ test("ffmpegArgs seeks to the segment and keeps its place on the timeline", () =
   assert.equal(after("-hwaccel"), "auto");
   assert.ok(args.indexOf("-ss") < args.indexOf("-i"), "-ss before -i seeks fast");
   const cpu = ffmpegArgs({ input: "/m/a.mkv", probe, start: 0, outDir: "/tmp/x", encoder: "libx264", seg: 4 });
-  assert.ok(!cpu.includes("-ss") && !cpu.includes("-hwaccel"));
+  assert.ok(!cpu.includes("-ss"));
+  assert.equal(cpu[cpu.indexOf("-hwaccel") + 1], "auto", "decodes on the GPU when there is one");
   assert.equal(cpu[cpu.indexOf("-c:v") + 1], "libx264");
 });
 
