@@ -3,11 +3,12 @@ import { api, getName, setName, Unauthorized, type Me } from "./api.ts";
 import { Home } from "./Home.tsx";
 import { Join, Landing, Login } from "./Login.tsx";
 import { navigate } from "./nav.ts";
+import { Pair } from "./Pair.tsx";
 import { Room } from "./Room.tsx";
 
 /**
  * Hash routes: "#/" start or join, "#/start" host sign-in, "#/join/<code>" join a party,
- * "#/room/<code>" a watch party. Hash routing keeps invite links working behind any server.
+ * "#/room/<code>" a watch party, "#/pair/<id>" sign in a TV from its QR code. Hash routing keeps invite links working behind any server.
  */
 function useHashRoute(): string {
   const [hash, setHash] = useState(location.hash);
@@ -41,6 +42,9 @@ export function App() {
   if (me === null) return <div className="center muted">Loading…</div>;
   const host = me !== "out" && me.role === "host";
   const guestRoom = me !== "out" && me.role === "guest" ? me.room : null;
+
+  const pairId = /^\/pair\/([\w-]+)/.exec(route)?.[1];
+  if (pairId) return <Pair id={pairId} host={host} initialName={name} />;
 
   const code = /^\/(?:room|join)\/([\w-]*)/.exec(route)?.[1]?.toLowerCase();
   if (code !== undefined) {

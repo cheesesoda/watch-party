@@ -111,6 +111,7 @@ To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 | `TRANSCODE_ENCODER` | `auto` | How the server converts movies browsers can't play. `auto` uses an NVIDIA GPU (NVENC) if there is one, otherwise the CPU (`libx264`). `off` turns converting off. |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | Where FFmpeg is, if it isn't on your PATH. |
 | `TRANSCODE_DIR` | system temp folder | Where converted pieces go while a movie plays. They're deleted a few minutes after everyone stops watching. |
+| `ANDROID_CERT_SHA256` | empty | The app's signing fingerprint, so phones open the TV's QR link in the app instead of the browser. Copy the SHA-256 from Play Console, under Test and release, App integrity, App signing key certificate. Several are allowed, separated by commas. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
 
 **Upload speed matters.** Each friend streams straight from your computer, so a 10 Mbps movie watched by three friends needs about 30 Mbps of upload.
@@ -194,9 +195,10 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 The app opens on **Join a party** and **Start a party**.
 
 - **Join a party (friends):** enter the party code and your name. The app already knows the host's server; press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
-- **Start a party (host):** enter the server address, your name and the password. Then press **Start a party** to get a code and a **Join party** button, and pick the movie with **Change video** once you're in.
+- **Start a party (host):** enter your name and the password. Then press **Start a party** to get a code and a **Join party** button, and pick the movie with **Change video** once you're in.
+- **Sign in with your phone (TV only):** the TV shows a QR code. Scan it with your phone's camera, enter the party code and a name for the TV, and the TV joins by itself. The host can tap **I'm the host** instead to sign the TV in as host. On a phone with the app installed the link opens in the app, otherwise in the browser; both work.
 
-The server address is the host's `https://` one, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
+The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
 
 On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video** for the host, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
 

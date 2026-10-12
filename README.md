@@ -42,6 +42,7 @@ On Windows, see the [guide's PowerShell steps](docs/guide.md#windows-powershell)
 | Variable | Default | |
 | --- | --- | --- |
 | `WATCH_PASSWORD` | _(required)_ | The host's password for starting parties and browsing the library. Viewers join with a party code instead. The server won't start without it. |
+| `ANDROID_CERT_SHA256` | _(empty)_ | The Android app's signing certificate SHA-256 (from Play Console's App signing page), so a TV's sign-in QR code opens in the app on phones. Without it, the link opens in the browser, which works too. |
 | `ALLOW_NO_PASSWORD` | _(off)_ | Set to `1` to run with no password at all. Only do this on a network you trust. |
 | `MEDIA_DIR` | `./media` | Folder to index. Use `MEDIA_DIRS` with commas for several. Subfolders show up as groups. |
 | `PORT` | `8080` | |

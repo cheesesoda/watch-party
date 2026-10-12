@@ -15,7 +15,10 @@ android {
         minSdk = 26
         targetSdk = 36
         // Where Join a party looks for parties unless someone picks "Other server". Override with -PdefaultServer=…
-        buildConfigField("String", "DEFAULT_SERVER", "\"${project.findProperty("defaultServer") ?: "https://omnipotent.tail3b2bb0.ts.net"}\"")
+        val defaultServer = (project.findProperty("defaultServer") as String?) ?: "https://omnipotent.tail3b2bb0.ts.net"
+        buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
+        // The TV's sign-in QR code links to <server>/pair/…; phones with the app open it here.
+        manifestPlaceholders["pairHost"] = defaultServer.substringAfter("://").substringBefore("/").substringBefore(":")
         // The release workflow passes these; local and PR builds use the defaults.
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = findProperty("versionName") as String? ?: "0.1.0"
@@ -66,6 +69,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Draws the TV's sign-in QR code.
+    implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     // Community build of Google's WebRTC for voice chat; Google no longer publishes Android binaries.
     implementation("io.getstream:stream-webrtc-android:1.3.10")
