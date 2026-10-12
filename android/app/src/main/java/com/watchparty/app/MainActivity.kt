@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
@@ -423,7 +424,8 @@ private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
                 Text("Sign in with your phone", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text("Scan the code with your phone's camera, then enter the party code and a name. The TV joins on its own.", color = Muted)
                 error?.let { Text(it, color = ErrorColor) }
-                OutlinedButton(onClick = onBack, modifier = Modifier.focusRing()) { Text("Back") }
+                // The only button here, so it needs no focus ring.
+                OutlinedButton(onClick = onBack) { Text("Back") }
             }
         }
     }
@@ -759,6 +761,9 @@ private fun Modifier.focusRing(): Modifier = composed {
         .onFocusChanged { focused = it.isFocused }
         .scale(if (focused) 1.06f else 1f)
         .border(3.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(50))
+        // Material pads a 40 dp button out to a 48 dp touch target, which left a gap between the ring and the
+        // button. Making the button itself 48 dp tall removes the padding, so the ring sits on its edge.
+        .heightIn(min = 48.dp)
 }
 
 private fun formatSize(bytes: Long): String {
