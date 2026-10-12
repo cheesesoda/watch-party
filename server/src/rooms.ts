@@ -7,6 +7,7 @@ import type {
   MediaItem,
   Member,
   PlaybackState,
+  Queue,
   RoomSummary,
   ServerMessage,
   SignalData,
@@ -22,6 +23,8 @@ const CHAT_HISTORY = 100;
 const MAX_CHAT_LENGTH = 500;
 const MAX_NAME_LENGTH = 32;
 const MAX_SIGNAL_LENGTH = 12_000;
+/** A whole long show is a few hundred episodes. */
+export const MAX_QUEUE = 1000;
 
 export const DEFAULT_ICE_SERVERS: IceServer[] = [{ urls: ["stun:stun.l.google.com:19302"] }];
 
@@ -63,6 +66,12 @@ export class Room {
   ended = false;
   readonly chat: ChatMessage[] = [];
   emptySince: number;
+  /** A binge: media ids played one after another. Empty for a single video. */
+  queue: string[] = [];
+  /** Counting down to the next video in the binge. */
+  private advance: { mediaId: string; at: number; timer: NodeJS.Timeout } | null = null;
+  /** How long everyone sees "Up next" before the next video starts. */
+  advanceDelayMs = 10_000;
 
   constructor(
     readonly id: string,
@@ -75,7 +84,29 @@ export class Room {
   }
 
   summary(): RoomSummary {
-    return { id: this.id, media: this.media, members: this.memberList() };
+    const index = this.media ? this.queue.indexOf(this.media.id) : -1;
+    return {
+      id: this.id,
+      media: this.media,
+      members: this.memberList(),
+      binge: this.queue.length > 1 && index >= 0 ? { index: index + 1, length: this.queue.length } : null,
+    };
+  }
+
+  /** The binge as clients see it, with each video's current details; null for a single video. */
+  queueInfo(): Queue | null {
+    if (this.queue.length < 2) return null;
+    const items = this.queue.map((id) => this.lookup(id)).filter((m): m is MediaItem => !!m);
+    return { items, advance: this.advance && { mediaId: this.advance.mediaId, at: this.advance.at } };
+  }
+
+  /** Sets up a binge and points the room at its first video. Unknown ids are skipped. */
+  setQueue(mediaIds: string[]): boolean {
+    const ids = [...new Set(mediaIds)].slice(0, MAX_QUEUE).filter((id) => this.lookup(id));
+    if (ids.length === 0) return false;
+    this.cancelAdvance();
+    this.queue = ids.length > 1 ? ids : [];
+    return this.select(ids[0]);
   }
 
   memberList(): Member[] {
@@ -98,6 +129,7 @@ export class Room {
       chat: this.chat,
       serverTime: this.now(),
       iceServers: this.iceServers,
+      queue: this.queueInfo(),
     });
     this.broadcast({ type: "members", members: this.memberList() });
     if (!alreadyHere) this.notice(`${member.name} joined`);
@@ -123,6 +155,9 @@ export class Room {
   select(mediaId: string): boolean {
     const media = this.lookup(mediaId);
     if (!media) return false;
+    this.cancelAdvance();
+    // Picking something outside the binge ends it.
+    if (!this.queue.includes(mediaId)) this.queue = [];
     this.media = media;
     this.state = { mediaId, paused: true, position: 0, updatedAt: this.now() };
     return true;
@@ -178,8 +213,43 @@ export class Room {
           send({ type: "error", message: "That file is not in the library." });
           return;
         }
+        // Moving around a binge keeps it playing, like a TV remote's next button.
+        if (this.queue.length > 0) this.state = { ...this.state, paused: false };
         this.broadcastState(member.name);
+        this.broadcastQueue();
         this.notice(`${member.name} started ${this.media!.title}`);
+        return;
+      }
+
+      case "binge": {
+        if (guest) return send({ type: "error", message: "Only the host can change the video." });
+        const ids = Array.isArray(msg.mediaIds) ? msg.mediaIds.filter((id): id is string => typeof id === "string") : [];
+        if (!this.setQueue(ids)) return send({ type: "error", message: "Those files are not in the library." });
+        this.broadcastState(member.name);
+        this.broadcastQueue();
+        const count = this.queue.length;
+        this.notice(count > 1 ? `${member.name} started a binge of ${count} videos with ${this.media!.title}` : `${member.name} started ${this.media!.title}`);
+        return;
+      }
+
+      case "ended": {
+        // Every screen reports the end; the first report for the current video starts the countdown.
+        if (msg.mediaId !== this.state.mediaId || this.advance) return;
+        const next = this.queue[this.queue.indexOf(msg.mediaId) + 1];
+        if (!next || !this.lookup(next)) return;
+        const at = now + this.advanceDelayMs;
+        this.advance = { mediaId: next, at, timer: setTimeout(() => this.moveOn(next), this.advanceDelayMs) };
+        this.advance.timer.unref?.();
+        this.broadcastQueue();
+        return;
+      }
+
+      case "cancel-advance": {
+        if (guest) return send({ type: "error", message: "Only the host can change the video." });
+        if (!this.advance) return;
+        this.cancelAdvance();
+        this.broadcastQueue();
+        this.notice(`${member.name} stopped the binge from moving on`);
         return;
       }
 
@@ -209,6 +279,7 @@ export class Room {
   end(by: string): void {
     if (this.ended) return;
     this.ended = true;
+    this.cancelAdvance();
     this.broadcast({ type: "ended", by });
     for (const { close } of [...this.members.values()]) close();
     this.onEnded();
@@ -217,6 +288,25 @@ export class Room {
   /** Current position, for display and for late joiners. */
   position(): number {
     return expectedPosition(this.state, this.now());
+  }
+
+  /** The countdown ran out: the next video in the binge starts playing for everyone. */
+  private moveOn(mediaId: string): void {
+    this.advance = null;
+    if (this.ended || !this.select(mediaId)) return;
+    this.state = { ...this.state, paused: false, updatedAt: this.now() };
+    this.broadcastState(null);
+    this.broadcastQueue();
+    this.notice(`Now playing ${this.media!.title}`);
+  }
+
+  private cancelAdvance(): void {
+    if (this.advance) clearTimeout(this.advance.timer);
+    this.advance = null;
+  }
+
+  private broadcastQueue(): void {
+    this.broadcast({ type: "queue", queue: this.queueInfo() });
   }
 
   private broadcastState(by: string | null): void {
@@ -248,14 +338,16 @@ export class RoomManager {
     private iceServers: IceServer[] = DEFAULT_ICE_SERVERS,
   ) {}
 
-  create(mediaId?: string): Room {
+  /** queue: a binge, played in order from its first video (mediaId is then ignored). */
+  create(mediaId?: string, queue?: string[]): Room {
     let id: string;
     do {
       id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
     } while (this.rooms.has(id));
     const room = new Room(id, this.lookup, this.now, this.iceServers);
     room.onEnded = () => this.rooms.delete(id);
-    if (mediaId) room.select(mediaId);
+    if (queue && queue.length > 0) room.setQueue(queue);
+    else if (mediaId) room.select(mediaId);
     this.rooms.set(id, room);
     return room;
   }

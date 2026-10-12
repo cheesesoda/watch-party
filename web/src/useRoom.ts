@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ClientMessage, IceServer, MediaItem, Member, PlaybackState, ServerMessage, SignalData } from "../../shared/protocol.ts";
+import type { ChatMessage, ClientMessage, IceServer, MediaItem, Member, PlaybackState, Queue, ServerMessage, SignalData } from "../../shared/protocol.ts";
 
 export interface RoomView {
   status: "connecting" | "open" | "closed" | "missing" | "ended";
@@ -12,6 +12,8 @@ export interface RoomView {
   state: PlaybackState | null;
   error: string | null;
   iceServers: IceServer[];
+  /** The binge, if the party has one. */
+  queue: Queue | null;
 }
 
 export interface RoomHandlers {
@@ -35,6 +37,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
     state: null,
     error: null,
     iceServers: [],
+    queue: null,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef(handlers);
@@ -77,6 +80,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
               state: msg.state,
               error: null,
               iceServers: msg.iceServers ?? [],
+              queue: msg.queue ?? null,
             });
             handlersRef.current.onState?.(msg.state);
             handlersRef.current.onWelcome?.(msg.you);
@@ -84,6 +88,9 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
           case "state":
             setView((v) => ({ ...v, state: msg.state, media: msg.media }));
             handlersRef.current.onState?.(msg.state);
+            break;
+          case "queue":
+            setView((v) => ({ ...v, queue: msg.queue }));
             break;
           case "members":
             setView((v) => ({ ...v, members: msg.members }));

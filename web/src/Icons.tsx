@@ -101,6 +101,18 @@ export const ChevronRightIcon = (p: Props) => (
   </Svg>
 );
 
+export const SkipBackIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M19 20 9 12l10-8v16ZM5 19V5" />
+  </Svg>
+);
+
+export const SkipForwardIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="m5 4 10 8-10 8V4ZM19 5v14" />
+  </Svg>
+);
+
 export const InfoIcon = (p: Props) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="10" />

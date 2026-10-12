@@ -43,8 +43,9 @@ export const api = {
   /** Ends a party for everyone in it, without joining. Host only. */
   endRoom: (id: string, name: string) =>
     call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name }) }),
-  createRoom: (mediaId?: string) =>
-    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId }) }).then((r) => r.room),
+  /** queue: a binge, the videos to play one after another from the first. */
+  createRoom: (mediaId?: string, queue?: string[]) =>
+    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue }) }).then((r) => r.room),
 };
 
 export const streamUrl = (id: string) => `/api/media/${id}/stream`;

@@ -156,3 +156,45 @@ test("ending a party tells everyone, disconnects them and removes the room", () 
   room.leave(alice.id);
   assert.equal(a.length, before);
 });
+
+test("a binge plays its videos in order, moving on after a countdown the host can cancel", async () => {
+  const eps: MediaItem[] = [1, 2, 3].map((n) => ({ ...movie, id: `e${n}`, title: `Show S1 E${n}` }));
+  const mgr = new RoomManager((id) => eps.find((e) => e.id === id), Date.now, 1000);
+  const room = mgr.create(undefined, ["e1", "nope", "e2", "e3"]);
+  room.advanceDelayMs = 5;
+  assert.equal(room.media?.id, "e1");
+  assert.deepEqual(room.summary().binge, { index: 1, length: 3 });
+
+  const inbox: ServerMessage[] = [];
+  const host = room.join("Host", (m) => inbox.push(m));
+  const viewer = room.join("Viewer", () => {}, "web", () => {}, true);
+  const welcome = inbox.find((m) => m.type === "welcome");
+  assert.ok(welcome?.type === "welcome");
+  assert.deepEqual(welcome.queue?.items.map((i) => i.id), ["e1", "e2", "e3"]);
+
+  // Both screens report the end; one countdown starts.
+  room.handle(viewer.id, { type: "ended", mediaId: "e1" });
+  room.handle(host.id, { type: "ended", mediaId: "e1" });
+  const counting = inbox.filter((m) => m.type === "queue").at(-1);
+  assert.ok(counting?.type === "queue");
+  assert.equal(counting.queue?.advance?.mediaId, "e2");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(room.media?.id, "e2");
+  assert.equal(room.state.paused, false, "the next one starts playing");
+
+  // The host cancels the next countdown; a viewer can't.
+  room.handle(host.id, { type: "ended", mediaId: "e2" });
+  room.handle(viewer.id, { type: "cancel-advance" });
+  room.handle(host.id, { type: "cancel-advance" });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(room.media?.id, "e2");
+
+  // Going back within the binge keeps it; picking another video ends it.
+  room.handle(host.id, { type: "select", mediaId: "e1" });
+  assert.deepEqual(room.summary().binge, { index: 1, length: 3 });
+  room.handle(host.id, { type: "binge", mediaIds: ["e3", "e2"] });
+  assert.equal(room.media?.id, "e3");
+  room.handle(host.id, { type: "ended", mediaId: "e2" });
+  assert.equal(room.queueInfo()?.advance, null, "only the video playing now counts");
+  mgr.rooms.clear();
+});
