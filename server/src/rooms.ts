@@ -14,6 +14,7 @@ import type {
 import { expectedPosition } from "../../shared/protocol.ts";
 
 export type Send = (msg: ServerMessage) => void;
+export type Close = () => void;
 export type LookupMedia = (id: string) => MediaItem | undefined;
 export type Clock = () => number;
 
@@ -54,7 +55,10 @@ export function cleanName(name: unknown): string {
 export class Room {
   state: PlaybackState;
   media: MediaItem | null = null;
-  readonly members = new Map<string, { member: Member; send: Send }>();
+  readonly members = new Map<string, { member: Member; send: Send; close: Close }>();
+  /** Set by the RoomManager so ending a party also removes it from the list. */
+  onEnded: () => void = () => {};
+  ended = false;
   readonly chat: ChatMessage[] = [];
   emptySince: number;
 
@@ -76,11 +80,11 @@ export class Room {
     return [...this.members.values()].map((m) => m.member);
   }
 
-  join(name: string, send: Send, device: Device = "web"): Member {
+  join(name: string, send: Send, device: Device = "web", close: Close = () => {}): Member {
     const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
-    this.members.set(member.id, { member, send });
+    this.members.set(member.id, { member, send, close });
     send({
       type: "welcome",
       you: member,
@@ -102,6 +106,7 @@ export class Room {
     if (!entry) return;
     this.members.delete(memberId);
     if (this.members.size === 0) this.emptySince = this.now();
+    if (this.ended) return;
     this.broadcast({ type: "members", members: this.memberList() });
     if (!this.hasName(entry.member.name)) this.notice(`${entry.member.name} left`);
   }
@@ -159,6 +164,10 @@ export class Room {
         return;
       }
 
+      case "end":
+        this.end(member.name);
+        return;
+
       case "select": {
         if (typeof msg.mediaId !== "string" || !this.select(msg.mediaId)) {
           send({ type: "error", message: "That file is not in the library." });
@@ -189,6 +198,15 @@ export class Room {
       default:
         send({ type: "error", message: "Unknown message type." });
     }
+  }
+
+  /** Tells everyone the party is over, disconnects them, and removes the room. */
+  end(by: string): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.broadcast({ type: "ended", by });
+    for (const { close } of [...this.members.values()]) close();
+    this.onEnded();
   }
 
   /** Current position, for display and for late joiners. */
@@ -231,6 +249,7 @@ export class RoomManager {
       id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
     } while (this.rooms.has(id));
     const room = new Room(id, this.lookup, this.now, this.iceServers);
+    room.onEnded = () => this.rooms.delete(id);
     if (mediaId) room.select(mediaId);
     this.rooms.set(id, room);
     return room;

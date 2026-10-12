@@ -78,7 +78,9 @@ export type ClientMessage =
   | { type: "ping"; clientTime: number }
   /** Join or leave voice, or change mute while in it. */
   | { type: "voice"; on: boolean; muted: boolean }
-  | { type: "signal"; to: string; data: SignalData };
+  | { type: "signal"; to: string; data: SignalData }
+  /** Ends the party for everyone. */
+  | { type: "end" };
 
 export type ServerMessage =
   | {
@@ -99,6 +101,8 @@ export type ServerMessage =
   /** Sent to a member who just joined voice: the members they should send offers to. */
   | { type: "voice-peers"; peers: string[] }
   | { type: "signal"; from: string; data: SignalData }
+  /** The party is over; the server closes the connection (code 4404) right after. */
+  | { type: "ended"; by: string }
   | { type: "error"; message: string };
 
 /** Where playback should be right now, given a state and the current server time. */
