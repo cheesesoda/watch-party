@@ -77,6 +77,9 @@ static class ModernMenu
         menu.ItemAdded += (_, e) => StyleItem(e.Item!);
     }
 
+    /** How far icons and text sit in from WinForms' default spot, for more room at the left edge. */
+    const int Indent = 6;
+
     static void StyleItem(ToolStripItem item)
     {
         if (item is ToolStripSeparator)
@@ -85,7 +88,8 @@ static class ModernMenu
             item.Height = 9;
             return;
         }
-        item.Padding = new Padding(4, 5, 4, 5);
+        // Extra room on the right makes up for the icons and text being moved right by Indent.
+        item.Padding = new Padding(4, 5, 4 + Indent, 5);
         // Checks HasDropDownItems first: reading DropDown would give every item an empty submenu.
         if (item is ToolStripMenuItem { HasDropDownItems: true } parent && parent.DropDown is ToolStripDropDownMenu sub)
         {
@@ -210,13 +214,13 @@ static class ModernMenu
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             e.TextColor = e.Item.Enabled ? Palette.Text : Palette.Disabled;
-            e.TextRectangle = new Rectangle(e.TextRectangle.X, 0, e.TextRectangle.Width, e.Item.Height);
+            e.TextRectangle = new Rectangle(e.TextRectangle.X + Indent, 0, e.TextRectangle.Width, e.Item.Height);
             e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) | TextFormatFlags.VerticalCenter;
             base.OnRenderItemText(e);
         }
 
         static Rectangle Centered(ToolStripItem item, Rectangle r) =>
-            new(r.X, (item.Height - r.Height) / 2, r.Width, r.Height);
+            new(r.X + Indent, (item.Height - r.Height) / 2, r.Width, r.Height);
 
         protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
         {
