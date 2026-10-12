@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
 
@@ -116,7 +116,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
       (items ?? [])
         .filter((i) => !i.episode && (!folder || topFolder(i) === folder))
         .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
-        .slice(0, 8),
+        .slice(0, 12),
     [items, folder],
   );
 
@@ -190,7 +190,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
             {!q && sort !== "recent" && recent.length > 2 && (
               <section>
                 <h3 className="shelf-title">Recently added</h3>
-                <div className="shelf">
+                <Shelf>
                   {recent.map((item) => (
                     <button key={item.id} className="tile" onClick={() => props.onPick(item)}>
                       <span className="title">{item.title}</span>
@@ -200,7 +200,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                       </span>
                     </button>
                   ))}
-                </div>
+                </Shelf>
               </section>
             )}
             <div className="sortbar">
@@ -285,6 +285,40 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** A row of cards with no scrollbar: arrow buttons page through it when it doesn't all fit. Swiping still works. */
+function Shelf(props: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const update = () => {
+    const el = ref.current;
+    if (el) setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  };
+  useEffect(() => {
+    update();
+    const observer = new ResizeObserver(update);
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  const page = (direction: number) => ref.current?.scrollBy({ left: direction * ref.current.clientWidth * 0.9, behavior: "smooth" });
+  return (
+    <div className="shelf-wrap">
+      <div className="shelf" ref={ref} onScroll={update}>
+        {props.children}
+      </div>
+      {edges.left && (
+        <button className="shelf-arrow left" onClick={() => page(-1)} aria-label="Previous">
+          ‹
+        </button>
+      )}
+      {edges.right && (
+        <button className="shelf-arrow right" onClick={() => page(1)} aria-label="More">
+          ›
+        </button>
       )}
     </div>
   );
