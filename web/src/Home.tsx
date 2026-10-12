@@ -5,7 +5,8 @@ import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
-export const inviteLink = (code: string) => `${location.origin}${location.pathname}#/join/${code.toUpperCase()}`;
+// A real path rather than #/join/, so Android can open it in the app; the server redirects browsers to #/join/.
+export const inviteLink = (code: string) => `${location.origin}/join/${code.toUpperCase()}`;
 
 /** The host's home: pick a movie to start a party (it shows the code; nothing plays until you join), see running parties, or join by code. */
 export function Home(props: { name: string; onRename: () => void; onSignOut: () => void }) {

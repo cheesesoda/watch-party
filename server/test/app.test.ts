@@ -196,6 +196,8 @@ test("a TV signs in by QR: the phone enters a party code or the password", async
 
   const page = await fetch(`${base}/pair/${host}`, { redirect: "manual" });
   assert.equal(page.headers.get("location"), `/#/pair/${host}`);
+  const invite = await fetch(`${base}/join/ABC123`, { redirect: "manual" });
+  assert.equal(invite.headers.get("location"), "/#/join/ABC123");
   assert.equal((await fetch(`${base}/.well-known/assetlinks.json`)).status, 404);
 });
 
