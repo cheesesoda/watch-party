@@ -25,6 +25,20 @@ data class MediaItem(
     val subtitles: List<SubtitleTrack> = emptyList(),
 )
 
+/** What ffprobe found in a file. Mirrors MediaInfo in shared/protocol.ts. */
+@Serializable
+data class MediaInfo(
+    val container: String = "",
+    val duration: Double = 0.0,
+    val video: Video? = null,
+    val audio: Audio? = null,
+    /** The server can convert this file (ffmpeg is installed). */
+    val convert: Boolean = false,
+) {
+    @Serializable data class Video(val codec: String, val width: Int = 0, val height: Int = 0, val pixFmt: String = "")
+    @Serializable data class Audio(val codec: String, val channels: Int = 0)
+}
+
 @Serializable
 data class PlaybackState(
     val mediaId: String? = null,
