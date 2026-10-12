@@ -54,8 +54,15 @@ export const api = {
     }),
   /** Joins one party by its code. Viewers get a pass for that party; the host keeps their sign-in. */
   join: (code: string) =>
-    call<{ room: RoomSummary }>("/api/join", { method: "POST", body: JSON.stringify({ code }) }).then((r) => r.room),
-  login: (password: string) => call<{ token: string }>("/api/login", { method: "POST", body: JSON.stringify({ password }) }),
+    call<{ room: RoomSummary; token?: string | null }>("/api/join", { method: "POST", body: JSON.stringify({ code }) }).then((r) => {
+      if (r.token) mediaToken = r.token;
+      return r.room;
+    }),
+  login: (password: string) =>
+    call<{ token: string }>("/api/login", { method: "POST", body: JSON.stringify({ password }) }).then((r) => {
+      mediaToken = r.token;
+      return r;
+    }),
   logout: () => call("/api/logout", { method: "POST" }),
   library: () => call<LibraryResponse>("/api/library"),
   rescan: () => call<LibraryResponse>("/api/library/rescan", { method: "POST" }),
