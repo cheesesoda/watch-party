@@ -4,7 +4,7 @@ import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
-import { canPlayDirect, nativeHls } from "./playable.ts";
+import { canPlayDirect, hasMse } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
@@ -132,11 +132,18 @@ export function Room(props: { roomId: string; name: string }) {
     let cancelled = false;
     if (!converted) {
       video.src = streamUrl(mediaId);
-    } else if (nativeHls(video)) {
+    } else if (!hasMse()) {
+      // iPhones have no MediaSource for hls.js but play HLS themselves.
       video.src = hlsUrl(mediaId);
     } else {
-      void import("hls.js").then(({ default: Hls }) => {
-        if (cancelled) return;
+      // hls.js even where the browser says it plays HLS itself. Newer Chrome-based browsers say so,
+      // and leaving the stream to them is the likely reason Brave showed a dead player.
+      void import("hls.js").catch(() => {
+        setInfo("Couldn't load the player for converted video. Reload the page.");
+        return null;
+      }).then((mod) => {
+        if (cancelled || !mod) return;
+        const Hls = mod.default;
         // The server may need several seconds to start converting from a new spot, so wait for it.
         const wait = { maxTimeToFirstByteMs: 45_000, maxLoadTimeMs: 120_000, timeoutRetry: null, errorRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000 } };
         const hls = new Hls({ startPosition: syncRef.current?.expected() ?? 0, fragLoadPolicy: { default: wait } });

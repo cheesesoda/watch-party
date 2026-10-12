@@ -44,7 +44,7 @@ export function canPlayDirect(info: MediaInfo): boolean {
   return true;
 }
 
-/** Safari (and iOS) play HLS natively; everyone else needs hls.js. */
-export function nativeHls(video: HTMLVideoElement): boolean {
-  return video.canPlayType("application/vnd.apple.mpegurl") !== "";
+/** Whether hls.js can run here. iPhones lack MediaSource but play HLS natively. */
+export function hasMse(): boolean {
+  return "MediaSource" in globalThis || "ManagedMediaSource" in globalThis;
 }
