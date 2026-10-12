@@ -33,10 +33,13 @@ function clean(text: string): string {
   return text.replace(/[._]+/g, " ").replace(/\s+/g, " ").replace(/^[\s\-–·:]+|[\s\-–·:(\[]+$/g, "").trim();
 }
 
-/** Drops release tags from the first one onward: "Movie 1080p BluRay" -> "Movie". */
-function untag(text: string): string {
+/**
+ * Drops release tags from the first one onward: "Movie 1080p BluRay" -> "Movie". A title keeps its first
+ * word ("1917"); an episode title doesn't need to, so "S01E01.1080p.BluRay" has none.
+ */
+function untag(text: string, keepFirst = true): string {
   const words = clean(text).split(" ");
-  const cut = words.findIndex((w, i) => i > 0 && JUNK.test(w.replace(/[()[\]]/g, "")));
+  const cut = words.findIndex((w, i) => (i > 0 || !keepFirst) && JUNK.test(w.replace(/[()[\]]/g, "")));
   return clean((cut === -1 ? words : words.slice(0, cut)).join(" "));
 }
 
@@ -110,7 +113,7 @@ export function parseName(relPath: string): ParsedName {
     }
     const season = Number(ep[1]);
     const episode = Number(ep[2]);
-    const epTitle = untag(base.slice(ep.index! + ep[0].length)) || null;
+    const epTitle = untag(base.slice(ep.index! + ep[0].length), false) || null;
     const name = show || titleFromFilename(base);
     return {
       title: `${name} S${season} E${episode}${epTitle ? ` · ${epTitle}` : ""}`,
