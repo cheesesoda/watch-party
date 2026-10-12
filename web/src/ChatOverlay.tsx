@@ -2,6 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ChatMessage, Member } from "../../shared/protocol.ts";
 
 const FADE_MS = 10_000;
+const NAME_COLORS = ["#7cc4ff", "#8ee09b", "#f48fb1", "#b39dff", "#6fe0d6", "#ffb07a"];
+
+/** Each person keeps one name color, picked from their name (same palette as the Android app). */
+function nameColor(name: string): string {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.codePointAt(0)!) | 0;
+  return NAME_COLORS[((h % NAME_COLORS.length) + NAME_COLORS.length) % NAME_COLORS.length];
+}
 
 /**
  * Chat drawn over the video. Recent messages float in and fade out unless pop-ups are off; focusing
@@ -59,23 +67,33 @@ export function ChatOverlay(props: {
   return (
     <div className={`chat ${expanded ? "expanded" : ""} ${props.popups ? "" : "quiet"}`}>
       <div className="chat-list" ref={listRef}>
-        {visible.map((m) => (
-          <div
-            key={m.id}
-            className={`chat-msg ${m.system ? "system" : ""} ${m.from === props.me?.name ? "mine" : ""}`}
-            style={!expanded ? { opacity: Math.min(1, (FADE_MS - (now - m.ts)) / 2000) } : undefined}
-          >
-            {!m.system && <span className="from">{m.from}</span>}
-            <span className="text">{m.text}</span>
-          </div>
-        ))}
+        {visible.map((m, i) => {
+          const prev = visible[i - 1];
+          // A run of messages from one person shows their name once, like a messaging app.
+          const run = expanded && prev && !prev.system && !m.system && prev.from === m.from;
+          const mine = m.from === props.me?.name;
+          return (
+            <div
+              key={m.id}
+              className={`chat-msg ${m.system ? "system" : ""} ${mine ? "mine" : ""} ${run ? "run" : ""}`}
+              style={!expanded ? { opacity: Math.min(1, (FADE_MS - (now - m.ts)) / 2000) } : undefined}
+            >
+              {!m.system && !run && !(expanded && mine) && (
+                <span className="from" style={mine ? undefined : { color: nameColor(m.from) }}>
+                  {m.from}
+                </span>
+              )}
+              <span className="text">{m.text}</span>
+            </div>
+          );
+        })}
       </div>
       <form onSubmit={submit}>
         <input
           ref={inputRef}
           value={text}
           maxLength={500}
-          placeholder={focused ? "Say something…" : "Press Enter to chat"}
+          placeholder={focused ? "Message" : "Press Enter to chat"}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
