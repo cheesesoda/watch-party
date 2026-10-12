@@ -62,6 +62,20 @@ class PlayerSync(
         reconcile()
     }
 
+    /**
+     * A seek the user asked for (the skip buttons, a remote's rewind key). The room is told first, so a sync
+     * check can't pull the player back to the old spot before the seek is noticed.
+     */
+    fun seekTo(positionMs: Long) {
+        val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        val to = positionMs.coerceIn(0L, duration)
+        state?.let { s ->
+            state = s.copy(position = to / 1000.0, updatedAt = clock.serverNow())
+            send("seek", to / 1000.0)
+        }
+        player.seekTo(to)
+    }
+
     private fun target(): Double = state?.expectedPosition(clock.serverNow()) ?: 0.0
 
     private fun local(type: String) {
