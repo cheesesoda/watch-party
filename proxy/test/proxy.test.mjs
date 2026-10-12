@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { after, before, test } from "node:test";
-import { config, createProxy, inviteRoute } from "../server.mjs";
+import { APK_URL, config, createProxy, inviteRoute } from "../server.mjs";
 
 // A stand-in for the Popcorn Club server: echoes what it was sent, and upgrades /ws to a WebSocket.
 let upstream, proxy, base, seen;
@@ -50,6 +50,12 @@ test("invite links forward to the app", async () => {
   assert.equal(res.status, 302);
   assert.equal(res.headers.location, "https://app.tv.chzsda.com/join/ABC123");
   assert.equal(inviteRoute("/", "app.x"), "https://app.x/");
+});
+
+test("tv.chzsda.com/apk downloads the Fire TV app", async () => {
+  const res = await get("/apk", "tv.chzsda.com");
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.location, APK_URL);
 });
 
 test("assetlinks on the invite host comes from the server", async () => {

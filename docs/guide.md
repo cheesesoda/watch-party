@@ -219,7 +219,7 @@ Fire TV has no Google Play, so Fire TV installs the APK file from GitHub instead
 1. On the Fire TV home screen, search for **Downloader** (the orange app by AFTVnews) and install it.
 2. Turn on developer options: go to Settings, My Fire TV, About, and press the select button on your Fire TV's name seven times until it says you're a developer.
 3. Go back to My Fire TV, then Developer options, then **Install unknown apps**, and turn it on for **Downloader**.
-4. Open Downloader and enter this link (or the short code the host gives you):
+4. Open Downloader and enter `tv.chzsda.com/apk` (the host's own address, if they set one up), or the full link:
    `https://github.com/cheesesoda/watch-party/releases/latest/download/popcorn-club.apk`
 5. Press **Install**. When it's done, Downloader offers to delete the file; say yes. Popcorn Club is now under Your Apps & Channels.
 
