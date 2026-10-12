@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ClientMessage, IceServer, MediaItem, Member, PlaybackState, ServerMessage, SignalData } from "../../shared/protocol.ts";
 
 export interface RoomView {
-  status: "connecting" | "open" | "closed" | "missing";
+  status: "connecting" | "open" | "closed" | "missing" | "ended";
+  /** Who ended the party, once status is "ended". */
+  endedBy?: string;
   me: Member | null;
   members: Member[];
   chat: ChatMessage[];
@@ -98,6 +100,10 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
             break;
           case "pong":
             handlersRef.current.onPong?.(msg.clientTime, msg.serverTime);
+            break;
+          case "ended":
+            stopped = true;
+            setView((v) => ({ ...v, status: "ended", endedBy: msg.by }));
             break;
           case "error":
             setView((v) => ({ ...v, error: msg.message }));

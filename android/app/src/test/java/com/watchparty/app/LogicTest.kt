@@ -100,4 +100,10 @@ class LogicTest {
         // Someone who left voice stops counting even inside the hold window.
         assertEquals(emptySet<String>(), t.changed(1800, setOf("a")))
     }
+
+    @Test
+    fun parsesPartyEnded() {
+        assertEquals(ServerMessage.Ended("Jake"), Protocol.parse("""{"type":"ended","by":"Jake"}"""))
+        assertEquals("""{"type":"end"}""", Protocol.end())
+    }
 }
