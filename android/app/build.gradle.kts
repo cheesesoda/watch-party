@@ -19,6 +19,10 @@ android {
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
         // The TV's sign-in QR code links to <server>/pair/…; phones with the app open it here.
         manifestPlaceholders["pairHost"] = defaultServer.substringAfter("://").substringBefore("/").substringBefore(":")
+        // Invite links on the host's own domain (tv.chzsda.com/join/CODE), which forwards to the default server.
+        val inviteHost = (project.findProperty("inviteHost") as String?) ?: "tv.chzsda.com"
+        buildConfigField("String", "INVITE_HOST", "\"$inviteHost\"")
+        manifestPlaceholders["inviteHost"] = inviteHost
         // The release workflow passes these; local and PR builds use the defaults.
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = findProperty("versionName") as String? ?: "0.1.0"
