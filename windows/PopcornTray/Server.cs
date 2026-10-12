@@ -6,6 +6,7 @@ namespace PopcornTray;
 sealed class Server(Log log)
 {
     Process? process;
+    ServerJob? job;
 
     public bool Running => process != null;
     /** True once the server has printed its "listening on" line. */
@@ -29,13 +30,18 @@ sealed class Server(Log log)
             if (!ReferenceEquals(process, p)) return;
             process = null;
             Listening = false;
+            EndJob();
             log.Add($"--- The server stopped (exit code {p.ExitCode}) ---");
             Crashed?.Invoke();
         };
         process = p;
+        var j = new ServerJob();
+        job = j;
         try
         {
             p.Start();
+            // Straight away, before cmd has had time to start npm, so every child lands in the job.
+            if (!j.Add(p)) log.Add("(Couldn't group the server's processes; Stop may miss some.)");
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();
             return true;
@@ -43,6 +49,7 @@ sealed class Server(Log log)
         catch (Exception e)
         {
             process = null;
+            EndJob();
             p.Dispose();
             log.Add($"Couldn't start the server: {e.Message}");
             return false;
@@ -68,12 +75,22 @@ sealed class Server(Log log)
         if (p == null) return;
         try
         {
-            // npm starts cmd, which starts node: stop the whole tree.
+            // npm starts cmd, which starts node: stop the whole tree, then anything left in the job.
             if (!p.HasExited) p.Kill(entireProcessTree: true);
             p.WaitForExit(5000);
         }
         catch { }
+        EndJob();
         p.Dispose();
         log.Add("--- Server stopped ---");
+    }
+
+    void EndJob()
+    {
+        var j = job;
+        job = null;
+        if (j == null) return;
+        j.Kill();
+        j.Dispose();
     }
 }
