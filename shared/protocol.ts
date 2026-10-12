@@ -18,6 +18,22 @@ export interface MediaItem {
   size: number;
   mime: string;
   subtitles: SubtitleTrack[];
+  /** When the file landed in the library, ms since epoch. */
+  addedAt?: number;
+  /** Release year read from the file name, e.g. "Alien (1979).mkv". */
+  year?: number | null;
+  /** Seconds, once the server has read the file with ffprobe; null or missing until then. */
+  duration?: number | null;
+  /** Set when the file name looks like a TV episode ("Show.S02E04.Title.mkv"). */
+  episode?: EpisodeInfo | null;
+}
+
+export interface EpisodeInfo {
+  show: string;
+  season: number;
+  episode: number;
+  /** The episode's own title, when the file name has one. */
+  title: string | null;
 }
 
 /** What ffprobe found in a file, so a browser can tell whether it can play it as-is. */

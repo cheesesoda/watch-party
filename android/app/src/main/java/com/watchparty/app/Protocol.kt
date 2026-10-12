@@ -23,7 +23,18 @@ data class MediaItem(
     val size: Long = 0,
     val mime: String = "",
     val subtitles: List<SubtitleTrack> = emptyList(),
+    /** When the file landed in the library, ms since epoch. */
+    val addedAt: Long = 0,
+    /** Release year read from the file name. */
+    val year: Int? = null,
+    /** Seconds, once the server has read the file; null until then. */
+    val duration: Double? = null,
+    /** Set when the file name looks like a TV episode. */
+    val episode: EpisodeInfo? = null,
 )
+
+@Serializable
+data class EpisodeInfo(val show: String, val season: Int, val episode: Int, val title: String? = null)
 
 /** What ffprobe found in a file. Mirrors MediaInfo in shared/protocol.ts. */
 @Serializable

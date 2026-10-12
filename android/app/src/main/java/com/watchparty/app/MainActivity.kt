@@ -64,6 +64,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -643,6 +648,12 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     var started by remember { mutableStateOf<RoomSummary?>(null) }
     var library by remember { mutableStateOf<List<MediaItem>?>(null) }
     var query by remember { mutableStateOf("") }
+    var view by remember { mutableStateOf(LibraryView.All) }
+    var sort by remember { mutableStateOf(LibrarySort.AZ) }
+    var folder by remember { mutableStateOf<String?>(null) }
+    var subsOnly by remember { mutableStateOf(false) }
+    var showName by remember { mutableStateOf<String?>(null) }
+    var season by remember { mutableStateOf<Int?>(null) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -807,35 +818,108 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             }
         }
         val lib = library
+        val startParty = { media: MediaItem ->
+            scope.launch {
+                guard { api.createRoom(media.id) }?.let { room ->
+                    started = room
+                    rooms = rooms.filter { it.id != room.id } + room
+                    listState.animateScrollToItem(0)
+                }
+            }
+            Unit
+        }
+        val mediaMeta = { media: MediaItem ->
+            (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+        }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
+        } else if (lib.isEmpty()) {
+            item { Text("No videos found.", color = Muted) }
         } else {
-            val filtered = lib.filter { query.isBlank() || it.relPath.contains(query.trim(), ignoreCase = true) }
-            if (filtered.isEmpty()) item { Text("No videos found.", color = Muted) }
-            var lastFolder: String? = null
-            for (media in filtered) {
-                if (media.folder != lastFolder && media.folder.isNotEmpty()) {
-                    val folder = media.folder
-                    item(key = "folder-$folder") {
-                        Text(folder, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+            val allShows = shows(lib)
+            if (allShows.isNotEmpty()) {
+                item(key = "views") {
+                    ChipRow { LibraryView.entries.forEach { v -> Chip(v.label, view == v) { view = v } } }
+                }
+            }
+            if (view != LibraryView.Shows) {
+                val folders = lib.groupBy { topFolder(it) }.filterKeys { it.isNotEmpty() }.toSortedMap { a, b -> naturalCompare(a, b) }
+                item(key = "folders") {
+                    ChipRow {
+                        Chip("All videos · ${lib.size}", folder == null) { folder = null }
+                        if (folders.size > 1) folders.forEach { (name, list) -> Chip("$name · ${list.size}", folder == name) { folder = name } }
+                        Chip("Has subtitles", subsOnly) { subsOnly = !subsOnly }
                     }
                 }
-                lastFolder = media.folder
-                item(key = "media-" + media.id) {
-                    FocusRow(
-                        title = media.title,
-                        subtitle = formatSize(media.size) + if (media.subtitles.isNotEmpty()) " · CC" else "",
-                        action = "Start party",
-                        onClick = {
-                            scope.launch {
-                                guard { api.createRoom(media.id) }?.let { room ->
-                                    started = room
-                                    rooms = rooms.filter { it.id != room.id } + room
-                                    listState.animateScrollToItem(0)
-                                }
+                val recent = recentlyAdded(lib, folder)
+                if (query.isBlank() && sort != LibrarySort.Recent && recent.size > 2) {
+                    item(key = "recent-title") { SectionTitle("Recently added", small = true) }
+                    item(key = "recent") {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                            items(recent, key = { "recent-" + it.id }) { media ->
+                                FocusTile(
+                                    title = media.title,
+                                    subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
+                                    onClick = { startParty(media) },
+                                )
                             }
-                        },
-                    )
+                        }
+                    }
+                }
+                item(key = "sort") {
+                    ChipRow(label = "Sort") { LibrarySort.entries.forEach { s -> Chip(s.label, sort == s) { sort = s } } }
+                }
+                val rows = libraryRows(lib, view, folder, subsOnly, query, sort)
+                if (rows.isEmpty()) item { Text("No videos match.", color = Muted) }
+                items(rows, key = { if (it is LibraryRow.Video) "media-" + it.item.id else "show-" + (it as LibraryRow.ShowRow).show.name }) { row ->
+                    when (row) {
+                        is LibraryRow.Video -> FocusRow(
+                            title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
+                            subtitle = mediaMeta(row.item),
+                            action = "Start party",
+                            onClick = { startParty(row.item) },
+                        )
+                        is LibraryRow.ShowRow -> FocusRow(
+                            title = row.show.name,
+                            subtitle = "TV show · " + row.show.summary,
+                            action = "Episodes",
+                            onClick = {
+                                view = LibraryView.Shows
+                                showName = row.show.name
+                                season = null
+                            },
+                        )
+                    }
+                }
+            } else {
+                val visible = allShows.filter { show -> query.isBlank() || show.name.contains(query.trim(), ignoreCase = true) || show.episodes.any { matches(it, query) } }
+                val show = visible.firstOrNull { it.name == showName } ?: visible.firstOrNull()
+                if (show == null) item { Text("No shows match.", color = Muted) }
+                item(key = "shows") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                        items(visible, key = { "showtile-" + it.name }) { s ->
+                            FocusTile(title = s.name, subtitle = s.summary, selected = s == show, large = true, onClick = {
+                                showName = s.name
+                                season = null
+                            })
+                        }
+                    }
+                }
+                if (show != null) {
+                    val shownSeason = season?.takeIf { it in show.seasons } ?: show.seasons.first()
+                    item(key = "show-title") { SectionTitle(show.name, small = true) }
+                    if (show.seasons.size > 1) {
+                        item(key = "seasons") { ChipRow { show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } } } }
+                    }
+                    items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
+                        val ep = media.episode!!
+                        FocusRow(
+                            title = "E${ep.episode}   " + (ep.title ?: "Episode ${ep.episode}"),
+                            subtitle = mediaMeta(media),
+                            action = "Start party",
+                            onClick = { startParty(media) },
+                        )
+                    }
                 }
             }
         }
@@ -844,14 +928,83 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+private fun SectionTitle(text: String, small: Boolean = false) {
     Text(
         text,
-        fontSize = 18.sp,
+        fontSize = if (small) 15.sp else 18.sp,
         fontWeight = FontWeight.SemiBold,
         color = Color.White,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+        modifier = Modifier.padding(top = if (small) 10.dp else 16.dp, bottom = 4.dp),
     )
+}
+
+/** A wrapping row of chips, with an optional label in front. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipRow(label: String? = null, content: @Composable () -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        if (label != null) Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterVertically))
+        content()
+    }
+}
+
+/** A pill-shaped choice: orange when selected, with an orange outline when a TV remote is on it. */
+@Composable
+private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .clip(shape)
+            .background(if (selected) Accent else if (focused) PanelFocused else Color.Transparent)
+            .border(if (focused) 2.dp else 1.dp, if (focused) (if (selected) Color.White else Accent) else if (selected) Accent else Muted.copy(alpha = 0.35f), shape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (selected) Bg else if (focused) Color.White else Muted,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        )
+    }
+}
+
+/** A card in a sideways row: Recently added films, or the shows. */
+@Composable
+private fun FocusTile(title: String, subtitle: String, onClick: () -> Unit, selected: Boolean = false, large: Boolean = false) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        Modifier
+            .width(if (large) 220.dp else 176.dp)
+            .heightIn(min = 96.dp)
+            .clip(shape)
+            .background(if (focused || selected) PanelFocused else Panel)
+            .border(2.dp, if (focused) Accent else if (selected) Accent.copy(alpha = 0.6f) else Color.Transparent, shape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            color = Color.White,
+            fontWeight = if (large) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = if (large) 18.sp else 15.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(subtitle, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 /** A list row that shows a clear highlight when focused with a TV remote. */
