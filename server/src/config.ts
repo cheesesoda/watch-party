@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IceServer } from "../../shared/protocol.ts";
 import { DEFAULT_ICE_SERVERS } from "./rooms.ts";
+import type { MetadataConfig } from "./metadata.ts";
 import type { TranscodeConfig } from "./transcode.ts";
 
 export interface Config {
@@ -29,6 +30,8 @@ export interface Config {
    * (/pair/…) in the app instead of the browser. Empty: the link always opens the web page.
    */
   androidApp?: { packageName: string; certFingerprints: string[] };
+  /** Movie and episode details from TMDB; off without a TMDB token or key. */
+  metadata?: MetadataConfig;
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -71,6 +74,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     androidApp: {
       packageName: env.ANDROID_PACKAGE?.trim() || "com.cheeseparty.app",
       certFingerprints: (env.ANDROID_CERT_SHA256 ?? "").split(/[\s,]+/).filter(Boolean),
+    },
+    metadata: {
+      token: env.TMDB_TOKEN?.trim() || undefined,
+      apiKey: env.TMDB_API_KEY?.trim() || undefined,
+      language: env.TMDB_LANGUAGE?.trim() || "en-US",
+      file: path.resolve(env.METADATA_FILE?.trim() || fileURLToPath(new URL("../../data/metadata.json", import.meta.url))),
     },
     transcode: {
       ffmpeg: env.FFMPEG_PATH?.trim() || "ffmpeg",

@@ -28,6 +28,25 @@ export interface MediaItem {
   episode?: EpisodeInfo | null;
   /** Set for bonus material (behind the scenes, trailers, deleted scenes…) named the way Plex expects. */
   extra?: ExtraInfo | null;
+  /** Details from TMDB (themoviedb.org), when the server has a TMDB key and found a match. */
+  meta?: MediaMeta | null;
+}
+
+/** Movie or episode details from TMDB. Image paths go after a TMDB image base, e.g. https://image.tmdb.org/t/p/w342. */
+export interface MediaMeta {
+  /** The movie's TMDB id, or the show's for an episode. */
+  tmdbId: number;
+  /** The movie's title, or the episode's name. */
+  title: string;
+  /** Release year, or the show's first year. */
+  year: number | null;
+  overview: string | null;
+  /** Movie poster, or the season's (falling back to the show's) for an episode. */
+  posterPath: string | null;
+  /** The episode's still image. */
+  stillPath?: string | null;
+  /** The show's name as TMDB has it, for episodes. */
+  show?: string | null;
 }
 
 export interface ExtraInfo {

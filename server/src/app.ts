@@ -10,6 +10,7 @@ import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
+import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, RoomManager, type Room } from "./rooms.ts";
@@ -21,12 +22,17 @@ export interface App {
   library: Library;
   rooms: RoomManager;
   transcoder: Transcoder;
+  metadata: Metadata;
   close(): Promise<void>;
 }
 
 export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
-  const rooms = new RoomManager((id) => library.peek(id)?.item, Date.now, undefined, config.iceServers);
+  const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
+  const rooms = new RoomManager((id) => {
+    const item = library.peek(id)?.item;
+    return item && metadata.enrich(item);
+  }, Date.now, undefined, config.iceServers);
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const app = express();
   app.disable("x-powered-by");
@@ -198,7 +204,7 @@ export function createApp(config: Config): App {
   });
 
   // convert: the server can turn any file into something browsers play (ffmpeg is installed).
-  const libraryResponse = async () => ({ items: withDurations(await library.list()), convert: (await transcoder.encoderName()) !== null });
+  const libraryResponse = async () => ({ items: withDurations(await library.list()).map((item) => metadata.enrich(item)), convert: (await transcoder.encoderName()) !== null });
 
   // Lengths come from ffprobe, which takes a moment per file, so they're read one file at a time in the
   // background and show up on later loads of the library.
@@ -222,6 +228,7 @@ export function createApp(config: Config): App {
 
   app.post("/api/library/rescan", async (_req, res) => {
     await library.scan();
+    void metadata.warm(await library.list());
     res.json(await libraryResponse());
   });
 
@@ -444,9 +451,11 @@ export function createApp(config: Config): App {
     library,
     rooms,
     transcoder,
+    metadata,
     async close() {
       clearInterval(sweeper);
       await transcoder.close();
+      await metadata.close();
       for (const client of wss.clients) client.terminate();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
