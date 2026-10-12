@@ -1180,12 +1180,29 @@ button.link:focus-visible {
   }
 }
 
-/* Binge buttons above a season's episodes. */
-.binge-bar {
-  display: flex;
+/* Binge links at the end of a show's season row: quieter than the season chips. */
+.binge-actions {
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 10px;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.binge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.binge-link:hover,
+.binge-link:focus-visible {
+  background: rgba(224, 154, 98, 0.12);
 }
 
 /* Bottom right while a binge counts down to its next video. */
@@ -1336,4 +1353,13 @@ button.link:focus-visible {
 }
 .details-text {
   padding-right: 36px;
+}
+/* Phones: keep the header on one line by dropping "Hosting as". */
+@media (max-width: 480px) {
+  .topbar {
+    flex-wrap: nowrap;
+  }
+  .topbar .hosting-as {
+    display: none;
+  }
 }

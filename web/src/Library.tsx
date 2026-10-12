@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.ts";
-import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, MoreIcon } from "./Icons.tsx";
+import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
 function fmtSize(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -356,27 +356,31 @@ export function Library(props: {
                   ) : (
                     <h3 className="shelf-title">{show.name}</h3>
                   )}
-                  {(show.seasons.length > 1 || showExtras.has(show.name)) && (
+                  {(show.seasons.length > 1 || showExtras.has(show.name) || props.onBinge) && (
                     <div className="sortbar">
-                      {show.seasons.map((n) => (
-                        <button key={n} className={n === shownSeason ? "chip on" : "chip"} aria-pressed={n === shownSeason} onClick={() => setSeason(n)}>
-                          Season {n}
-                        </button>
-                      ))}
+                      {(show.seasons.length > 1 || showExtras.has(show.name)) &&
+                        show.seasons.map((n) => (
+                          <button key={n} className={n === shownSeason ? "chip on" : "chip"} aria-pressed={n === shownSeason} onClick={() => setSeason(n)}>
+                            Season {n}
+                          </button>
+                        ))}
                       {showExtras.has(show.name) && (
                         <button className={shownSeason === EXTRAS ? "chip on" : "chip"} aria-pressed={shownSeason === EXTRAS} onClick={() => setSeason(EXTRAS)}>
                           Extras
                         </button>
                       )}
-                    </div>
-                  )}
-                  {props.onBinge && shownSeason !== EXTRAS && (
-                    <div className="binge-bar">
-                      <button className="primary" onClick={() => props.onBinge!(show.episodes.filter((e) => e.episode!.season === shownSeason).map((e) => e.id))}>
-                        Binge season {shownSeason}
-                      </button>
-                      {show.seasons.length > 1 && (
-                        <button onClick={() => props.onBinge!(show.episodes.map((e) => e.id))}>Binge all {show.seasons.length} seasons</button>
+                      {props.onBinge && shownSeason !== EXTRAS && (
+                        <span className="binge-actions">
+                          <button className="binge-link" onClick={() => props.onBinge!(show.episodes.filter((e) => e.episode!.season === shownSeason).map((e) => e.id))}>
+                            <ListVideoIcon size={15} />
+                            Binge season {shownSeason}
+                          </button>
+                          {show.seasons.length > 1 && (
+                            <button className="binge-link" onClick={() => props.onBinge!(show.episodes.map((e) => e.id))}>
+                              Binge all {show.seasons.length} seasons
+                            </button>
+                          )}
+                        </span>
                       )}
                     </div>
                   )}
