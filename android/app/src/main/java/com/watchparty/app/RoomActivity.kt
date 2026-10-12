@@ -27,6 +27,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
@@ -710,13 +711,24 @@ class RoomActivity : ComponentActivity() {
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = dp(CHAT_PANEL_DP)
         topBar.requestLayout()
         renderChat()
-        chatPanelInput.requestFocus()
+        // With a remote, the D-pad could wander back into the player and top bar, which grab it and hide the panel's
+        // controls. While chat is open only the panel takes focus; Back or Menu closes it.
+        setBehindChatFocusable(false)
+        chatPanelInput.post { chatPanelInput.requestFocus() }
+    }
+
+    private fun setBehindChatFocusable(focusable: Boolean) {
+        val block = if (focusable) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        playerView.descendantFocusability = block
+        playerView.isFocusable = focusable
+        topBar.descendantFocusability = block
     }
 
     private fun closeChat() {
         if (chatPanel.visibility != View.VISIBLE) return
         chatPanel.visibility = View.GONE
         closeChatOnBack.isEnabled = false
+        setBehindChatFocusable(true)
         (topBar.layoutParams as FrameLayout.LayoutParams).marginEnd = 0
         topBar.requestLayout()
         hideKeyboard(chatPanelInput)
@@ -752,8 +764,13 @@ class RoomActivity : ComponentActivity() {
     /** The message box: a rounded field with a round amber Send button beside it. */
     private fun composer(input: EditText, send: () -> Unit) = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
+        if (input.id == View.NO_ID) input.id = View.generateViewId()
         addView(input, LinearLayout.LayoutParams(0, dp(48), 1f))
         addView(ImageButton(this@RoomActivity).apply {
+            // Left from Send goes to the message box, and Right from the box to Send, whatever else is nearby.
+            id = View.generateViewId()
+            nextFocusLeftId = input.id
+            input.nextFocusRightId = id
             setImageResource(R.drawable.ic_send)
             imageTintList = ColorStateList.valueOf(ON_ACCENT)
             contentDescription = "Send"
