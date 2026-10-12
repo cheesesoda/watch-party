@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols "close" (round), Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 18.3,5.71 a 0.996,0.996 0 0,0 -1.41,0 L 12,10.59 L 7.11,5.7 A 0.997021,0.997021 0 1,0 5.7,7.11 L 10.59,12 L 5.7,16.89 a 0.997021,0.997021 0 1,0 1.41,1.41 L 12,13.41 l 4.89,4.89 a 0.997021,0.997021 0 1,0 1.41,-1.41 L 13.41,12 l 4.89,-4.89 c 0.38,-0.38 0.38,-1.02 0,-1.4 z" />
+</vector>
