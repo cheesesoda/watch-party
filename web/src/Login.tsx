@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { api } from "./api.ts";
 import { navigate } from "./nav.ts";
+import { Logo } from "./Logo.tsx";
 
 /** The first screen for anyone who isn't the host: start a party (needs the password) or join one with a code. */
 export function Landing() {
   return (
     <div className="center">
       <div className="card login">
-        <h1>Popcorn Club</h1>
+        <Logo />
         <button className="primary big" onClick={() => navigate("/join/")}>
           Join a party
         </button>

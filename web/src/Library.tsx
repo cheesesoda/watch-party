@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.ts";
-import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
+import { ChevronLeftIcon, ChevronRightIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
 function fmtSize(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -44,20 +44,23 @@ export function Library(props: {
   actionLabel: string;
   /** Plays these one after another (a season, a whole show, or a show from one episode on). */
   onBinge?: (ids: string[]) => void;
+  /** Keep the menu, show, season, search, open details and scroll position through a page refresh, under this name. */
+  remember?: string;
 }) {
+  const saved = useMemo(() => loadPlace(props.remember), []);
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [convert, setConvert] = useState(true);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(saved.query ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>("all");
-  const [sort, setSort] = useState<Sort>("az");
-  const [subsOnly, setSubsOnly] = useState(false);
-  const [showName, setShowName] = useState<string | null>(null);
-  const [season, setSeason] = useState<number | null>(null);
+  const [view, setView] = useState<View>(saved.view ?? "all");
+  const [sort, setSort] = useState<Sort>(saved.sort ?? "az");
+  const [subsOnly, setSubsOnly] = useState(saved.subsOnly ?? false);
+  const [showName, setShowName] = useState<string | null>(saved.showName ?? null);
+  const [season, setSeason] = useState<number | null>(saved.season ?? null);
   const [openExtras, setOpenExtras] = useState<string | null>(null);
   // TMDB details are on: posters, summaries and the Details window with Fix match.
   const [details, setDetails] = useState(false);
-  const [shownInfo, setShownInfo] = useState<string | null>(null);
+  const [shownInfo, setShownInfo] = useState<string | null>(saved.shownInfo ?? null);
   // The Details window opens straight on Fix match (from a show's ⋮ menu).
   const [fixFirst, setFixFirst] = useState(false);
   const showInfo = (id: string | null, fix = false) => {
@@ -76,6 +79,26 @@ export function Library(props: {
     (rescan ? api.rescan() : api.library()).then(apply, (e) => setError(e.message));
   };
   useEffect(() => load(), []);
+
+  // Remember where the host is, so a refresh lands in the same place.
+  const scroller = useRef<HTMLDivElement>(null);
+  const place: Place = { view, sort, subsOnly, showName, season, query, shownInfo };
+  useEffect(() => savePlace(props.remember, place), [props.remember, view, sort, subsOnly, showName, season, query, shownInfo]);
+  useEffect(() => {
+    if (!props.remember) return;
+    const onLeave = () => savePlace(props.remember, { ...place, scroll: scroller.current?.scrollTop ?? 0, pageScroll: window.scrollY });
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
+  });
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!items || restored.current) return;
+    restored.current = true;
+    requestAnimationFrame(() => {
+      if (saved.scroll && scroller.current) scroller.current.scrollTop = saved.scroll;
+      if (saved.pageScroll) window.scrollTo(0, saved.pageScroll);
+    });
+  }, [items]);
 
   const q = query.trim().toLowerCase();
   const matches = (i: MediaItem) => !q || i.title.toLowerCase().includes(q) || i.relPath.toLowerCase().includes(q);
@@ -200,26 +223,25 @@ export function Library(props: {
   ];
 
   const extraRow = (e: MediaItem) => (
-    <li key={e.id}>
-      <button className="item" onClick={() => props.onPick(e)}>
+    <li key={e.id} className="row-line">
+      <button className="item" onClick={() => showInfo(e.id)}>
         <span className="title">{e.title}</span>
         <span className="meta">{meta(e)}</span>
-        <span className="action">{props.actionLabel}</span>
       </button>
+      <StartButton label={props.actionLabel} onClick={() => props.onPick(e)} />
     </li>
   );
 
   const episodeRow = (e: MediaItem) => (
     <li key={e.id} className="row-line">
-      <button className={details ? "item episode has-still" : "item episode"} onClick={() => props.onPick(e)}>
+      <button className={details ? "item episode has-still" : "item episode"} onClick={() => showInfo(e.id)}>
         <span className="num">E{e.episode!.episode}</span>
         {details && <Poster path={e.meta?.stillPath} size="w300" className="still" />}
         <span className="title">{e.episode!.title ?? `Episode ${e.episode!.episode}`}</span>
         {details && e.meta?.overview && <span className="overview">{e.meta.overview}</span>}
         <span className="meta">{meta(e)}</span>
-        <span className="action">{props.actionLabel}</span>
       </button>
-      {details && <InfoButton onClick={() => showInfo(e.id)} />}
+      <StartButton label={props.actionLabel} onClick={() => props.onPick(e)} />
     </li>
   );
 
@@ -252,13 +274,13 @@ export function Library(props: {
           </nav>
 
           {view !== "shows" ? (
-            <div className="browse-main">
+            <div className="browse-main" ref={scroller}>
               {!q && sort !== "recent" && recent.length > 2 && (
                 <section>
                   <h3 className="shelf-title">Recently added</h3>
                   <Shelf>
                     {recent.map((item) => (
-                      <button key={item.id} className={details ? "tile has-poster" : "tile"} onClick={() => pick(item)}>
+                      <button key={item.id} className={details ? "tile has-poster" : "tile"} onClick={() => showInfo(item.id)}>
                         {details && <Poster path={item.meta?.posterPath} size="w185" />}
                         <span className="title">{item.title}</span>
                         <span className="meta">
@@ -283,16 +305,15 @@ export function Library(props: {
                 {rows.map((r) =>
                   r.kind === "item" ? (
                     <li key={r.item.id} className="row-line">
-                      <button className={details ? "item has-poster" : "item"} onClick={() => pick(r.item)}>
+                      <button className={details ? "item has-poster" : "item"} onClick={() => showInfo(r.item.id)}>
                         {details && <Poster path={r.item.meta?.posterPath} size="w92" />}
                         <span className="title">
                           {r.item.title}
                           {r.item.year && <span className="year"> {r.item.year}</span>}
                         </span>
                         <span className="meta">{meta(r.item)}</span>
-                        <span className="action">{props.actionLabel}</span>
                       </button>
-                      {details && <InfoButton onClick={() => showInfo(r.item.id)} />}
+                      <StartButton label={props.actionLabel} onClick={() => pick(r.item)} />
                       {!q && movieExtras.has(r.item.id) && (
                         <button
                           className="extras-toggle"
@@ -321,7 +342,7 @@ export function Library(props: {
               </ul>
             </div>
           ) : (
-            <div className="browse-main">
+            <div className="browse-main" ref={scroller}>
               {visibleShows.length === 0 && <p className="muted">No shows match.</p>}
               <Shelf>
                 {visibleShows.map((s) => (
@@ -399,6 +420,7 @@ export function Library(props: {
         <Details
           item={byId.get(shownInfo)!}
           startFixing={fixFirst}
+          canMatch={details}
           actionLabel={props.actionLabel}
           lengthLabel={meta(byId.get(shownInfo)!)}
           onPick={() => {
@@ -432,12 +454,44 @@ function Poster(props: { path?: string | null; size: "w92" | "w185" | "w342" | "
   return <img className={cls} src={imageUrl(props.path, props.size)} alt="" loading="lazy" onError={() => setFailed(true)} />;
 }
 
-function InfoButton(props: { onClick: () => void }) {
+/** The row's own Start party (or Play) button, so clicking the row itself only opens its details. */
+function StartButton(props: { label: string; onClick: () => void }) {
   return (
-    <button className="row-tool" aria-label="Details" title="Details" onClick={props.onClick}>
-      <InfoIcon size={18} />
+    <button className="row-start" onClick={props.onClick}>
+      {props.label}
     </button>
   );
+}
+
+interface Place {
+  view?: View;
+  sort?: Sort;
+  subsOnly?: boolean;
+  showName?: string | null;
+  season?: number | null;
+  query?: string;
+  shownInfo?: string | null;
+  scroll?: number;
+  pageScroll?: number;
+}
+
+// Session storage: survives a refresh of this tab, not a new visit. It can be unavailable (private windows), so failures are ignored.
+function loadPlace(key: string | undefined): Place {
+  if (!key) return {};
+  try {
+    return JSON.parse(sessionStorage.getItem(`place:${key}`) ?? "{}") as Place;
+  } catch {
+    return {};
+  }
+}
+
+function savePlace(key: string | undefined, place: Place) {
+  if (!key) return;
+  try {
+    sessionStorage.setItem(`place:${key}`, JSON.stringify(place));
+  } catch {
+    // Ignore: remembering the place is a convenience.
+  }
 }
 
 /** A movie's or episode's TMDB details, with Fix match for when the server picked the wrong one. */
@@ -445,6 +499,8 @@ function Details(props: {
   item: MediaItem;
   /** Open on the Fix match search. */
   startFixing?: boolean;
+  /** TMDB lookups are on, so Fix match and the TMDB credit apply. */
+  canMatch: boolean;
   actionLabel: string;
   lengthLabel: ReactNode;
   onPick: () => void;
@@ -456,7 +512,7 @@ function Details(props: {
   const { item } = props;
   const m = item.meta;
   const kind = item.episode ? "tv" : "movie";
-  const [fixing, setFixing] = useState(!m || !!props.startFixing);
+  const [fixing, setFixing] = useState(!!props.startFixing);
   const [query, setQuery] = useState(item.episode?.show ?? item.title);
   const [results, setResults] = useState<MatchCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -514,7 +570,7 @@ function Details(props: {
       }}
     >
       <div className="details" role="dialog" aria-modal="true" aria-label={heading} onClick={(e) => e.stopPropagation()}>
-        {!fixing && <MoreMenu label="More" items={[[m ? "Fix match" : "Find details", () => setFixing(true)]]} />}
+        {!fixing && props.canMatch && <MoreMenu label="More" items={[[m ? "Fix match" : "Find details", () => setFixing(true)]]} />}
         <div className="details-main">
           <Poster path={m?.posterPath} size="w342" className="details-poster" />
           <div className="details-text">
@@ -529,7 +585,7 @@ function Details(props: {
               </p>
             )}
             <p className="meta">{props.lengthLabel}</p>
-            {m?.overview ? <p className="overview">{m.overview}</p> : !fixing && <p className="muted">No summary.</p>}
+            {m?.overview ? <p className="overview">{m.overview}</p> : !fixing && props.canMatch && <p className="muted">No summary.</p>}
             <div className="details-actions">
               <button className="primary" onClick={props.onPick}>
                 {props.actionLabel}
@@ -573,7 +629,7 @@ function Details(props: {
             )}
           </div>
         )}
-        <p className="credit">Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        {props.canMatch && <p className="credit">Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>}
       </div>
     </div>
   );
