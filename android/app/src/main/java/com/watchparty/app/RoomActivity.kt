@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -46,7 +47,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import androidx.media3.common.MediaItem as ExoMediaItem
@@ -87,6 +93,10 @@ class RoomActivity : ComponentActivity() {
     private var isTv = false
     private var lastState: PlaybackState? = null
     private var lastMedia: MediaItem? = null
+    /** Codecs of the loaded file, once the server says. */
+    private var mediaInfo: MediaInfo? = null
+    /** Playing the server's converted copy instead of the original file. */
+    private var converted = false
 
     /** Phone showing only chat, because its owner is watching on a TV. */
     private var companion = false
@@ -135,7 +145,23 @@ class RoomActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        player = ExoPlayer.Builder(this).build()
+        // The token goes in a header too: HLS segment links can't carry it in the URL.
+        val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(api.authHeaders())
+        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(http)).build()
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (!switchToConverted()) Toast.makeText(this@RoomActivity, "Can't play this video: ${error.errorCodeName}", Toast.LENGTH_LONG).show()
+            }
+
+            // A sound or picture track this device can't decode is skipped silently, so check for that too.
+            override fun onTracksChanged(tracks: Tracks) {
+                val unplayable = listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO).any { type ->
+                    val groups = tracks.groups.filter { it.type == type }
+                    groups.isNotEmpty() && groups.none { it.isSupported }
+                }
+                if (unplayable) switchToConverted()
+            }
+        })
         sync = PlayerSync(player) { type, position -> connection.send(Protocol.position(type, position)) }
         buildLayout()
         playerView.player = player
@@ -274,23 +300,48 @@ class RoomActivity : ComponentActivity() {
         if (companion) return
         if (media != null && media.id != loadedMediaId) {
             loadedMediaId = media.id
-            val subs = media.subtitles.map { track ->
-                ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, track.index)))
-                    .setMimeType(MimeTypes.TEXT_VTT)
-                    .setLanguage(track.lang)
-                    .setLabel(track.label)
-                    .setSelectionFlags(if (track.index == 0) C.SELECTION_FLAG_DEFAULT else 0)
-                    .build()
+            converted = false
+            mediaInfo = null
+            lifecycleScope.launch {
+                val info = runCatching { api.info(media.id) }.getOrNull()
+                if (loadedMediaId != media.id) return@launch
+                mediaInfo = info
+                val metered = getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+                val direct = info == null || Playable.direct(info, media.size, isTv, metered, DeviceDecoders(this@RoomActivity))
+                load(media, converted = !direct)
             }
-            val item = ExoMediaItem.Builder()
-                .setUri(api.streamUrl(media.id))
-                .setMediaId(media.id)
-                .setSubtitleConfigurations(subs)
-                .build()
-            player.setMediaItem(item)
-            player.prepare()
         }
         sync.setState(state)
+    }
+
+    /** Plays [media], either the original file or the server's converted copy. */
+    private fun load(media: MediaItem, converted: Boolean) {
+        this.converted = converted
+        val subs = media.subtitles.map { track ->
+            ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, track.index)))
+                .setMimeType(MimeTypes.TEXT_VTT)
+                .setLanguage(track.lang)
+                .setLabel(track.label)
+                .setSelectionFlags(if (track.index == 0) C.SELECTION_FLAG_DEFAULT else 0)
+                .build()
+        }
+        val item = ExoMediaItem.Builder()
+            .setUri(if (converted) api.hlsUrl(media.id) else api.streamUrl(media.id))
+            .setMimeType(if (converted) MimeTypes.APPLICATION_M3U8 else null)
+            .setMediaId(media.id)
+            .setSubtitleConfigurations(subs)
+            .build()
+        player.setMediaItem(item)
+        player.prepare()
+    }
+
+    /** When the original file won't play here, switches to the converted copy. False if that isn't possible. */
+    private fun switchToConverted(): Boolean {
+        val media = lastMedia
+        if (converted || mediaInfo?.convert != true || media == null || media.id != loadedMediaId) return false
+        Toast.makeText(this, "This device can't play the original file. Switching to a converted copy.", Toast.LENGTH_LONG).show()
+        load(media, converted = true)
+        return true
     }
 
     // --- UI ---
