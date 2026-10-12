@@ -51,22 +51,19 @@ jobs:
               print(f"uses-feature {name} required={required}")
               if required == "true" and name and name != "android.software.leanback" and f.get(A + "glEsVersion") is None:
                   bad.append(name)
+          # An activity locked to one orientation makes Play require that screen orientation, unless a uses-feature
+          # says it's optional. Google's code scanner locks itself to portrait, which hid the app from TVs.
+          orientation = {"portrait": "android.hardware.screen.portrait", "reversePortrait": "android.hardware.screen.portrait",
+                         "sensorPortrait": "android.hardware.screen.portrait", "userPortrait": "android.hardware.screen.portrait",
+                         "landscape": "android.hardware.screen.landscape", "reverseLandscape": "android.hardware.screen.landscape",
+                         "sensorLandscape": "android.hardware.screen.landscape", "userLandscape": "android.hardware.screen.landscape"}
           for a in root.iter("activity"):
-              if a.get(A + "screenOrientation"):
-                  print(f"activity {a.get(A + 'name')} screenOrientation={a.get(A + 'screenOrientation')}")
-          # Play filters on what aapt reports, which includes features implied by orientation locks and permissions.
-          import os, re, subprocess
-          sdk = os.environ.get("ANDROID_HOME") or os.environ["ANDROID_SDK_ROOT"]
-          aapt2 = sorted(glob.glob(f"{sdk}/build-tools/*/aapt2"))[-1]
-          apk = glob.glob("app/build/outputs/apk/release/*.apk")[0]
-          badging = subprocess.run([aapt2, "dump", "badging", apk], capture_output=True, text=True, check=True).stdout
-          allowed = {"android.hardware.faketouch", "android.hardware.screen.landscape"}
-          for line in badging.splitlines():
-              if line.startswith(("uses-feature", "uses-implied-feature")):
-                  print(line)
-              m = re.match(r"uses-feature: name='([^']+)'", line)
-              if m and m.group(1) not in allowed and m.group(1) not in bad:
-                  bad.append(m.group(1))
+              value = a.get(A + "screenOrientation")
+              if value:
+                  print(f"activity {a.get(A + 'name')} screenOrientation={value}")
+              feature = orientation.get(value)
+              if feature and feature not in declared and feature not in bad:
+                  bad.append(f"{feature} (implied by {a.get(A + 'name')})")
           if bad:
               print(f"::error::These features are required, so Play would hide the app from TVs: {', '.join(bad)}")
               sys.exit(1)
