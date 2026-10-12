@@ -13,7 +13,7 @@ import { Library } from "./library.ts";
 import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
-import { cleanName, RoomManager, type Room } from "./rooms.ts";
+import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
@@ -37,7 +37,8 @@ export function createApp(config: Config): App {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
-  app.use(express.json({ limit: "16kb" }));
+  // Large enough for a binge of a long show's every episode.
+  app.use(express.json({ limit: "64kb" }));
 
   // Lets the Android app and other origins talk to the API.
   app.use("/api", (req, res, next) => {
@@ -369,7 +370,16 @@ export function createApp(config: Config): App {
     if (mediaId !== undefined && (typeof mediaId !== "string" || !(await library.get(mediaId)))) {
       return void res.status(400).json({ error: "That file is not in the library." });
     }
-    res.status(201).json({ room: rooms.create(mediaId).summary() });
+    // A binge: the videos to play one after another (unknown ones are skipped).
+    const queue: unknown = req.body?.queue;
+    if (queue !== undefined) {
+      if (!Array.isArray(queue) || queue.length > MAX_QUEUE || queue.some((id) => typeof id !== "string")) {
+        return void res.status(400).json({ error: "queue must be a list of video ids." });
+      }
+      await library.list();
+      if (!queue.some((id) => library.peek(id))) return void res.status(400).json({ error: "Those files are not in the library." });
+    }
+    res.status(201).json({ room: rooms.create(mediaId, queue as string[] | undefined).summary() });
   });
 
   // Ends a party from the host's home screen, without joining it. Everyone in it is sent home.

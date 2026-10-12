@@ -46,10 +46,10 @@ export function Home(props: {
     return () => clearInterval(t);
   }, [anyPlaying]);
 
-  const start = async (mediaId: string) => {
+  const start = async (mediaId: string, queue?: string[]) => {
     setError(null);
     try {
-      const room = await api.createRoom(mediaId);
+      const room = await api.createRoom(mediaId, queue);
       setStarted(room);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
@@ -110,7 +110,8 @@ export function Home(props: {
           <section>
             <div className="card started">
               <p className="muted">
-                Party ready for <strong>{started.media?.title}</strong>. Share
+                Party ready for <strong>{started.media?.title}</strong>
+                {started.binge && `, the first of ${started.binge.length} in this binge`}. Share
                 the code or the invite link, then join when you're ready to
                 watch.
               </p>
@@ -145,6 +146,7 @@ export function Home(props: {
                   >
                     <span className="title">
                       {r.media?.title ?? "Nothing picked yet"}
+                      {r.binge && <span className="year"> · {r.binge.index} of {r.binge.length}</span>}
                     </span>
                     <span className="meta">
                       {r.members.length === 0
@@ -185,6 +187,7 @@ export function Home(props: {
           <Library
             actionLabel="Start party"
             onPick={(item) => start(item.id)}
+            onBinge={(ids) => start(ids[0], ids)}
           />
         </section>
       </div>

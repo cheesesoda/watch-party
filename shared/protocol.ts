@@ -124,10 +124,19 @@ export interface ChatMessage {
   system?: boolean;
 }
 
+/** A binge: the videos the party plays one after another, and the switch to the next one if it's coming up. */
+export interface Queue {
+  items: MediaItem[];
+  /** Counting down to the next video: which one, and when it starts (server clock, ms). */
+  advance: { mediaId: string; at: number } | null;
+}
+
 export interface RoomSummary {
   id: string;
   media: MediaItem | null;
   members: Member[];
+  /** Set for a binge: where the party is in it, e.g. 3 of 10. */
+  binge?: { index: number; length: number } | null;
   /** Where the party is in its video, for the host's party list. Only on the room list and room lookups. */
   playback?: RoomPlayback;
 }
@@ -145,6 +154,12 @@ export type ClientMessage =
   | { type: "pause"; position: number }
   | { type: "seek"; position: number }
   | { type: "select"; mediaId: string }
+  /** Host: play these one after another, starting with the first. */
+  | { type: "binge"; mediaIds: string[] }
+  /** A video finished playing on this member's screen; in a binge, the next one comes up. */
+  | { type: "ended"; mediaId: string }
+  /** Host: don't move on to the next video in the binge. */
+  | { type: "cancel-advance" }
   | { type: "chat"; text: string }
   | { type: "ping"; clientTime: number }
   /** Join or leave voice, or change mute while in it. */
@@ -164,7 +179,11 @@ export type ServerMessage =
       chat: ChatMessage[];
       serverTime: number;
       iceServers: IceServer[];
+      /** The binge, if the party has one. */
+      queue?: Queue | null;
     }
+  /** The binge changed: started, moved on, counting down to the next video, or stopped (null). */
+  | { type: "queue"; queue: Queue | null }
   | { type: "state"; state: PlaybackState; media: MediaItem | null; by: string | null }
   | { type: "members"; members: Member[] }
   | { type: "chat"; message: ChatMessage }

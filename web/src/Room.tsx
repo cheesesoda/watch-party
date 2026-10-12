@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { MediaInfo } from "../../shared/protocol.ts";
+import type { MediaInfo, MediaItem } from "../../shared/protocol.ts";
 import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
-import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon } from "./Icons.tsx";
+import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
@@ -282,6 +282,13 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   }
 
   const media = view.media;
+  // A binge: where the party is in it, and what comes before and after.
+  const queue = view.queue;
+  const at = queue && media ? queue.items.findIndex((i) => i.id === media.id) : -1;
+  const prev = queue && at > 0 ? queue.items[at - 1] : null;
+  const next = queue && at >= 0 ? (queue.items[at + 1] ?? null) : null;
+  const upNext = queue?.advance ? queue.items.find((i) => i.id === queue.advance!.mediaId) : undefined;
+  const play = (item: MediaItem) => send({ type: "select", mediaId: item.id });
 
   return (
     <div className={`room ${idle && !picking ? "idle" : ""}`} ref={containerRef}>
@@ -293,6 +300,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         playsInline
         preload="auto"
         onDoubleClick={toggleFullscreen}
+        onEnded={() => media && send({ type: "ended", mediaId: media.id })}
       >
         {media?.subtitles.map((s) => (
           <track key={`${media.id}-${s.index}`} kind="subtitles" label={s.label} srcLang={s.lang ?? undefined} src={subtitleUrl(media.id, s.index)} default={s.index === 0} />
@@ -306,10 +314,21 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <div className="room-title">
           <strong>{media?.title ?? "Nothing playing"}</strong>
           <span className="muted">
+            {queue && at >= 0 && `Binge ${at + 1} of ${queue.items.length} · `}
             {view.status === "open" ? [...new Set(view.members.map((m) => m.name))].join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>
         </div>
         <span className="spacer" />
+        {props.host && queue && (
+          <>
+            <button className="icon" onClick={() => prev && play(prev)} disabled={!prev} title={prev ? `Previous: ${prev.title}` : "Previous"} aria-label="Previous video">
+              <SkipBackIcon />
+            </button>
+            <button className="icon" onClick={() => next && play(next)} disabled={!next} title={next ? `Next: ${next.title}` : "Next"} aria-label="Next video">
+              <SkipForwardIcon />
+            </button>
+          </>
+        )}
         {props.host && (
           <button className="icon" onClick={() => setPicking(true)} title="Change video" aria-label="Change video">
             <ListVideoIcon />
@@ -368,6 +387,16 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
             <p>Waiting for the host to pick something.</p>
           )}
         </div>
+      )}
+
+      {upNext && queue?.advance && (
+        <UpNext
+          item={upNext}
+          at={queue.advance.at}
+          serverNow={() => syncRef.current?.serverNow() ?? Date.now()}
+          onPlayNow={props.host ? () => play(upNext) : undefined}
+          onCancel={props.host ? () => send({ type: "cancel-advance" }) : undefined}
+        />
       )}
 
       {blocked && (
@@ -433,14 +462,68 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
               <h2>Choose a video</h2>
               <button onClick={() => setPicking(false)}>Close</button>
             </div>
+            {queue && (
+              <section className="binge-list">
+                <h3>This binge</h3>
+                <ul className="items">
+                  {queue.items.map((item, i) => (
+                    <li key={item.id}>
+                      <button
+                        className="item"
+                        aria-current={i === at}
+                        onClick={() => {
+                          play(item);
+                          setPicking(false);
+                        }}
+                      >
+                        <span className="title">
+                          <span className="year">{i + 1}.</span> {item.title}
+                        </span>
+                        <span className="action">{i === at ? "Playing" : "Play for everyone"}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <Library
               actionLabel="Play for everyone"
               onPick={(item) => {
                 send({ type: "select", mediaId: item.id });
                 setPicking(false);
               }}
+              onBinge={(ids) => {
+                send({ type: "binge", mediaIds: ids });
+                setPicking(false);
+              }}
             />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Up next" while a binge counts down to its next video. The host can start it now or stay on this one. */
+function UpNext(props: { item: MediaItem; at: number; serverNow: () => number; onPlayNow?: () => void; onCancel?: () => void }) {
+  const left = () => Math.max(0, Math.ceil((props.at - props.serverNow()) / 1000));
+  const [seconds, setSeconds] = useState(left);
+  useEffect(() => {
+    const t = window.setInterval(() => setSeconds(left()), 250);
+    return () => window.clearInterval(t);
+  }, [props.at]);
+  return (
+    <div className="up-next" role="status">
+      <span className="muted">Up next{seconds > 0 ? ` in ${seconds}` : ""}</span>
+      <strong>{props.item.title}</strong>
+      {(props.onPlayNow || props.onCancel) && (
+        <div className="row">
+          {props.onPlayNow && (
+            <button className="primary" onClick={props.onPlayNow}>
+              Play now
+            </button>
+          )}
+          {props.onCancel && <button onClick={props.onCancel}>Stay here</button>}
         </div>
       )}
     </div>

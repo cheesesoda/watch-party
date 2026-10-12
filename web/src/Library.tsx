@@ -39,7 +39,12 @@ interface Show {
 }
 
 /** The library: one menu (All videos, Movies, TV shows), sorting, a Recently added row, and shows grouped into seasons. */
-export function Library(props: { onPick: (item: MediaItem) => void; actionLabel: string }) {
+export function Library(props: {
+  onPick: (item: MediaItem) => void;
+  actionLabel: string;
+  /** Plays these one after another (a season, a whole show, or a show from one episode on). */
+  onBinge?: (ids: string[]) => void;
+}) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [convert, setConvert] = useState(true);
   const [query, setQuery] = useState("");
@@ -351,6 +356,16 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                       )}
                     </div>
                   )}
+                  {props.onBinge && shownSeason !== EXTRAS && (
+                    <div className="binge-bar">
+                      <button className="primary" onClick={() => props.onBinge!(show.episodes.filter((e) => e.episode!.season === shownSeason).map((e) => e.id))}>
+                        Binge season {shownSeason}
+                      </button>
+                      {show.seasons.length > 1 && (
+                        <button onClick={() => props.onBinge!(show.episodes.map((e) => e.id))}>Binge all {show.seasons.length} seasons</button>
+                      )}
+                    </div>
+                  )}
                   <ul className="items">
                     {shownSeason === EXTRAS
                       ? showExtras.get(show.name)!.map(extraRow)
@@ -372,6 +387,16 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
             setShownInfo(null);
             props.onPick(item);
           }}
+          onBingeFrom={
+            props.onBinge && byId.get(shownInfo)!.episode
+              ? () => {
+                  const item = byId.get(shownInfo)!;
+                  const show = shows.find((s) => s.episodes.includes(item));
+                  setShownInfo(null);
+                  if (show) props.onBinge!(show.episodes.slice(show.episodes.indexOf(item)).map((e) => e.id));
+                }
+              : undefined
+          }
           onMatched={apply}
           onClose={() => setShownInfo(null)}
         />
@@ -402,6 +427,8 @@ function Details(props: {
   actionLabel: string;
   lengthLabel: ReactNode;
   onPick: () => void;
+  /** For an episode: play it and every episode after it. */
+  onBingeFrom?: () => void;
   onMatched: (r: LibraryResponse) => void;
   onClose: () => void;
 }) {
@@ -485,6 +512,7 @@ function Details(props: {
               <button className="primary" onClick={props.onPick}>
                 {props.actionLabel}
               </button>
+              {props.onBingeFrom && <button onClick={props.onBingeFrom}>Binge from here</button>}
               {!fixing && <button onClick={() => setFixing(true)}>{m ? "Fix match" : "Find details"}</button>}
               <button onClick={props.onClose}>Close</button>
             </div>

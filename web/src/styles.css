@@ -1174,3 +1174,67 @@ button.link:focus-visible {
     display: none;
   }
 }
+
+/* Binge buttons above a season's episodes. */
+.binge-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+/* Bottom right while a binge counts down to its next video. */
+.up-next {
+  position: absolute;
+  left: 20px;
+  bottom: 84px;
+  width: min(360px, calc(100% - 40px));
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  background: rgba(26, 9, 51, 0.92);
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.up-next strong {
+  font-size: 17px;
+}
+.up-next .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.binge-list {
+  margin-bottom: 18px;
+}
+.binge-list h3 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.binge-list .item[aria-current="true"] {
+  border-color: var(--accent);
+}
+.binge-list .item[aria-current="true"] .action {
+  color: var(--muted);
+}
+
+/* Cards with posters need more room: one fewer per row. */
+.shelf:has(.tile.has-poster) {
+  grid-auto-columns: calc((100% - 4 * 10px) / 5);
+}
+@container (min-width: 1500px) {
+  .shelf:has(.tile.has-poster) {
+    grid-auto-columns: calc((100% - 6 * 10px) / 7);
+  }
+}
+@container (max-width: 1000px) {
+  .shelf:has(.tile.has-poster) {
+    grid-auto-columns: calc((100% - 2 * 10px) / 3);
+  }
+}
+@container (max-width: 640px) {
+  .shelf:has(.tile.has-poster) {
+    grid-auto-columns: calc((100% - 10px) / 2.3);
+  }
+}
