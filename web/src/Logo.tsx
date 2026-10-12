@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-/** The popcorn puff with a play button cut out, in the app's muted orange. */
+/** The popcorn puff with a play button cut out, in the full brand orange-to-coral. */
 export function LogoMark(props: { size?: number }) {
   const id = useId();
   const size = props.size ?? 32;
@@ -8,8 +8,8 @@ export function LogoMark(props: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="logo-mark">
       <defs>
         <linearGradient id={`${id}p`} gradientUnits="userSpaceOnUse" x1="6" y1="0" x2="58" y2="58">
-          <stop offset="0" stopColor="#e9a16a" />
-          <stop offset="1" stopColor="#d8726a" />
+          <stop offset="0" stopColor="#FF8E44" />
+          <stop offset="1" stopColor="#FF5252" />
         </linearGradient>
         <mask id={`${id}m`} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
           <rect width="64" height="64" fill="#fff" />
