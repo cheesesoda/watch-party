@@ -33,11 +33,25 @@ To copy the base64 to the clipboard in PowerShell:
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.jks")) | Set-Clipboard
 ```
 
+## Automatic updates to internal testing
+
+After the first `.aab` is uploaded by hand (done), GitHub publishes every new build to the internal testing track itself. Testers get it as a normal Play Store update.
+
+One-time setup (the console wording may differ a little from this):
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (or reuse one), open **APIs & Services > Library**, and enable **Google Play Android Developer API**.
+2. Open **IAM & Admin > Service accounts**, create a service account (any name, no roles needed), then on its **Keys** tab choose **Add key > Create new key > JSON**. A `.json` file downloads.
+3. In Play Console, open **Users and permissions > Invite new users**, enter the service account's email (it ends in `iam.gserviceaccount.com`), and under **App permissions** add Popcorn Club with **Release apps to testing tracks**. Send the invite; service accounts don't need to accept it.
+4. On GitHub, open **Settings > Secrets and variables > Actions > New repository secret**, name it `PLAY_SERVICE_ACCOUNT_JSON`, and paste the whole `.json` file. Then delete the file from your PC.
+
+Play can take a few minutes, sometimes longer, to accept a new service account. If the first run fails with a permissions error, wait a bit and re-run it.
+
 ## Each release
 
-1. On GitHub, open **Actions > Android release > Run workflow**.
-2. Enter the version name (for example `0.2.0`). Leave the version code empty to use the run number, which goes up by one every run, so each upload gets a higher code as Play requires.
-3. Download the `watch-party-<version>-aab` artifact, unzip it, and upload the `.aab` in Play Console.
+- **Automatic:** every merge to `main` that changes `android/` builds a signed bundle and publishes it to internal testing as version `0.2.<run number>`.
+- **By hand:** **Actions > Android release > Run workflow**, optionally with a version name like `0.3.0`.
+
+The version code is the run number, which goes up by one every run, so each upload gets a higher code as Play requires. Each run also keeps the `.aab` as a downloadable artifact for 30 days. Without the `PLAY_SERVICE_ACCOUNT_JSON` secret the publish step is skipped, and you upload that `.aab` in Play Console yourself.
 
 Pull request builds and the plain **Android** workflow still produce a debug-signed APK for sideloading, so the secrets are only needed for Play uploads.
 
