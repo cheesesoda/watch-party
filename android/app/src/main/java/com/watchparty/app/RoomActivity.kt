@@ -859,7 +859,9 @@ class RoomActivity : ComponentActivity() {
         hint = "Message"
         setSingleLine()
         gravity = Gravity.CENTER_VERTICAL
-        imeOptions = EditorInfo.IME_ACTION_SEND
+        // In landscape Android otherwise swaps the whole screen for a plain white text box with its own SEND button.
+        // Keep the keyboard below the chat panel, so the video and messages stay in view while typing.
+        imeOptions = EditorInfo.IME_ACTION_SEND or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
         setTextColor(Color.WHITE)
         setHintTextColor(Color.GRAY)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
