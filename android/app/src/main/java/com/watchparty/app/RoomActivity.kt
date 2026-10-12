@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -979,11 +980,45 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * A Material 3 switch: a 52x32dp pill track with a round thumb that grows when on. Drawn here
+     * because the platform Switch takes the device's own look, which on Android TV resembles a radio button.
+     */
     private fun switch(on: Boolean) = Switch(this).apply {
         isChecked = on
+        showText = false
+        thumbTintList = null
+        trackTintList = null
         val checked = intArrayOf(android.R.attr.state_checked)
-        thumbTintList = ColorStateList(arrayOf(checked, intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE_VARIANT))
-        trackTintList = ColorStateList(arrayOf(checked, intArrayOf()), intArrayOf(ACCENT, TONAL))
+        val focused = intArrayOf(android.R.attr.state_focused)
+        fun track(fill: Int, outline: Int) = GradientDrawable().apply {
+            setColor(fill)
+            setStroke(dp(2), outline)
+            cornerRadius = dp(16).toFloat()
+            setSize(dp(52), dp(32))
+        }
+        // The thumb sits in a 26x32dp box (half the track's width, its full height) so it's centered
+        // vertically and the switch stays 52dp wide: 24dp when on, 16dp when off.
+        fun thumb(color: Int, size: Int): InsetDrawable {
+            val x = dp((26 - size) / 2)
+            val y = dp((32 - size) / 2)
+            return InsetDrawable(GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setSize(dp(size), dp(size))
+            }, x, y, x, y)
+        }
+        trackDrawable = StateListDrawable().apply {
+            addState(checked + focused, track(ACCENT, Color.WHITE))
+            addState(checked, track(ACCENT, ACCENT))
+            addState(focused, track(SURFACE, Color.WHITE))
+            addState(intArrayOf(), track(SURFACE, ON_SURFACE_VARIANT))
+        }
+        thumbDrawable = StateListDrawable().apply {
+            addState(checked, thumb(ON_ACCENT, 24))
+            addState(intArrayOf(), thumb(ON_SURFACE_VARIANT, 16))
+        }
+        switchMinWidth = dp(52)
     }
 
     private fun dialog() = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
