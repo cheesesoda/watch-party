@@ -172,6 +172,30 @@ class RoomActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /**
+     * Play, pause and skip buttons on a TV remote. Handled here, before any view, because the player view
+     * only sees them while it has focus, and nothing else picks them up since the app has no media session.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (companion || !isMediaKey(event.keyCode)) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> player.playWhenReady = !player.playWhenReady
+                KeyEvent.KEYCODE_MEDIA_PLAY -> player.playWhenReady = true
+                KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> player.playWhenReady = false
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SKIP_MS)
+                KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo(maxOf(0L, player.currentPosition - SKIP_MS))
+            }
+        }
+        return true
+    }
+
+    private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
+        KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+        KeyEvent.KEYCODE_MEDIA_REWIND,
+    )
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_PROG_BLUE -> {
@@ -726,6 +750,8 @@ class RoomActivity : ComponentActivity() {
         const val EXTRA_ROOM = "room"
         const val EXTRA_HOST = "host"
         private const val CHAT_FADE_MS = 10_000L
+        /** How far the remote's fast-forward and rewind buttons jump. */
+        private const val SKIP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
 
