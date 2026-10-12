@@ -92,6 +92,23 @@ If Windows Firewall asks about Node, allow **Private networks** if friends on yo
 
 To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 
+### Windows tray app
+
+Instead of a PowerShell window, the server can run from an icon by the clock, like Plex. It starts the server hidden, opens the app and installs updates when you choose. Nothing checks for updates by itself.
+
+1. Install the .NET 8 SDK once: `winget install Microsoft.DotNet.SDK.8`. Open a new PowerShell window after it finishes.
+2. Close the PowerShell window that runs `npm start`, if one is open.
+3. In the watch-party folder, run `windows\install.cmd`. It builds the tray app into `%LOCALAPPDATA%\Popcorn Club\app` and starts it. If it can't find your watch-party folder, it asks for it.
+
+Click the icon to open Popcorn Club in your browser. Right-click it for the menu:
+
+- **Start server**, **Stop server**, **Restart server**, and **Show log** for the server's output. The icon is gray while the server is stopped.
+- **Update now** stops the server, gets the latest code (`git pull`), runs `npm ci` and `npm run build`, rebuilds the tray app if it changed, and starts everything again. A notification lists what's new, and the log has the full list.
+- **Settings**: **Start with Windows**, **Edit server settings (.env)**, **Open server folder** and **Choose server folder**.
+- **Quit** stops the server too.
+
+The log is also saved to `%APPDATA%\Popcorn Club\server.log`.
+
 ### Your media folder
 
 - Subfolders show up as groups in the library. For several folders without Docker, use `MEDIA_DIRS=/a,/b` (on Windows, `D:/Movies;E:/Shows`).
