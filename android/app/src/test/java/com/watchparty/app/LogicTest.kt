@@ -14,6 +14,13 @@ class LogicTest {
     }
 
     @Test
+    fun readsInviteLinks() {
+        val link = "https://tv.example.ts.net/join/ABC123"
+        assertEquals("https://tv.example.ts.net", Prefs.normalizeUrl(link))
+        assertEquals("abc123", Prefs.roomCode(link))
+    }
+
+    @Test
     fun extractsRoomCodes() {
         assertEquals("abc123", Prefs.roomCode("http://host:8080/#/room/ABC123"))
         assertEquals("xyz", Prefs.roomCode(" XYZ "))

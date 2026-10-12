@@ -18,6 +18,11 @@ class Prefs(context: Context) {
         get() = sp.getString("name", "") ?: ""
         set(v) = sp.edit().putString("name", v).apply()
 
+    /** Code of the last party this device joined; fills in the code when signing in a TV. */
+    var lastRoom: String
+        get() = sp.getString("last_room", "") ?: ""
+        set(v) = sp.edit().putString("last_room", v).apply()
+
     val isSetUp: Boolean
         get() = serverUrl.isNotBlank() && name.isNotBlank() && sp.getBoolean("signed_in", false)
 
@@ -29,8 +34,8 @@ class Prefs(context: Context) {
             var url = input.trim().trimEnd('/')
             if (url.isEmpty()) return url
             if (!url.startsWith("http://") && !url.startsWith("https://")) url = "http://$url"
-            // Invite links look like https://host/#/join/ABC123; keep only the server part.
-            url = url.substringBefore("/#").substringBefore("#").trimEnd('/')
+            // Invite links look like https://host/join/ABC123 (older ones https://host/#/join/ABC123); keep only the server part.
+            url = url.substringBefore("/#").substringBefore("#").substringBefore("/join/").substringBefore("/room/").trimEnd('/')
             return url
         }
 
