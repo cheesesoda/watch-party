@@ -43,3 +43,7 @@ Pull request builds and the plain **Android** workflow still produce a debug-sig
 ## Privacy policy
 
 `docs/privacy.md` is the app's privacy policy. To host it, open **Settings > Pages**, choose **Deploy from a branch**, branch `main`, folder `/docs`. It is then at `https://cheesesoda.github.io/watch-party/privacy/`, which is the URL to give Play Console.
+
+## Store graphics
+
+`docs/store/tv-banner-1280x720.png` is the Android TV banner for the Play listing. It matches the in-app launcher banner, which carries the app name as the TV quality rules require.
