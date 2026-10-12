@@ -314,7 +314,12 @@ export function createApp(config: Config): App {
     res.redirect(302, `/#/pair/${encodeURIComponent(req.params.id)}`);
   });
 
-  // Lets Android open /pair links in the app. Fingerprints come from Play Console (App signing).
+  // Invite links: a real path too, so phones with the app open it there, and browsers land on the join page.
+  app.get("/join/:code", (req, res) => {
+    res.redirect(302, `/#/join/${encodeURIComponent(req.params.code)}`);
+  });
+
+  // Lets Android open /pair and /join links in the app. Fingerprints come from Play Console (App signing).
   app.get("/.well-known/assetlinks.json", (_req, res) => {
     const android = config.androidApp;
     if (!android?.certFingerprints.length) return void res.status(404).end();

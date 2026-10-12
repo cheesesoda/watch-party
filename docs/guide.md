@@ -194,9 +194,10 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 
 The app opens on **Join a party** and **Start a party**.
 
-- **Join a party (friends):** enter the party code and your name. The app already knows the host's server; press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
+- **Join a party (friends):** tap the invite link the host sent and it opens in the app with the code filled in; enter your name and press **Join**. Or type the party code yourself. The app already knows the host's server; press **Other server** only if the host gave you a different address.
 - **Start a party (host):** enter your name and the password. Then press **Start party** next to a movie to get its code and a **Join party** button.
 - **Sign in with your phone (TV only):** the TV shows a QR code. Scan it with your phone's camera, enter the party code and a name for the TV, and the TV joins by itself. The host can tap **I'm the host** instead to sign the TV in as host. On a phone with the app installed the link opens in the app, otherwise in the browser; both work.
+- **Watch on the TV, chat on the phone:** join the party on your phone, then pick **Sign in with your phone** on the TV and scan its QR code. The phone fills in the party code and your name, so press **Join on the TV**. When a TV joins under the same name as your phone, the phone switches to chat only.
 
 The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
 
