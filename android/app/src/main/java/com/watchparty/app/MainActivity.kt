@@ -783,7 +783,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
                         action = "Join",
                         onClick = { RoomActivity.start(context, room.id) },
-                        progress = room.playback?.let { { inline: Boolean -> PartyProgress(it, (now - fetchedAt).coerceAtLeast(0), inline) } },
+                        progress = if (room.playback == null) null else { inline ->
+                            PartyProgress(room.playback, (now - fetchedAt).coerceAtLeast(0), inline)
+                        },
                     )
                 }
                 OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End") }
@@ -1021,7 +1023,8 @@ private fun FocusRow(
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(10.dp)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-    val wide = maxWidth >= 560.dp
+    val width = maxWidth
+    val wide = width >= 560.dp
     Row(
         Modifier
             .fillMaxWidth()
@@ -1039,7 +1042,7 @@ private fun FocusRow(
         }
         if (wide && progress != null) {
             Spacer(Modifier.width(16.dp))
-            Box(Modifier.width((maxWidth * 0.32f).coerceAtMost(360.dp))) { progress(true) }
+            Box(Modifier.width((width * 0.32f).coerceAtMost(360.dp))) { progress(true) }
         }
         Spacer(Modifier.width(12.dp))
         Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

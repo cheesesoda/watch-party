@@ -75,3 +75,16 @@ export const MicOffIcon = (p: Props) => (
     <path d="M9 9v3a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.7M19 11a7 7 0 0 1-1.1 3.8M5 11a7 7 0 0 0 11.2 5.6M12 19v3M3 3l18 18" />
   </Svg>
 );
+
+export const HeadphonesIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+  </Svg>
+);
+
+export const ListVideoIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 12H3M16 6H3M12 18H3" />
+    <path d="m16 12 5 3-5 3v-6Z" />
+  </Svg>
+);

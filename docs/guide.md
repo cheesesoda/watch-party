@@ -176,7 +176,7 @@ A party code only gets you into that one party. It stops working when the host e
 
 1. Press **Start a party**, enter your name and the server password. You stay signed in on that browser.
 2. Find the movie under **Start a party** and press **Start party** next to it. You get a party code, a **Copy invite link** button and a **Join party** button. Nothing plays yet, and you stay on the home page.
-3. Send the link, then press **Join party** when you're ready to watch. **Change video** in the party picks something else. The **Invite** button in the party also shows the code.
+3. Send the link, then press **Join party** when you're ready to watch. **Change video** (the list icon in the party's top bar) picks something else. The **Invite** button in the party also shows the code.
 
 Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party. To end a party without joining it, press **End** next to it under **Watch parties** on the host's home page (web or app).
 
@@ -228,7 +228,7 @@ New messages float over the video for a few seconds. On the TV, **Chat** (or the
 
 ### Voice
 
-1. Press **Join voice** in a party and allow the microphone.
+1. Press **Join voice** in a party (the headphones icon in the top bar on the web) and allow the microphone.
 2. A ring lights up around whoever is talking, and the movie gets quieter while someone else talks.
 3. Press it again to leave voice. You can stay in the party without voice.
 
