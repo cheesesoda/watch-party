@@ -30,7 +30,10 @@ const count = (await app.library.list()).length;
 app.server.listen(config.port, config.host, () => {
   console.log(`Popcorn Club listening on http://${config.host}:${config.port}`);
   console.log(`library: ${count} video(s) in ${config.mediaDirs.join(", ")}`);
+  console.log(app.metadata.enabled ? "movie details: on (TMDB)" : "movie details: off (add TMDB_TOKEN to .env to turn them on)");
 });
+
+void app.library.list().then((items) => app.metadata.warm(items));
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
