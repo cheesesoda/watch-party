@@ -6,12 +6,13 @@ The full Play Console walkthrough lives in the shared "Google Play release check
 
 Play App Signing holds the real app signing key. You sign uploads with your own **upload key**, which never goes in the repo.
 
-On Windows (PowerShell), with the JDK that ships with Android Studio:
+`keytool` comes with any Java install. In PowerShell, check for it with `where.exe keytool`; if nothing is found, install Java with `winget install EclipseAdoptium.Temurin.21.JDK` and open a new window. Then:
 
 ```powershell
-& "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" -genkeypair -v `
-  -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
 ```
+
+Make a new key for this app rather than reusing another app's keystore, especially one that holds that app's own signing key.
 
 Use one password for both the keystore and the key (the default PKCS12 format requires that). Back up `upload.jks` and the password somewhere safe outside the repo, such as a password manager. If you lose it, Google can reset the upload key, but it takes a support request.
 
