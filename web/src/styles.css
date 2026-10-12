@@ -103,8 +103,9 @@ input:focus {
 }
 
 .center,
+/* The dashboard is plain deep purple; the gradient stays on the sign-in screens. */
 .page-wrap {
-  background: var(--brand) fixed;
+  background: var(--bg);
 }
 .center {
   min-height: 100%;
@@ -132,15 +133,61 @@ input:focus {
 /* Home */
 .page-wrap {
   min-height: 100%;
-  padding: 12px;
 }
-/* A deep purple sheet over the gradient keeps the small grey text readable. */
-/* Full width, like a TV app; the gradient shows as a thin frame around it. */
+/* Full width, like a TV app. */
 .page {
   margin: 0 auto;
   padding: 24px 32px;
-  background: rgba(26, 9, 51, 0.9);
-  border-radius: 20px;
+}
+/* On a computer screen the dashboard fits the window like an app: the header, parties, search and menu stay put,
+   and only the video list (and a long party list) scroll. Small screens scroll the whole page as usual. */
+@media (min-width: 900px) and (min-height: 560px) {
+  .page-wrap {
+    height: 100%;
+  }
+  .page {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0;
+  }
+  .page > header,
+  .page > section {
+    flex: none;
+  }
+  .page .rooms {
+    max-height: 28vh;
+    overflow-y: auto;
+  }
+  .page > section.start-party {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .page .library {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .page .browse {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .page .browse-main {
+    min-height: 0;
+    overflow-y: auto;
+    /* Room for the Recently added arrows, which sit just outside the row. */
+    margin: 0 -12px;
+    padding: 0 12px 24px;
+  }
+  .page .rail {
+    align-content: start;
+    position: static;
+  }
 }
 .page > section {
   margin-top: 28px;
@@ -302,8 +349,6 @@ input:focus {
   border-radius: 50%;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 24px;
-  line-height: 1;
   display: grid;
   place-items: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);

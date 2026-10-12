@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
+import { ChevronLeftIcon, ChevronRightIcon } from "./Icons.tsx";
 
 function fmtSize(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -346,12 +347,12 @@ function Shelf(props: { children: ReactNode }) {
       </div>
       {edges.left && (
         <button className="shelf-arrow left" onClick={() => page(-1)} aria-label="Previous">
-          ‹
+          <ChevronLeftIcon size={20} />
         </button>
       )}
       {edges.right && (
         <button className="shelf-arrow right" onClick={() => page(1)} aria-label="More">
-          ›
+          <ChevronRightIcon size={20} />
         </button>
       )}
     </div>

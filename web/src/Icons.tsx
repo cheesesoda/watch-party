@@ -88,3 +88,15 @@ export const ListVideoIcon = (p: Props) => (
     <path d="m16 12 5 3-5 3v-6Z" />
   </Svg>
 );
+
+export const ChevronLeftIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="m15 18-6-6 6-6" />
+  </Svg>
+);
+
+export const ChevronRightIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="m9 18 6-6-6-6" />
+  </Svg>
+);
