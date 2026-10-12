@@ -20,6 +20,10 @@ on:
         description: "Play version code (leave empty to use this workflow's run number)"
         required: false
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: android-release
   cancel-in-progress: false
@@ -36,6 +40,24 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # "What's new" in Play: the titles of the PRs that changed the app since the last build that
+      # reached Play. A merge whose own build was cancelled still gets listed in the next one.
+      - name: Write release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/whatsnew"
+          prev=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-android.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
+          notes=""
+          if [ -n "$prev" ] && git cat-file -e "$prev" 2>/dev/null; then
+            notes=$(git log --first-parent --merges --format='%b' "$prev..HEAD" -- . | sed '/^$/d' | head -n 12 | sed 's/^/- /')
+          fi
+          [ -n "$notes" ] || notes="- Fixes and improvements"
+          printf '%s\n' "$notes" | cut -c1-120 | head -c 500 > "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
+          echo "Release notes:"; cat "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
+          echo "WHATSNEW_DIR=$RUNNER_TEMP/whatsnew" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -73,3 +95,4 @@ jobs:
           releaseName: ${{ env.VERSION_NAME }}
           track: internal
           status: completed
+          whatsNewDirectory: ${{ env.WHATSNEW_DIR }}
