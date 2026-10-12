@@ -25,17 +25,33 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Where invite links point; the server's INVITE_URL, or this page's own address. */
 let inviteBase = location.origin;
-export const loadInviteBase = () =>
+/**
+ * Where video, subtitles and posters load from: the server's MEDIA_URL when these pages come through the
+ * app.tv.chzsda.com proxy, so the video goes straight from the host's PC. Empty: this page's own address.
+ */
+let mediaBase = "";
+/** The sign-in token, added to media links on MEDIA_URL (the sign-in cookie only goes to this address). */
+let mediaToken = "";
+export const loadServerInfo = () =>
   fetch("/api/health")
     .then((r) => r.json())
-    .then((h: { inviteUrl?: string | null }) => {
+    .then((h: { inviteUrl?: string | null; mediaUrl?: string | null }) => {
       if (h.inviteUrl) inviteBase = h.inviteUrl;
+      if (h.mediaUrl && h.mediaUrl !== location.origin) mediaBase = h.mediaUrl;
     })
     .catch(() => {});
 export const getInviteBase = () => inviteBase;
+/** True when media loads from another address, so the player has to ask for it in CORS mode. */
+export const mediaElsewhere = () => mediaBase !== "";
+const media = (path: string) =>
+  mediaBase ? `${mediaBase}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(mediaToken)}` : path;
 
 export const api = {
-  me: () => call<Me>("/api/me"),
+  me: () =>
+    call<Me & { token?: string | null }>("/api/me").then((me) => {
+      mediaToken = me.token ?? "";
+      return me;
+    }),
   /** Joins one party by its code. Viewers get a pass for that party; the host keeps their sign-in. */
   join: (code: string) =>
     call<{ room: RoomSummary }>("/api/join", { method: "POST", body: JSON.stringify({ code }) }).then((r) => r.room),
@@ -59,11 +75,11 @@ export const api = {
     call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue }) }).then((r) => r.room),
 };
 
-export const streamUrl = (id: string) => `/api/media/${id}/stream`;
-export const hlsUrl = (id: string) => `/api/media/${id}/hls/index.m3u8`;
+export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
+export const hlsUrl = (id: string) => media(`/api/media/${id}/hls/index.m3u8`);
 /** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
-export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300") => `/api/images/${size}${path}`;
-export const subtitleUrl = (id: string, index: number) => `/api/media/${id}/subtitles/${index}.vtt`;
+export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300") => media(`/api/images/${size}${path}`);
+export const subtitleUrl = (id: string, index: number) => media(`/api/media/${id}/subtitles/${index}.vtt`);
 
 const NAME_KEY = "wp_name";
 export function getName(): string {

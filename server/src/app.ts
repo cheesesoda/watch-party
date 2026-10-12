@@ -36,6 +36,16 @@ export function createApp(config: Config): App {
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const app = express();
   app.disable("x-powered-by");
+
+  // Behind the app.tv.chzsda.com proxy every request comes from the proxy, so it names the visitor instead.
+  const clientOf = (req: express.Request): string => {
+    const key = req.headers["x-popcorn-proxy-key"];
+    const visitor = req.headers["x-popcorn-client"];
+    if (config.proxyKey && typeof key === "string" && typeof visitor === "string" && visitor && checkPassword(config.proxyKey, key)) {
+      return visitor.slice(0, 64);
+    }
+    return req.ip ?? "unknown";
+  };
   app.set("trust proxy", config.trustProxy);
   // Large enough for a binge of a long show's every episode.
   app.use(express.json({ limit: "64kb" }));
@@ -50,7 +60,7 @@ export function createApp(config: Config): App {
   });
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, authRequired: Boolean(config.password), inviteUrl: config.inviteUrl ?? null });
+    res.json({ ok: true, authRequired: Boolean(config.password), inviteUrl: config.inviteUrl ?? null, mediaUrl: config.mediaUrl ?? null });
   });
 
   const hostToken = config.password ? tokenFor(config.password) : "";
@@ -67,7 +77,7 @@ export function createApp(config: Config): App {
 
   const loginLimiter = new FailureLimiter();
   app.post("/api/login", (req, res) => {
-    const client = req.ip ?? "unknown";
+    const client = clientOf(req);
     const wait = loginLimiter.blockedFor(client);
     if (wait > 0) {
       res.setHeader("Retry-After", String(wait));
@@ -87,7 +97,7 @@ export function createApp(config: Config): App {
   // Viewers join one party with its code, no password. The pass stops working when the party ends.
   const joinLimiter = new FailureLimiter();
   app.post("/api/join", (req, res) => {
-    const client = req.ip ?? "unknown";
+    const client = clientOf(req);
     const wait = joinLimiter.blockedFor(client);
     if (wait > 0) {
       res.setHeader("Retry-After", String(wait));
@@ -119,7 +129,7 @@ export function createApp(config: Config): App {
   };
 
   app.post("/api/pair", (req, res) => {
-    const client = req.ip ?? "unknown";
+    const client = clientOf(req);
     if (pairLimiter.blockedFor(client) > 0 || pairings.size >= 500) {
       return void res.status(429).json({ error: "Too many sign-in codes. Try again in a few minutes." });
     }
@@ -140,7 +150,7 @@ export function createApp(config: Config): App {
   app.post("/api/pair/:id", (req, res) => {
     const p = pending(req.params.id);
     if (!p || p.result) return void res.status(404).json({ error: "This sign-in code expired. Show a new one on the TV." });
-    const client = req.ip ?? "unknown";
+    const client = clientOf(req);
     const name = cleanName(req.body?.name);
     const code = req.body?.code;
 
@@ -181,9 +191,12 @@ export function createApp(config: Config): App {
     next();
   });
 
-  app.get("/api/me", (_req, res) => {
+  app.get("/api/me", (req, res) => {
     const access: Access = res.locals.access;
-    res.json(access.kind === "host" ? { ok: true, role: "host" } : { ok: true, role: "guest", room: access.roomId });
+    // The token goes in video and poster links when those load straight from MEDIA_URL (another address,
+    // so the sign-in cookie isn't sent there).
+    const token = extractToken(req);
+    res.json(access.kind === "host" ? { ok: true, role: "host", token } : { ok: true, role: "guest", room: access.roomId, token });
   });
 
   // Guests only get what their own party is playing.
@@ -318,8 +331,11 @@ export function createApp(config: Config): App {
   // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS.
   app.get("/api/media/:id/hls/index.m3u8", async (req, res) => {
     const entry = await library.get(req.params.id);
-    const text = entry && (await transcoder.playlist(entry.item.id, entry.absPath));
+    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath));
     if (!text) return void res.status(404).json({ error: "This file can't be converted." });
+    // A playlist opened with ?token= passes it on to its segments, which players fetch by relative link.
+    const token = typeof req.query.token === "string" ? req.query.token : "";
+    if (token) text = text.replace(/^(\d+\.ts)$/gm, `$1?token=${encodeURIComponent(token)}`);
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     res.setHeader("Cache-Control", "no-cache");
     res.send(text);

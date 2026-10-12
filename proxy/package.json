@@ -1,0 +1,11 @@
+{
+  "name": "popcorn-proxy",
+  "private": true,
+  "type": "module",
+  "description": "Serves app.tv.chzsda.com and tv.chzsda.com by passing requests to the host's Popcorn Club server.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}
