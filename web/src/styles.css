@@ -986,12 +986,23 @@ input.code,
     grid-auto-columns: 85%;
   }
 }
+/* The whole card lights up together; its buttons get no outline of their own. */
 .party-card {
   display: flex;
   flex-direction: column;
   border-radius: 14px;
   background: var(--panel);
+  border: 1px solid transparent;
   overflow: hidden;
+}
+.party-card:hover,
+.party-card:focus-within {
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+.party-card button:hover,
+.party-card button:focus-visible {
+  border-color: transparent;
 }
 .party-open {
   flex: 1;
@@ -1003,10 +1014,6 @@ input.code,
   text-align: left;
   background: transparent;
   border-radius: 0;
-}
-.party-open:hover,
-.party-open:focus-visible {
-  background: var(--panel-2);
 }
 .party-open .title {
   font-weight: 600;
@@ -1041,7 +1048,10 @@ input.code,
   padding: 0 10px 10px 14px;
 }
 .party-card-code {
-  flex: 1;
+  margin-right: auto;
+  background: transparent;
+  padding: 6px 8px;
+  margin-left: -8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: 0.12em;
   font-size: 13px;
@@ -1051,9 +1061,16 @@ input.code,
   padding: 6px 14px;
   font-size: 13px;
 }
-.party-actions .end {
+.party-actions .end,
+.party-actions .party-card-code {
   background: transparent;
   color: var(--muted);
+}
+.party-actions .end:hover,
+.party-actions .party-card-code:hover,
+.party-actions .end:focus-visible,
+.party-actions .party-card-code:focus-visible {
+  color: var(--text);
 }
 
 /* TMDB posters and stills. An empty frame keeps rows lined up when there's no image. */
@@ -1474,4 +1491,12 @@ button.link:focus-visible {
   .topbar .hosting-as {
     display: none;
   }
+}
+.party-actions .party-card-code {
+  padding: 6px 8px;
+}
+.party-actions .party-card-code.copied {
+  font-family: inherit;
+  letter-spacing: normal;
+  color: var(--accent);
 }
