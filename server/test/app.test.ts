@@ -46,7 +46,9 @@ test("login is required and checks the password", async () => {
 });
 
 test("library lists videos with sidecar subtitles", async () => {
-  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const { items, convert } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  // Converting is off in tests, so browsers get the warning for formats they can't play.
+  assert.equal(convert, false);
   assert.equal(items.length, 1);
   assert.equal(items[0].title, "Ep One");
   assert.equal(items[0].folder, "Shows");

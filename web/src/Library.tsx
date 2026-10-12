@@ -12,12 +12,19 @@ const BROWSER_SAFE = new Set(["video/mp4", "video/webm"]);
 /** Searchable library grouped by folder. */
 export function Library(props: { onPick: (item: MediaItem) => void; actionLabel: string }) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
+  const [convert, setConvert] = useState(true);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = (rescan = false) => {
     setError(null);
-    (rescan ? api.rescan() : api.library()).then(setItems, (e) => setError(e.message));
+    (rescan ? api.rescan() : api.library()).then(
+      (r) => {
+        setItems(r.items);
+        setConvert(r.convert);
+      },
+      (e) => setError(e.message),
+    );
   };
   useEffect(() => load(), []);
 
@@ -52,8 +59,9 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                   <span className="meta">
                     {fmtSize(item.size)}
                     {item.subtitles.length > 0 && " · CC"}
-                    {!BROWSER_SAFE.has(item.mime) && (
-                      <span className="warn" title="Browsers may not play this format as-is. The server converts it when ffmpeg is installed, and the Android app usually plays it directly.">
+                    {/* With ffmpeg the server converts whatever browsers can't play, so there's nothing to warn about. */}
+                    {!convert && !BROWSER_SAFE.has(item.mime) && (
+                      <span className="warn" title="Browsers may not play this format as-is. Install ffmpeg on the server so it can convert it. The Android app usually plays it directly.">
                         {" "}
                         · may not play in browser
                       </span>

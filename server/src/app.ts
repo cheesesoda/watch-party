@@ -197,13 +197,16 @@ export function createApp(config: Config): App {
     res.status(403).json({ error: "Only the host can do that. Ask them for the password." });
   });
 
+  // convert: the server can turn any file into something browsers play (ffmpeg is installed).
+  const libraryResponse = async () => ({ items: await library.list(), convert: (await transcoder.encoderName()) !== null });
+
   app.get("/api/library", async (_req, res) => {
-    res.json({ items: await library.list() });
+    res.json(await libraryResponse());
   });
 
   app.post("/api/library/rescan", async (_req, res) => {
     await library.scan();
-    res.json({ items: await library.list() });
+    res.json(await libraryResponse());
   });
 
   app.get("/api/media/:id/stream", async (req, res) => {
