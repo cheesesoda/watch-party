@@ -119,3 +119,23 @@ export const InfoIcon = (p: Props) => (
     <path d="M12 16v-4M12 8h.01" />
   </Svg>
 );
+
+export const PencilIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" />
+  </Svg>
+);
+
+export const LogOutIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+  </Svg>
+);
+
+export const MoreIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="5" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="12" cy="19" r="1" />
+  </Svg>
+);
