@@ -10,7 +10,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
@@ -106,6 +108,11 @@ class RoomActivity : ComponentActivity() {
     private var host = true
     private var roomCode = ""
 
+    /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
+    private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() = confirmLeave()
+    }
+
     private val closeChatOnBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closeChat()
     }
@@ -136,6 +143,8 @@ class RoomActivity : ComponentActivity() {
         host = intent.getBooleanExtra(EXTRA_HOST, true)
         roomCode = roomId.uppercase()
         isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        // Added last wins: an open chat closes first, otherwise Back asks before leaving.
+        onBackPressedDispatcher.addCallback(this, confirmLeaveOnBack)
         onBackPressedDispatcher.addCallback(this, closeChatOnBack)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -745,7 +754,14 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun confirmLeave() {
-        if (!host) return finish()
+        if (!host) {
+            AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Leave the watch party?")
+                .setPositiveButton("Leave") { _, _ -> finish() }
+                .setNegativeButton("Stay", null)
+                .show()
+            return
+        }
         AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Leave the watch party?")
             .setMessage("Leave just takes you out. End party sends everyone back to the home screen.")
@@ -790,10 +806,23 @@ class RoomActivity : ComponentActivity() {
         cornerRadius = dp(8).toFloat()
     }
 
+    /** A button whose remote-selected state is unmistakable: amber fill and dark text, against a dim gray. */
     private fun barButton(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
         setOnClickListener { onClick() }
+        val focused = intArrayOf(android.R.attr.state_focused)
+        val pressed = intArrayOf(android.R.attr.state_pressed)
+        background = StateListDrawable().apply {
+            addState(focused, rounded(ACCENT).apply { setStroke(dp(2), Color.WHITE) })
+            addState(pressed, rounded(ACCENT))
+            addState(intArrayOf(), rounded(Color.argb(170, 40, 43, 52)))
+        }
+        setTextColor(ColorStateList(arrayOf(focused, pressed, intArrayOf()), intArrayOf(Color.BLACK, Color.BLACK, Color.WHITE)))
+        stateListAnimator = null
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        minHeight = 0
+        minimumHeight = 0
         layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = dp(8) }
     }
 
@@ -805,6 +834,8 @@ class RoomActivity : ComponentActivity() {
         private const val SKIP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
+        /** The app's amber, as on the home screen. */
+        private val ACCENT = Color.rgb(0xE5, 0xA0, 0x0D)
 
         fun start(context: Context, roomId: String, host: Boolean = true) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))
