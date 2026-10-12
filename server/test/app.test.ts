@@ -40,6 +40,9 @@ test("login is required and checks the password", async () => {
   assert.equal(ok.status, 200);
   token = (await ok.json()).token;
   assert.match(ok.headers.get("set-cookie") ?? "", /wp_token=/);
+  assert.doesNotMatch(ok.headers.get("set-cookie") ?? "", /Secure/);
+  const https = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-proto": "https" }, body: '{"password":"secret"}' });
+  assert.match(https.headers.get("set-cookie") ?? "", /; Secure/);
 });
 
 test("library lists videos with sidecar subtitles", async () => {

@@ -18,6 +18,10 @@ if (!config.password) {
   console.warn("Running without a password: anyone who can reach this server can browse and stream your library.");
 }
 
+if (config.password && config.password.length < 16) {
+  console.warn("WATCH_PASSWORD is short. If the server is on the internet (tailscale funnel), use a long random one, such as four or five random words.");
+}
+
 const app = createApp(config);
 
 await app.library.scan();
