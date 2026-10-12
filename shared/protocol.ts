@@ -26,6 +26,17 @@ export interface MediaItem {
   duration?: number | null;
   /** Set when the file name looks like a TV episode ("Show.S02E04.Title.mkv"). */
   episode?: EpisodeInfo | null;
+  /** Set for bonus material (behind the scenes, trailers, deleted scenes…) named the way Plex expects. */
+  extra?: ExtraInfo | null;
+}
+
+export interface ExtraInfo {
+  /** "Behind the scenes", "Trailer", "Deleted scene"… */
+  kind: string;
+  /** The movie it belongs to: the one video in the same folder (or the folder above an extras folder). */
+  of: string | null;
+  /** Or the TV show it belongs to, when its folder holds a show's episodes. */
+  show: string | null;
 }
 
 export interface EpisodeInfo {

@@ -46,6 +46,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
   const [subsOnly, setSubsOnly] = useState(false);
   const [showName, setShowName] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
+  const [openExtras, setOpenExtras] = useState<string | null>(null);
 
   const load = (rescan = false) => {
     setError(null);
@@ -61,6 +62,20 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
 
   const q = query.trim().toLowerCase();
   const matches = (i: MediaItem) => !q || i.title.toLowerCase().includes(q) || i.relPath.toLowerCase().includes(q);
+
+  // Extras (behind the scenes, trailers…) that belong to a movie or show are listed under it, not on their own.
+  const owned = (i: MediaItem) => !!(i.extra && (i.extra.of || i.extra.show));
+  const { movieExtras, showExtras, byId } = useMemo(() => {
+    const movieExtras = new Map<string, MediaItem[]>();
+    const showExtras = new Map<string, MediaItem[]>();
+    for (const i of items ?? []) {
+      const key = i.extra?.of ?? i.extra?.show;
+      if (!key) continue;
+      const map = i.extra!.of ? movieExtras : showExtras;
+      map.set(key, [...(map.get(key) ?? []), i].sort((a, b) => byName(a.title, b.title)));
+    }
+    return { movieExtras, showExtras, byId: new Map((items ?? []).map((i) => [i.id, i])) };
+  }, [items]);
 
   const shows = useMemo(() => {
     const map = new Map<string, Show>();
@@ -82,7 +97,8 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
   // Movies (anything that isn't an episode), plus one row per show under All videos.
   const rows = useMemo(() => {
     const list = (items ?? []).filter(
-      (i) => (view === "all" || !i.episode) && (!subsOnly || i.subtitles.length > 0) && matches(i),
+      // While searching, matching extras show up on their own too, labeled with what they belong to.
+      (i) => (view === "all" || (!i.episode && !i.extra?.show)) && (q || !owned(i)) && (!subsOnly || i.subtitles.length > 0) && matches(i),
     );
     const singles = list.filter((i) => !i.episode);
     const showRows = view === "all" ? shows.filter((s) => s.episodes.some((e) => list.includes(e))) : [];
@@ -104,7 +120,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
   const recent = useMemo(
     () =>
       (items ?? [])
-        .filter((i) => !i.episode)
+        .filter((i) => !i.episode && !i.extra)
         .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
         .slice(0, 12),
     [items],
@@ -112,7 +128,8 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
 
   const visibleShows = shows.filter((s) => !q || s.name.toLowerCase().includes(q) || s.episodes.some(matches));
   const show = visibleShows.find((s) => s.name === showName) ?? visibleShows[0];
-  const shownSeason = show && season !== null && show.seasons.includes(season) ? season : show?.seasons[0];
+  const shownSeason =
+    show && season !== null && (show.seasons.includes(season) || (season === EXTRAS && showExtras.has(show.name))) ? season : show?.seasons[0];
 
   const openShow = (name: string) => {
     setView("shows");
@@ -122,6 +139,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
 
   const meta = (item: MediaItem) => (
     <>
+      {item.extra && `${item.extra.kind}${q && (item.extra.of || item.extra.show) ? ` · ${byId.get(item.extra.of ?? "")?.title ?? item.extra.show}` : ""} · `}
       {item.duration ? fmtLength(item.duration) : fmtSize(item.size)}
       {item.subtitles.length > 0 && " · CC"}
       {/* With ffmpeg the server converts whatever browsers can't play, so there's nothing to warn about. */}
@@ -134,12 +152,23 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
     </>
   );
 
-  const movieCount = (items ?? []).filter((i) => !i.episode).length;
+  const listed = (items ?? []).filter((i) => !owned(i));
+  const movieCount = listed.filter((i) => !i.episode).length;
   const menu: [View, string, number][] = [
-    ["all", "All videos", items?.length ?? 0],
+    ["all", "All videos", listed.length],
     ["movies", "Movies", movieCount],
     ...(shows.length > 0 ? [["shows", "TV shows", shows.length] as [View, string, number]] : []),
   ];
+
+  const extraRow = (e: MediaItem) => (
+    <li key={e.id}>
+      <button className="item" onClick={() => props.onPick(e)}>
+        <span className="title">{e.title}</span>
+        <span className="meta">{meta(e)}</span>
+        <span className="action">{props.actionLabel}</span>
+      </button>
+    </li>
+  );
 
   const episodeRow = (e: MediaItem) => (
     <li key={e.id}>
@@ -155,7 +184,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
   return (
     <div className="library">
       <div className="library-bar">
-        <input type="search" placeholder={items ? `Search ${items.length} videos` : "Search"} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input type="search" placeholder={items ? `Search ${listed.length} videos` : "Search"} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button onClick={() => load(true)}>Rescan</button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -174,7 +203,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
               <>
                 <hr />
                 <button className={subsOnly ? "on" : ""} aria-pressed={subsOnly} onClick={() => setSubsOnly(!subsOnly)}>
-                  Has subtitles <b>{items.filter((i) => i.subtitles.length > 0 && (view === "all" || !i.episode)).length}</b>
+                  Has subtitles <b>{listed.filter((i) => i.subtitles.length > 0 && (view === "all" || !i.episode)).length}</b>
                 </button>
               </>
             )}
@@ -210,7 +239,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
               <ul className="items">
                 {rows.map((r) =>
                   r.kind === "item" ? (
-                    <li key={r.item.id}>
+                    <li key={r.item.id} className={!q && movieExtras.has(r.item.id) ? "with-extras" : undefined}>
                       <button className="item" onClick={() => props.onPick(r.item)}>
                         <span className="title">
                           {r.item.title}
@@ -219,6 +248,16 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                         <span className="meta">{meta(r.item)}</span>
                         <span className="action">{props.actionLabel}</span>
                       </button>
+                      {!q && movieExtras.has(r.item.id) && (
+                        <button
+                          className="extras-toggle"
+                          aria-expanded={openExtras === r.item.id}
+                          onClick={() => setOpenExtras(openExtras === r.item.id ? null : r.item.id)}
+                        >
+                          {plural(movieExtras.get(r.item.id)!.length, "extra")}
+                        </button>
+                      )}
+                      {!q && openExtras === r.item.id && <ul className="items extras">{movieExtras.get(r.item.id)!.map(extraRow)}</ul>}
                     </li>
                   ) : (
                     <li key={"show-" + r.show.name}>
@@ -226,6 +265,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                         <span className="title">{r.show.name}</span>
                         <span className="meta">
                           TV show · {plural(r.show.seasons.length, "season")} · {plural(r.show.episodes.length, "episode")}
+                          {showExtras.has(r.show.name) && ` · ${plural(showExtras.get(r.show.name)!.length, "extra")}`}
                         </span>
                         <span className="action">Episodes</span>
                       </button>
@@ -250,16 +290,25 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
               {show && (
                 <>
                   <h3 className="shelf-title">{show.name}</h3>
-                  {show.seasons.length > 1 && (
+                  {(show.seasons.length > 1 || showExtras.has(show.name)) && (
                     <div className="sortbar">
                       {show.seasons.map((n) => (
                         <button key={n} className={n === shownSeason ? "chip on" : "chip"} aria-pressed={n === shownSeason} onClick={() => setSeason(n)}>
                           Season {n}
                         </button>
                       ))}
+                      {showExtras.has(show.name) && (
+                        <button className={shownSeason === EXTRAS ? "chip on" : "chip"} aria-pressed={shownSeason === EXTRAS} onClick={() => setSeason(EXTRAS)}>
+                          Extras
+                        </button>
+                      )}
                     </div>
                   )}
-                  <ul className="items">{show.episodes.filter((e) => e.episode!.season === shownSeason).map(episodeRow)}</ul>
+                  <ul className="items">
+                    {shownSeason === EXTRAS
+                      ? showExtras.get(show.name)!.map(extraRow)
+                      : show.episodes.filter((e) => e.episode!.season === shownSeason).map(episodeRow)}
+                  </ul>
                 </>
               )}
             </div>
@@ -269,6 +318,9 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
     </div>
   );
 }
+
+/** The Extras tab next to a show's seasons. */
+const EXTRAS = -1;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 

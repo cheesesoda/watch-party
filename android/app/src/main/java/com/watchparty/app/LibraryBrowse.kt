@@ -49,6 +49,13 @@ fun shows(items: List<MediaItem>): List<Show> =
         .map { (name, eps) -> Show(name, eps.sortedWith(compareBy({ it.episode!!.season }, { it.episode!!.episode }))) }
         .sortedWith(compareBy(byName) { it.name })
 
+/** An extra that belongs to a movie or show, so it's listed under that instead of on its own. */
+val MediaItem.ownedExtra: Boolean get() = extra != null && (extra.of != null || extra.show != null)
+
+/** Extras by the movie id or show name they belong to, sorted by title. */
+fun extrasByOwner(items: List<MediaItem>): Map<String, List<MediaItem>> =
+    items.filter { it.ownedExtra }.groupBy { it.extra!!.of ?: it.extra.show!! }.mapValues { (_, list) -> list.sortedWith(compareBy(byName) { it.title }) }
+
 fun matches(item: MediaItem, query: String): Boolean {
     val q = query.trim()
     return q.isEmpty() || item.title.contains(q, ignoreCase = true) || item.relPath.contains(q, ignoreCase = true)
@@ -64,7 +71,9 @@ fun libraryRows(
     sort: LibrarySort,
 ): List<LibraryRow> {
     val list = items.filter {
-        (folder == null || topFolder(it) == folder) && (!subsOnly || it.subtitles.isNotEmpty()) && matches(it, query)
+        // While searching, matching extras show up on their own too.
+        (folder == null || topFolder(it) == folder) && (query.isNotBlank() || !it.ownedExtra) &&
+            (view == LibraryView.All || it.extra?.show == null) && (!subsOnly || it.subtitles.isNotEmpty()) && matches(it, query)
     }
     val rows = list.filter { it.episode == null }.map { LibraryRow.Video(it) } +
         if (view == LibraryView.All) shows(list).map { LibraryRow.ShowRow(it) } else emptyList()
@@ -86,7 +95,7 @@ fun libraryRows(
 
 /** The newest films for the Recently added row. */
 fun recentlyAdded(items: List<MediaItem>, folder: String?, count: Int = 8): List<MediaItem> =
-    items.filter { it.episode == null && (folder == null || topFolder(it) == folder) }.sortedByDescending { it.addedAt }.take(count)
+    items.filter { it.episode == null && it.extra == null && (folder == null || topFolder(it) == folder) }.sortedByDescending { it.addedAt }.take(count)
 
 /** 7260.0 -> "2:01:00", 3000.0 -> "50:00" */
 fun formatLength(seconds: Double): String {

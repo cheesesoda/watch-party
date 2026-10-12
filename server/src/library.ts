@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { MediaItem, SubtitleTrack } from "../../shared/protocol.ts";
+import type { ExtraInfo, MediaItem, SubtitleTrack } from "../../shared/protocol.ts";
 
 export const VIDEO_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -44,6 +44,50 @@ export interface ParsedName {
   title: string;
   year: number | null;
   episode: { show: string; season: number; episode: number; title: string | null } | null;
+  /** For bonus material: what kind, and the folder whose movie or show it belongs to. */
+  extra?: { kind: string; ownerFolder: string } | null;
+}
+
+/** Plex's names for bonus material: a "-trailer" style suffix on the file, or a folder of that kind. */
+const EXTRA_SUFFIXES: Record<string, string> = {
+  behindthescenes: "Behind the scenes",
+  deleted: "Deleted scene",
+  featurette: "Featurette",
+  interview: "Interview",
+  scene: "Scene",
+  short: "Short",
+  trailer: "Trailer",
+  other: "Extra",
+};
+const EXTRA_FOLDERS: Record<string, string> = {
+  "behind the scenes": "Behind the scenes",
+  "deleted scenes": "Deleted scene",
+  featurettes: "Featurette",
+  interviews: "Interview",
+  scenes: "Scene",
+  shorts: "Short",
+  trailers: "Trailer",
+  other: "Extra",
+  extras: "Extra",
+  specials: "Extra",
+};
+
+/** "Burn After Reading/DC Insiders-behindthescenes.mkv" or "Alien/Trailers/Teaser.mkv" -> an extra. */
+export function parseExtra(relPath: string): { title: string; kind: string; ownerFolder: string } | null {
+  const parts = relPath.split("/");
+  const file = parts[parts.length - 1];
+  const base = path.basename(file, path.extname(file));
+  const folder = parts.slice(0, -1).join("/");
+  const suffix = base.match(/-(behindthescenes|deleted|featurette|interview|scene|short|trailer|other)$/i);
+  if (suffix) {
+    return { title: clean(base.slice(0, suffix.index)) || titleFromFilename(base), kind: EXTRA_SUFFIXES[suffix[1].toLowerCase()], ownerFolder: folder };
+  }
+  const dir = parts.length > 1 ? clean(parts[parts.length - 2]).toLowerCase() : "";
+  // "Specials" is a season 0 folder for shows; files there are usually episodes, so only plain names count.
+  if (parts.length > 2 && EXTRA_FOLDERS[dir] && !(dir === "specials" && /s\d+e\d+/i.test(base))) {
+    return { title: untag(base) || titleFromFilename(base), kind: EXTRA_FOLDERS[dir], ownerFolder: parts.slice(0, -2).join("/") };
+  }
+  return null;
 }
 
 /**
@@ -51,6 +95,8 @@ export interface ParsedName {
  * "Severance.S02E04.Woes.Hollow.mkv" or "Severance/Season 2/S02E04.mkv".
  */
 export function parseName(relPath: string): ParsedName {
+  const extra = parseExtra(relPath);
+  if (extra) return { title: extra.title, year: null, episode: null, extra: { kind: extra.kind, ownerFolder: extra.ownerFolder } };
   const parts = relPath.split("/");
   const base = path.basename(parts[parts.length - 1], path.extname(parts[parts.length - 1]));
   const ep = base.match(/(?:^|[\s._\-[(])s(\d{1,2})[\s._-]?e(\d{1,3})(?:-?e\d{1,3})?(?=$|[\s._\-\])])/i) ?? base.match(/(?:^|[\s._-])(\d{1,2})x(\d{2,3})(?=$|[\s._-])/i);
@@ -79,6 +125,53 @@ export function parseName(relPath: string): ParsedName {
     return { title: untag(base.slice(0, y.index!)) || titleFromFilename(base), year: Number(y[1]), episode: null };
   }
   return { title: untag(base) || titleFromFilename(base), year: null, episode: null };
+}
+
+/**
+ * Extras without a Plex-style name: in a movie's own folder ("Burn After Reading (2008)/"), the movie is the file
+ * named like the folder, or else (when the folder has a year) a file at least twice the size of any other. The other
+ * videos there are its extras. Folders that hold several movies, like "Films/", have neither, so they're left alone.
+ */
+export function findFolderExtras(items: MediaItem[], extras: Map<string, { kind: string; ownerFolder: string }>): void {
+  const byFolder = new Map<string, MediaItem[]>();
+  for (const i of items) {
+    if (i.folder === "" || i.episode || extras.has(i.id)) continue;
+    byFolder.set(i.folder, [...(byFolder.get(i.folder) ?? []), i]);
+  }
+  const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  for (const [folder, videos] of byFolder) {
+    if (videos.length < 2) continue;
+    const named = parseName(folder.slice(folder.lastIndexOf("/") + 1) + ".mkv");
+    const same = videos.filter((v) => key(v.title) === key(named.title));
+    let movie = same.length === 1 ? same[0] : null;
+    if (!movie && named.year) {
+      const [big, next] = [...videos].sort((a, b) => b.size - a.size);
+      if (big.size >= 2 * next.size) movie = big;
+    }
+    if (!movie) continue;
+    for (const v of videos) if (v !== movie) extras.set(v.id, { kind: "Extra", ownerFolder: folder });
+  }
+}
+
+/**
+ * Points each extra at what it belongs to: the one movie in its owner folder, or else the show whose episodes are
+ * under that folder. Extras that match neither stay as they are, labeled by kind.
+ */
+export function linkExtras(items: MediaItem[], extras: Map<string, { kind: string; ownerFolder: string }>): void {
+  for (const item of items) {
+    const found = extras.get(item.id);
+    if (!found) continue;
+    const owner = found.ownerFolder;
+    const movies = items.filter((i) => i.folder === owner && !i.episode && !extras.has(i.id));
+    const under = (i: MediaItem) => owner === "" || i.folder === owner || i.folder.startsWith(owner + "/");
+    const shows = [...new Set(items.filter((i) => i.episode && under(i)).map((i) => i.episode!.show))];
+    const extra: ExtraInfo = {
+      kind: found.kind,
+      of: movies.length === 1 ? movies[0].id : null,
+      show: movies.length !== 1 && shows.length === 1 && owner !== "" ? shows[0] : null,
+    };
+    item.extra = extra;
+  }
 }
 
 export function mediaId(rootIndex: number, relPath: string): string {
@@ -135,6 +228,7 @@ export class Library {
 
   private async doScan(): Promise<void> {
     const next = new Map<string, LibraryEntry>();
+    const extraOwners = new Map<string, { kind: string; ownerFolder: string }>();
     for (const [rootIndex, root] of this.roots.entries()) {
       const files: string[] = [];
       await walk(root, files);
@@ -166,7 +260,8 @@ export class Library {
         }
 
         const id = mediaId(rootIndex, relPath);
-        const { title, year, episode } = parseName(relPath);
+        const { title, year, episode, extra } = parseName(relPath);
+        if (extra) extraOwners.set(id, extra);
         // A copied file keeps its old modified time but gets a new created time, so the later of the two is
         // when it landed in the library.
         const addedAt = Math.round(Math.max(stat.mtimeMs, stat.birthtimeMs || 0));
@@ -177,6 +272,9 @@ export class Library {
         });
       }
     }
+    const all = [...next.values()].map((e) => e.item);
+    findFolderExtras(all, extraOwners);
+    linkExtras(all, extraOwners);
     this.entries = next;
     this.lastScan = Date.now();
   }

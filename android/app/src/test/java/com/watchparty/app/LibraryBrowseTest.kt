@@ -48,6 +48,18 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun extrasSitUnderTheirMovieUnlessSearching() {
+        val burn = movie("Burn After Reading")
+        val dc = MediaItem(id = "dc", title = "DC Insiders", relPath = "Movies/Burn/DC Insiders.mkv", extra = ExtraInfo("Behind the scenes", of = burn.id))
+        val loose = MediaItem(id = "t", title = "Teaser", relPath = "Movies/Teaser.mkv", extra = ExtraInfo("Trailer"))
+        val list = listOf(burn, dc, loose)
+        assertEquals(listOf("Burn After Reading", "Teaser"), titles(libraryRows(list, LibraryView.All, null, false, "", LibrarySort.AZ)))
+        assertEquals(listOf("DC Insiders"), titles(libraryRows(list, LibraryView.All, null, false, "insiders", LibrarySort.AZ)))
+        assertEquals(mapOf(burn.id to listOf(dc)), extrasByOwner(list))
+        assertEquals(listOf(burn), recentlyAdded(list, null))
+    }
+
+    @Test
     fun lengths() {
         assertEquals("2:01:00", formatLength(7260.0))
         assertEquals("50:00", formatLength(3000.0))

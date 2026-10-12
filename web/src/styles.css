@@ -387,6 +387,29 @@ input:focus {
   display: flex;
   gap: 6px;
 }
+/* A movie with extras: a toggle beside it, and the extras listed underneath, indented. */
+.items li.with-extras {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.extras-toggle {
+  padding-inline: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.extras-toggle[aria-expanded="true"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.items.extras {
+  grid-column: 1 / -1;
+  padding-left: 24px;
+}
+.items.extras .item {
+  background: var(--panel-2);
+}
 .rooms li .end {
   flex: none;
   padding-inline: 22px;

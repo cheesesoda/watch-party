@@ -654,6 +654,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     var subsOnly by remember { mutableStateOf(false) }
     var showName by remember { mutableStateOf<String?>(null) }
     var season by remember { mutableStateOf<Int?>(null) }
+    var openExtras by remember { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -830,8 +831,11 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             }
             Unit
         }
+        val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
         val mediaMeta = { media: MediaItem ->
-            (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+            (media.extra?.let { x ->
+                x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
+            } ?: "") + (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
         }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
@@ -841,8 +845,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             val allShows = shows(lib)
             // One menu: All videos, Movies and TV shows (when there are any), plus the subtitles filter.
             val counts = mapOf(
-                LibraryView.All to lib.size,
-                LibraryView.Movies to lib.count { it.episode == null },
+                LibraryView.All to lib.count { !it.ownedExtra },
+                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra },
                 LibraryView.Shows to allShows.size,
             )
             item(key = "views") {
@@ -875,15 +879,35 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 if (rows.isEmpty()) item { Text("No videos match.", color = Muted) }
                 items(rows, key = { if (it is LibraryRow.Video) "media-" + it.item.id else "show-" + (it as LibraryRow.ShowRow).show.name }) { row ->
                     when (row) {
-                        is LibraryRow.Video -> FocusRow(
-                            title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
-                            subtitle = mediaMeta(row.item),
-                            action = "Start party",
-                            onClick = { startParty(row.item) },
-                        )
+                        is LibraryRow.Video -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val own = extras[row.item.id].takeIf { query.isBlank() }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(Modifier.weight(1f)) {
+                                    FocusRow(
+                                        title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
+                                        subtitle = mediaMeta(row.item),
+                                        action = "Start party",
+                                        onClick = { startParty(row.item) },
+                                    )
+                                }
+                                if (own != null) {
+                                    OutlinedButton(
+                                        onClick = { openExtras = if (openExtras == row.item.id) null else row.item.id },
+                                        modifier = Modifier.focusRing(),
+                                    ) { Text(plural(own.size, "extra")) }
+                                }
+                            }
+                            if (own != null && openExtras == row.item.id) {
+                                own.forEach { x ->
+                                    Box(Modifier.padding(start = 24.dp)) {
+                                        FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                                    }
+                                }
+                            }
+                        }
                         is LibraryRow.ShowRow -> FocusRow(
                             title = row.show.name,
-                            subtitle = "TV show · " + row.show.summary,
+                            subtitle = "TV show · " + row.show.summary + (extras[row.show.name]?.let { " · " + plural(it.size, "extra") } ?: ""),
                             action = "Episodes",
                             onClick = {
                                 view = LibraryView.Shows
@@ -908,10 +932,22 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     }
                 }
                 if (show != null) {
-                    val shownSeason = season?.takeIf { it in show.seasons } ?: show.seasons.first()
+                    // -1 is the Extras chip after the seasons.
+                    val showExtras = extras[show.name]
+                    val shownSeason = season?.takeIf { it in show.seasons || (it == -1 && showExtras != null) } ?: show.seasons.first()
                     item(key = "show-title") { SectionTitle(show.name, small = true) }
-                    if (show.seasons.size > 1) {
-                        item(key = "seasons") { ChipRow { show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } } } }
+                    if (show.seasons.size > 1 || showExtras != null) {
+                        item(key = "seasons") {
+                            ChipRow {
+                                show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } }
+                                if (showExtras != null) Chip("Extras", shownSeason == -1) { season = -1 }
+                            }
+                        }
+                    }
+                    if (shownSeason == -1 && showExtras != null) {
+                        items(showExtras, key = { "extra-" + it.id }) { x ->
+                            FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                        }
                     }
                     items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
                         val ep = media.episode!!
