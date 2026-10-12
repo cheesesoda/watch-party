@@ -35,19 +35,21 @@ sealed class TrayApp : ApplicationContext
         server.Ready += () => ui.Post(_ => Refresh(), null);
         server.Crashed += () => ui.Post(_ => OnCrash(), null);
 
-        openItem = new ToolStripMenuItem("Open Popcorn Club", null, (_, _) => OpenApp()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) };
-        startItem = new ToolStripMenuItem("Start server", null, (_, _) => StartServer());
-        stopItem = new ToolStripMenuItem("Stop server", null, (_, _) => { server.Stop(); Refresh(); });
-        restartItem = new ToolStripMenuItem("Restart server", null, (_, _) => { server.Stop(); StartServer(); });
-        updateItem = new ToolStripMenuItem("Update now…", null, async (_, _) => await Update());
+        openItem = new ToolStripMenuItem("Open Popcorn Club", null, (_, _) => OpenApp()).WithIcon(ModernMenu.Open);
+        startItem = new ToolStripMenuItem("Start server", null, (_, _) => StartServer()).WithIcon(ModernMenu.Play);
+        stopItem = new ToolStripMenuItem("Stop server", null, (_, _) => { server.Stop(); Refresh(); }).WithIcon(ModernMenu.Stop);
+        restartItem = new ToolStripMenuItem("Restart server", null, (_, _) => { server.Stop(); StartServer(); }).WithIcon(ModernMenu.Restart);
+        updateItem = new ToolStripMenuItem("Update now…", null, async (_, _) => await Update()).WithIcon(ModernMenu.Update);
+        // No icon: its check mark shows in the icon column.
         startupItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartup());
 
-        var settingsMenu = new ToolStripMenuItem("Settings");
+        var settingsMenu = new ToolStripMenuItem("Settings").WithIcon(ModernMenu.Settings);
         settingsMenu.DropDownItems.AddRange(new ToolStripItem[] {
             startupItem,
-            new ToolStripMenuItem("Edit server settings (.env)", null, (_, _) => OpenPath(Path.Combine(settings.RepoPath, ".env"), notepad: true)),
-            new ToolStripMenuItem("Open server folder", null, (_, _) => OpenPath(settings.RepoPath)),
-            new ToolStripMenuItem("Choose server folder…", null, (_, _) => { if (PickRepo()) { server.Stop(); StartServer(); } }),
+            new ToolStripSeparator(),
+            new ToolStripMenuItem("Edit server settings (.env)", null, (_, _) => OpenPath(Path.Combine(settings.RepoPath, ".env"), notepad: true)).WithIcon(ModernMenu.Edit),
+            new ToolStripMenuItem("Open server folder", null, (_, _) => OpenPath(settings.RepoPath)).WithIcon(ModernMenu.Folder),
+            new ToolStripMenuItem("Choose server folder…", null, (_, _) => { if (PickRepo()) { server.Stop(); StartServer(); } }).WithIcon(ModernMenu.Folder),
         });
 
         var menu = new ContextMenuStrip();
@@ -59,14 +61,17 @@ sealed class TrayApp : ApplicationContext
             startItem,
             stopItem,
             restartItem,
-            new ToolStripMenuItem("Show log", null, (_, _) => ShowLog()),
+            new ToolStripMenuItem("Show log", null, (_, _) => ShowLog()).WithIcon(ModernMenu.Log),
             new ToolStripSeparator(),
             updateItem,
             settingsMenu,
             new ToolStripSeparator(),
-            new ToolStripMenuItem("Quit", null, (_, _) => Quit()),
+            new ToolStripMenuItem("Quit", null, (_, _) => Quit()).WithIcon(ModernMenu.Quit),
         });
+        // Refresh first, so the icons are drawn for the items' current enabled state.
         menu.Opening += (_, _) => Refresh();
+        ModernMenu.Apply(menu);
+        openItem.Font = new Font(menu.Font, FontStyle.Bold);
 
         tray = new NotifyIcon { Icon = stoppedIcon, Text = "Popcorn Club", ContextMenuStrip = menu, Visible = true };
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) OpenApp(); };
@@ -255,6 +260,12 @@ sealed class TrayApp : ApplicationContext
             : running ? "Starting…"
             : "Stopped";
         tray.Text = $"Popcorn Club: {statusItem.Text}";
+        var dot = updating || (running && !server.Listening) ? Color.FromArgb(0xE5, 0xA0, 0x0D)
+            : server.Listening ? Color.FromArgb(0x3F, 0xB9, 0x50)
+            : Color.FromArgb(0x8A, 0x8A, 0x8A);
+        var oldDot = statusItem.Image;
+        statusItem.Image = ModernMenu.Dot(dot, 16);
+        oldDot?.Dispose();
         tray.Icon = running && !updating ? runningIcon : stoppedIcon;
         startItem.Enabled = !running && !updating;
         stopItem.Enabled = running && !updating;
