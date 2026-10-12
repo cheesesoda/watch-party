@@ -12,7 +12,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.InsetDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -999,15 +999,17 @@ class RoomActivity : ComponentActivity() {
             setSize(dp(52), dp(32))
         }
         // The thumb sits in a 26x32dp box (half the track's width, its full height) so it's centered
-        // vertically and the switch stays 52dp wide: 24dp when on, 16dp when off.
-        fun thumb(color: Int, size: Int): InsetDrawable {
+        // vertically and the switch stays 52dp wide: 24dp when on, 16dp when off. A LayerDrawable, not an
+        // InsetDrawable: Switch treats an InsetDrawable's insets as padding and optical insets, which change
+        // with the thumb's size, so the on thumb was pushed past the end of the track and cut off.
+        fun thumb(color: Int, size: Int): LayerDrawable {
             val x = dp((26 - size) / 2)
             val y = dp((32 - size) / 2)
-            return InsetDrawable(GradientDrawable().apply {
+            return LayerDrawable(arrayOf(GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(color)
                 setSize(dp(size), dp(size))
-            }, x, y, x, y)
+            })).apply { setLayerInset(0, x, y, x, y) }
         }
         trackDrawable = StateListDrawable().apply {
             addState(checked, track(ACCENT, ACCENT))
