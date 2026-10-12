@@ -58,7 +58,8 @@ export function createApp(config: Config): App {
     }
     loginLimiter.reset(client);
     const token = config.password ? tokenFor(config.password) : "";
-    res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", maxAge: 365 * 24 * 3600 * 1000 });
+    // Secure over HTTPS (tailscale serve/funnel says so in X-Forwarded-Proto), so the cookie never goes out over plain HTTP.
+    res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: 365 * 24 * 3600 * 1000 });
     res.json({ token });
   });
 
