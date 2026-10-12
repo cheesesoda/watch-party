@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { expectedPosition } from "../../shared/protocol.ts";
 import { checkPassword, tokenFor } from "../src/auth.ts";
-import { findFolderExtras, linkExtras, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
+import { findFolderExtras, linkExtras, linkParts, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { parseRange } from "../src/range.ts";
 import { FailureLimiter } from "../src/ratelimit.ts";
@@ -150,4 +150,24 @@ test("ICE_SERVERS parsing normalizes urls and rejects junk", async () => {
   ]);
   assert.throws(() => parseIceServers("{}"));
   assert.throws(() => parseIceServers("[{}]"));
+});
+
+test("a movie split into parts is one movie whose parts know each other", () => {
+  assert.deepEqual(parseName("Films/Grindhouse (2007)/Grindhouse (2007) Pt 1.mp4"), { title: "Grindhouse", year: 2007, episode: null, part: 1, fullTitle: "Grindhouse (2007) Pt 1" });
+  assert.equal(parseName("Kill.Bill.2003.1080p.CD2.mkv").part, 2);
+  assert.equal(parseName("Rocky Part 2.mkv").part, 2);
+  assert.equal(parseName("Apollo 13 (1995).mkv").part, undefined);
+  const item = (id: string, relPath: string) => {
+    const p = parseName(relPath);
+    return { id, title: p.title, relPath, folder: relPath.slice(0, relPath.lastIndexOf("/")), size: 1, mime: "video/mp4", subtitles: [], year: p.year } as MediaItem;
+  };
+  const items = [item("p2", "Films/Grindhouse (2007)/Grindhouse (2007) Pt 2.mp4"), item("p1", "Films/Grindhouse (2007)/Grindhouse (2007) Pt 1.mp4"), item("r", "Films/Rocky Part 2.mkv")];
+  linkParts(items, new Map(items.map((i) => [i.id, { part: parseName(i.relPath).part!, fullTitle: parseName(i.relPath).fullTitle! }])));
+  assert.deepEqual(items[1].part, { index: 1, ids: ["p1", "p2"] });
+  assert.deepEqual(items[0].part, { index: 2, ids: ["p1", "p2"] });
+  assert.equal(items[2].part, undefined, "a lone Part 2 is just a movie");
+  assert.equal(items[2].title, "Rocky Part 2");
+  const extras = new Map();
+  findFolderExtras(items, extras);
+  assert.equal(extras.size, 0, "the second part isn't an extra");
 });

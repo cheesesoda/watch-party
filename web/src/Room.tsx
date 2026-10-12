@@ -314,7 +314,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <div className="room-title">
           <strong>{media?.title ?? "Nothing playing"}</strong>
           <span className="muted">
-            {queue && at >= 0 && `Binge ${at + 1} of ${queue.items.length} · `}
+            {queue && at >= 0 && `${media?.part ? "Part" : "Binge"} ${at + 1} of ${queue.items.length} · `}
             {view.status === "open" ? [...new Set(view.members.map((m) => m.name))].join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>
         </div>
@@ -478,6 +478,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
                       >
                         <span className="title">
                           <span className="year">{i + 1}.</span> {item.title}
+                          {item.part && ` · Part ${item.part.index}`}
                         </span>
                         <span className="action">{i === at ? "Playing" : "Play for everyone"}</span>
                       </button>
