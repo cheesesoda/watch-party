@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Replaces Media3's style for the player's seek bar (Media3 builds the bar with this style). A slightly
+        thicker bar and a bigger dot, like YouTube on TV; the dot only shows while the bar is selected (RoomActivity).
+    -->
+    <style name="ExoStyledControls.TimeBar" parent="">
+        <item name="bar_height">5dp</item>
+        <item name="touch_target_height">32dp</item>
+        <item name="scrubber_enabled_size">18dp</item>
+        <item name="scrubber_disabled_size">0dp</item>
+        <item name="scrubber_dragged_size">22dp</item>
+        <item name="bar_gravity">center</item>
+    </style>
+</resources>

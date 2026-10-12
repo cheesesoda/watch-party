@@ -1167,12 +1167,21 @@ class RoomActivity : ComponentActivity() {
             if (button is ImageButton) button.imageTintList = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
             growOnFocus(button)
         }
+        // Like YouTube on TV: the bar has no box around it; a dot appears on it while it's selected.
         playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
             setPlayedColor(ACCENT)
             setScrubberColor(ACCENT)
-            background = StateListDrawable().apply {
-                addState(focused, GradientDrawable().apply { setColor(Color.argb(46, 0xFF, 0xFF, 0xFF)); cornerRadius = dp(12).toFloat() })
-                addState(intArrayOf(), GradientDrawable().apply { setColor(Color.TRANSPARENT) })
+            setBufferedColor(Color.argb(110, 0xFF, 0xFF, 0xFF))
+            setUnplayedColor(Color.argb(60, 0xFF, 0xFF, 0xFF))
+            hideScrubber(true)
+            setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    showScrubber(120)
+                    setUnplayedColor(Color.argb(110, 0xFF, 0xFF, 0xFF))
+                } else {
+                    hideScrubber(120)
+                    setUnplayedColor(Color.argb(60, 0xFF, 0xFF, 0xFF))
+                }
             }
         }
     }
@@ -1188,7 +1197,13 @@ class RoomActivity : ComponentActivity() {
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_ffwd)?.setOnClickListener { sync.seekTo(player.currentPosition + FORWARD_MS) }
         playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(SEEK_BAR_STEP_MS)
         playerView.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused ->
-            if (focused != null && focused.id != View.NO_ID && focused !== playerView && isInside(focused, playerView)) lastControlFocus = focused.id
+            if (focused != null && focused.id != View.NO_ID && focused !== playerView && isInside(focused, playerView)) {
+                lastControlFocus = focused.id
+            } else if ((focused == null || focused === playerView) && playerView.isControllerFullyVisible) {
+                // A pressed control can lose focus (Media3 redraws it), leaving nothing marked while the controls
+                // are up. Put the remote back on the control it was on.
+                lastControlFocus?.let { id -> playerView.post { playerView.findViewById<View>(id)?.takeIf { it.isShown }?.requestFocus() } }
+            }
         }
     }
 
