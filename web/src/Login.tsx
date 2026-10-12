@@ -25,7 +25,7 @@ export function Login(props: { needPassword: boolean; initialName: string; onDon
   return (
     <div className="center">
       <form className="card login" onSubmit={submit}>
-        <h1>Watch Party</h1>
+        <h1>Popcorn Club</h1>
         <label>
           Your name
           <input autoFocus value={name} maxLength={32} onChange={(e) => setName(e.target.value)} />

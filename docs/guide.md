@@ -1,8 +1,8 @@
-# Watch Party: Setup and User Guide
+# Popcorn Club: Setup and User Guide
 
 ## What this is
 
-Watch Party lets you stream movies from your own computer to friends, with play, pause and seeking kept in sync for everyone, plus chat and voice. One person hosts; everyone else just joins.
+Popcorn Club lets you stream movies from your own computer to friends, with play, pause and seeking kept in sync for everyone, plus chat and voice. One person hosts; everyone else just joins.
 
 - **Hosting:** read [Host the server](#host-the-server) and [Give it an HTTPS address](#give-it-an-https-address-with-tailscale). You do this once. On Windows, start at [Windows (PowerShell)](#windows-powershell) and skip Options A and B.
 - **Friends:** skip to [Join on the web](#join-on-the-web) or [Install the Android app](#install-the-android-app-phone-or-tv), then [Chat, voice and phone chat mode](#chat-voice-and-phone-chat-mode).
@@ -175,7 +175,7 @@ Pick whichever is easiest:
 - **Downloader app:** if the APK is at a web link, install Downloader on the TV and enter the link.
 - **adb (for the technical):** turn on developer mode and network debugging on the TV, then `adb connect <tv-ip>` and `adb install app-release.apk`.
 
-The TV will ask you to allow unknown apps for whichever app opened the APK; the setting usually sits under Settings, then Privacy or Security, but it varies by brand. Once installed, Watch Party shows up on the TV home screen.
+The TV will ask you to allow unknown apps for whichever app opened the APK; the setting usually sits under Settings, then Privacy or Security, but it varies by brand. Once installed, Popcorn Club shows up on the TV home screen.
 
 ### First launch
 
