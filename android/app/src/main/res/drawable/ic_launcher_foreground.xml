@@ -1,9 +1,24 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- A popcorn puff: five overlapping kernels, orange to coral, inside the 66 dp safe circle. -->
+    <path android:pathData="M26,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M52,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M38,38a16,16 0 1,0 32,0a16,16 0 1,0 -32,0 M31,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0 M49,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endColor="#FF5252"
+                android:endX="80"
+                android:endY="80"
+                android:startColor="#FF8E44"
+                android:startX="28"
+                android:startY="22"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+    <!-- The play button, cut out in the background's deep purple. -->
     <path
-        android:fillColor="#0F1115"
-        android:pathData="M44,36 L72,54 L44,72 Z" />
+        android:fillColor="#1A0933"
+        android:pathData="M48,42 L67,53 L48,64 Z" />
 </vector>

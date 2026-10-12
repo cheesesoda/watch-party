@@ -1,5 +1,7 @@
 <resources>
-    <color name="bg">#0F1115</color>
-    <color name="panel">#181B22</color>
-    <color name="accent">#E5A00D</color>
+    <color name="bg">#1A0933</color>
+    <color name="panel">#2A1250</color>
+    <color name="accent">#FF8E44</color>
+    <color name="brand_pink">#F91362</color>
+    <color name="brand_purple">#35126A</color>
 </resources>

@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -72,11 +73,14 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val Bg = Color(0xFF0F1115)
-private val Panel = Color(0xFF181B22)
-private val Accent = Color(0xFFE5A00D)
-private val Muted = Color(0xFF9097A6)
-private val ErrorColor = Color(0xFFFF7A6B)
+private val Bg = Color(0xFF1A0933)
+private val Panel = Color(0xFF2A1250)
+private val PanelFocused = Color(0xFF3D1D6E)
+private val Accent = Color(0xFFFF8E44)
+private val Muted = Color(0xFFC4B3E0)
+private val ErrorColor = Color(0xFFFF5252)
+/** The pink-to-purple sweep from cheesesoda.com, behind the home and sign-in screens. */
+private val BrandGradient = Brush.linearGradient(listOf(Color(0xFFF91362), Color(0xFF35126A)))
 
 class MainActivity : ComponentActivity() {
     /** A TV sign-in link (server, pairing id) this phone was opened with, from the TV's QR code. */
@@ -128,14 +132,23 @@ class MainActivity : ComponentActivity() {
         joinLink.value = joinLinkFrom(intent)
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme(primary = Accent, onPrimary = Bg, background = Bg, surface = Panel),
+                colorScheme = darkColorScheme(
+                    primary = Accent,
+                    onPrimary = Bg,
+                    background = Bg,
+                    surface = Panel,
+                    surfaceContainerHigh = Panel,
+                    onSurfaceVariant = Muted,
+                    outline = Color(0xFF9A86C2),
+                    error = ErrorColor,
+                ),
             ) {
                 var setUp by remember { mutableStateOf(prefs.isSetUp) }
                 var notice by remember { mutableStateOf<String?>(null) }
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Bg)
+                        .background(BrandGradient)
                         .safeDrawingPadding(),
                 ) {
                     val link = pairLink.value
@@ -662,7 +675,10 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     LazyColumn(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
+            // A deep purple sheet over the gradient keeps the small grey text readable.
+            .padding(12.dp)
+            .background(Bg.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 20.dp),
         state = listState,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -807,7 +823,7 @@ private fun FocusRow(title: String, subtitle: String, action: String, onClick: (
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (focused) Color(0xFF2A2F3B) else Panel)
+            .background(if (focused) PanelFocused else Panel)
             .border(2.dp, if (focused) Accent else Color.Transparent, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
