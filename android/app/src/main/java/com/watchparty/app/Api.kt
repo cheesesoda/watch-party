@@ -35,6 +35,7 @@ class Api(private val baseUrl: String, private val token: String) {
         val room: String? = null,
         val name: String? = null,
     )
+    @Serializable private data class InfoResponse(val info: MediaInfo? = null)
     @Serializable private data class ErrorResponse(val error: String? = null)
 
     private val jsonType = "application/json".toMediaType()
@@ -101,6 +102,16 @@ class Api(private val baseUrl: String, private val token: String) {
         val body = buildJsonObject { if (mediaId != null) put("mediaId", mediaId) }.toString()
         return Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", body)).room
     }
+
+    /** Codecs and length of a file, or null when the server can't read them (no ffprobe). */
+    suspend fun info(mediaId: String): MediaInfo? =
+        Protocol.json.decodeFromString<InfoResponse>(request("/api/media/$mediaId/info")).info
+
+    /** The server's converted copy (H.264, stereo AAC, at most 1080p). Segments need [authHeaders]. */
+    fun hlsUrl(mediaId: String): String = "$baseUrl/api/media/$mediaId/hls/index.m3u8"
+
+    /** Sent with every video request, since HLS segment links don't carry the token. */
+    fun authHeaders(): Map<String, String> = if (token.isEmpty()) emptyMap() else mapOf("Authorization" to "Bearer $token")
 
     fun streamUrl(mediaId: String): String = withToken("$baseUrl/api/media/$mediaId/stream")
 

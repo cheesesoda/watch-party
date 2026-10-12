@@ -68,6 +68,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // Plays the server's converted copy when a phone can't handle the original file.
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // Draws the TV's sign-in QR code.
     implementation("com.google.zxing:core:3.5.3")

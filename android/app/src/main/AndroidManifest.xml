@@ -33,12 +33,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            <!-- A TV's sign-in QR code: opens here when the server's assetlinks.json lists this app's key. -->
+            <!-- A TV's sign-in QR code, or a party invite link: opens here when the server's assetlinks.json lists this app's key. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${pairHost}" android:pathPrefix="/pair/" />
+                <data android:pathPrefix="/join/" />
             </intent-filter>
         </activity>
 

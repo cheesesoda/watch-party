@@ -71,10 +71,18 @@ private val ErrorColor = Color(0xFFFF7A6B)
 class MainActivity : ComponentActivity() {
     /** A TV sign-in link (server, pairing id) this phone was opened with, from the TV's QR code. */
     private val pairLink = mutableStateOf<Pair<String, String>?>(null)
+    /** A party invite link (https://host/join/CODE) this app was opened with. */
+    private val joinLink = mutableStateOf<String?>(null)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         pairLinkFrom(intent)?.let { pairLink.value = it }
+        joinLinkFrom(intent)?.let { joinLink.value = it }
+    }
+
+    private fun joinLinkFrom(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        return uri.toString().takeIf { uri.pathSegments.size == 2 && uri.pathSegments[0] == "join" }
     }
 
     private fun pairLinkFrom(intent: Intent?): Pair<String, String>? {
@@ -88,6 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(this)
         pairLink.value = pairLinkFrom(intent)
+        joinLink.value = joinLinkFrom(intent)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = Accent, onPrimary = Bg, background = Bg, surface = Panel),
@@ -101,8 +110,11 @@ class MainActivity : ComponentActivity() {
                         .safeDrawingPadding(),
                 ) {
                     val link = pairLink.value
+                    val invite = joinLink.value
                     if (link != null) {
                         PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null })
+                    } else if (invite != null) {
+                        JoinForm(prefs, invite = invite, onBack = { joinLink.value = null })
                     } else if (setUp) {
                         HomeScreen(
                             prefs = prefs,
@@ -264,12 +276,12 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
 
 /** Viewers join one party with its code (or a pasted invite link, which also fills in the server). */
 @Composable
-private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
+private fun JoinForm(prefs: Prefs, invite: String = "", onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val defaultServer = BuildConfig.DEFAULT_SERVER
     var otherServer by remember { mutableStateOf(defaultServer.isBlank()) }
     var server by remember { mutableStateOf(prefs.serverUrl) }
-    var code by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf(invite) }
     var name by remember { mutableStateOf(prefs.name) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -300,6 +312,7 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
                 prefs.serverUrl = resolved
                 prefs.token = joined.token.orEmpty()
                 prefs.name = name.trim().take(32)
+                prefs.lastRoom = joined.room.id
                 RoomActivity.start(context, joined.room.id, host = false)
             } catch (e: Exception) {
                 error = e.message ?: "Couldn't reach the server."
@@ -419,7 +432,8 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
     val api = remember { Api(server, if (signedInHost) prefs.token else "") }
     val scope = rememberCoroutineScope()
     var asHost by remember { mutableStateOf(false) }
-    var code by remember { mutableStateOf("") }
+    // The party this phone was last in, so joining the TV to it is one tap.
+    var code by remember { mutableStateOf(prefs.lastRoom.uppercase()) }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(prefs.name) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -492,6 +506,7 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Text("Keep your own name: when the TV joins under it, this phone switches to chat only.", color = Muted, fontSize = 13.sp)
         error?.let { Text(it, color = ErrorColor) }
         Button(onClick = submit, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
             Text(if (busy) "Signing in…" else if (asHost) "Sign in TV as host" else "Join on the TV")
