@@ -131,7 +131,7 @@ export function Home(props: {
           </section>
         )}
 
-        <section>
+        <section className="parties">
           <h2>Watch parties</h2>
           {rooms.length === 0 ? (
             <p className="muted">No parties right now.</p>
@@ -180,7 +180,7 @@ export function Home(props: {
           </form>
         </section>
 
-        <section>
+        <section className="start-party">
           <h2>Start a party</h2>
           <Library
             actionLabel="Start party"
