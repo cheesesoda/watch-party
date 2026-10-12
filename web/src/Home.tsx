@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { RoomSummary } from "../../shared/protocol.ts";
+import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
@@ -21,12 +21,30 @@ export function Home(props: {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // When the list arrived, so playing parties' progress can move on between refreshes.
+  const [fetchedAt, setFetchedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+
   useEffect(() => {
-    const load = () => api.rooms().then(setRooms, () => {});
+    const load = () =>
+      api.rooms().then(
+        (rs) => {
+          setRooms(rs);
+          setFetchedAt(Date.now());
+        },
+        () => {},
+      );
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, []);
+
+  const anyPlaying = rooms.some((r) => r.playback && !r.playback.paused);
+  useEffect(() => {
+    if (!anyPlaying) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [anyPlaying]);
 
   const start = async (mediaId: string) => {
     setError(null);
@@ -137,6 +155,12 @@ export function Home(props: {
                       · code {r.id.toUpperCase()}
                     </span>
                     <span className="action">Join</span>
+                    {r.playback && (
+                      <Progress
+                        playback={r.playback}
+                        elapsed={(now - fetchedAt) / 1000}
+                      />
+                    )}
                   </button>
                   <button className="end" onClick={() => end(r)}>
                     End
@@ -166,4 +190,40 @@ export function Home(props: {
       </div>
     </div>
   );
+}
+
+/** How far into its video a party is: a bar when the length is known, and the time either way. */
+function Progress(props: { playback: RoomPlayback; elapsed: number }) {
+  const { position, paused, duration } = props.playback;
+  const at = paused ? position : position + Math.max(0, props.elapsed);
+  const shown = duration ? Math.min(at, duration) : at;
+  return (
+    <span className={paused ? "progress paused" : "progress"}>
+      {duration ? (
+        <span
+          className="progress-bar"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(shown)}
+        >
+          <span style={{ width: `${(shown / duration) * 100}%` }} />
+        </span>
+      ) : null}
+      <span className="progress-time">
+        {clock(shown)}
+        {duration ? ` / ${clock(duration)}` : ""} ·{" "}
+        {paused ? "Paused" : "Playing"}
+      </span>
+    </span>
+  );
+}
+
+/** 1:05:09 or 5:09. */
+function clock(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }

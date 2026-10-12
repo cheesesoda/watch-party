@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -633,10 +635,24 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     LaunchedEffect(Unit) {
         guard { api.library() }?.let { library = it }
     }
+    var fetchedAt by remember { mutableStateOf(0L) }
+    var now by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) {
-            guard { api.rooms() }?.let { rooms = it }
+            guard { api.rooms() }?.let {
+                rooms = it
+                fetchedAt = System.currentTimeMillis()
+                now = fetchedAt
+            }
             delay(5000)
+        }
+    }
+    // Between refreshes, move playing parties' progress along once a second.
+    val anyPlaying = rooms.any { it.playback?.paused == false }
+    LaunchedEffect(anyPlaying) {
+        while (anyPlaying) {
+            delay(1000)
+            now = System.currentTimeMillis()
         }
     }
 
@@ -732,6 +748,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
                         action = "Join",
                         onClick = { RoomActivity.start(context, room.id) },
+                        progress = room.playback?.let { { PartyProgress(it, (now - fetchedAt).coerceAtLeast(0)) } },
                     )
                 }
                 OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End") }
@@ -815,7 +832,13 @@ private fun SectionTitle(text: String) {
 
 /** A list row that shows a clear highlight when focused with a TV remote. */
 @Composable
-private fun FocusRow(title: String, subtitle: String, action: String, onClick: () -> Unit) {
+private fun FocusRow(
+    title: String,
+    subtitle: String,
+    action: String,
+    onClick: () -> Unit,
+    progress: (@Composable () -> Unit)? = null,
+) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(10.dp)
@@ -832,6 +855,7 @@ private fun FocusRow(title: String, subtitle: String, action: String, onClick: (
         Column(Modifier.weight(1f)) {
             Text(title, color = Color.White, fontWeight = FontWeight.Medium)
             Text(subtitle, color = Muted, fontSize = 13.sp)
+            progress?.invoke()
         }
         Spacer(Modifier.width(12.dp))
         Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -851,6 +875,43 @@ private fun Modifier.focusRing(): Modifier = composed {
         // Material pads a 40 dp button out to a 48 dp touch target, which left a gap between the ring and the
         // button. Making the button itself 48 dp tall removes the padding, so the ring sits on its edge.
         .heightIn(min = 48.dp)
+}
+
+/** How far along a running party is: a bar when the length is known, and the time with Playing or Paused. */
+@Composable
+private fun PartyProgress(playback: RoomPlayback, sinceFetchMs: Long) {
+    val duration = playback.duration
+    var position = playback.position + if (playback.paused) 0.0 else sinceFetchMs / 1000.0
+    if (duration != null) position = position.coerceAtMost(duration)
+    val color = if (playback.paused) Muted else Accent
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (duration != null && duration > 0) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0xFF3D1D6E)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth((position / duration).toFloat().coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(color),
+                )
+            }
+        }
+        val time = clock(position) + (if (duration != null && duration > 0) " / " + clock(duration) else "")
+        Text(time + if (playback.paused) " · Paused" else " · Playing", color = Muted, fontSize = 12.sp)
+    }
+}
+
+private fun clock(seconds: Double): String {
+    val s = seconds.toLong().coerceAtLeast(0)
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    val sec = s % 60
+    return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
 }
 
 private fun formatSize(bytes: Long): String {

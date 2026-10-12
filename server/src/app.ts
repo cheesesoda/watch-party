@@ -5,14 +5,14 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, ServerMessage } from "../../shared/protocol.ts";
+import type { ClientMessage, RoomSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
-import { cleanName, RoomManager } from "./rooms.ts";
+import { cleanName, RoomManager, type Room } from "./rooms.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
@@ -290,8 +290,17 @@ export function createApp(config: Config): App {
     res.send(file.toLowerCase().endsWith(".srt") ? srtToVtt(text) : text);
   });
 
-  app.get("/api/rooms", (_req, res) => {
-    res.json({ rooms: rooms.list() });
+  // A party's summary plus where it is in its video, so the host's list can show progress.
+  const withPlayback = async (room: Room): Promise<RoomSummary> => {
+    const summary = room.summary();
+    if (!summary.media) return summary;
+    const entry = await library.get(summary.media.id);
+    const probe = entry ? await transcoder.probe(entry.absPath) : null;
+    return { ...summary, playback: { position: room.position(), paused: room.state.paused, duration: probe?.duration || null } };
+  };
+
+  app.get("/api/rooms", async (_req, res) => {
+    res.json({ rooms: await Promise.all([...rooms.rooms.values()].map(withPlayback)) });
   });
 
   app.post("/api/rooms", async (req, res) => {
@@ -312,10 +321,10 @@ export function createApp(config: Config): App {
     res.status(204).end();
   });
 
-  app.get("/api/rooms/:id", (req, res) => {
+  app.get("/api/rooms/:id", async (req, res) => {
     const room = rooms.get(req.params.id);
     if (!room) return void res.status(404).json({ error: "No such room." });
-    res.json({ room: room.summary() });
+    res.json({ room: await withPlayback(room) });
   });
 
   app.use("/api", (_req, res) => {

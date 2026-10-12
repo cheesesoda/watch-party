@@ -79,6 +79,16 @@ export interface RoomSummary {
   id: string;
   media: MediaItem | null;
   members: Member[];
+  /** Where the party is in its video, for the host's party list. Only on the room list and room lookups. */
+  playback?: RoomPlayback;
+}
+
+export interface RoomPlayback {
+  /** Seconds into the video when the server answered. */
+  position: number;
+  paused: boolean;
+  /** Seconds; null when ffprobe couldn't read the file. */
+  duration: number | null;
 }
 
 export type ClientMessage =
