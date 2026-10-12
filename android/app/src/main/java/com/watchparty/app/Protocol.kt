@@ -33,6 +33,27 @@ data class MediaItem(
     val episode: EpisodeInfo? = null,
     /** Set for bonus material (behind the scenes, trailers…), with the movie id or show name it belongs to. */
     val extra: ExtraInfo? = null,
+    /** Details from TMDB, when the server has a TMDB token and found a match. */
+    val meta: MediaMeta? = null,
+)
+
+/** Movie or episode details from TMDB. Image paths are TMDB file paths, loaded through the server. */
+@Serializable
+data class MediaMeta(
+    /** The movie's TMDB id, or the show's for an episode. */
+    val tmdbId: Long,
+    /** The movie's title, or the episode's name. */
+    val title: String,
+    val year: Int? = null,
+    val overview: String? = null,
+    /** Movie poster, or the season's for an episode. */
+    val posterPath: String? = null,
+    /** The episode's still image. */
+    val stillPath: String? = null,
+    /** The show's name as TMDB has it, and its own poster and summary, for episodes. */
+    val show: String? = null,
+    val showPosterPath: String? = null,
+    val showOverview: String? = null,
 )
 
 @Serializable

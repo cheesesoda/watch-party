@@ -12,6 +12,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import android.graphics.BitmapFactory
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -113,6 +117,26 @@ class Api(private val baseUrl: String, private val token: String) {
         Protocol.json.decodeFromString<InfoResponse>(request("/api/media/$mediaId/info")).info
 
     /** The server's converted copy (H.264, stereo AAC, at most 1080p). Segments need [authHeaders]. */
+    /**
+     * A TMDB poster or still (a path like "/abc.jpg"), through the server so the device never contacts TMDB.
+     * null if it can't be loaded.
+     */
+    suspend fun image(path: String, size: String): ImageBitmap? {
+        val url = "$baseUrl/api/images/$size$path"
+        images.get(url)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val builder = Request.Builder().url(url)
+                if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
+                client.newCall(builder.build()).execute().use { res ->
+                    if (!res.isSuccessful) return@use null
+                    val bytes = res.body?.bytes() ?: return@use null
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }
+            }.getOrNull()?.also { images.put(url, it) }
+        }
+    }
+
     fun hlsUrl(mediaId: String): String = "$baseUrl/api/media/$mediaId/hls/index.m3u8"
 
     /** Sent with every video request, since HLS segment links don't carry the token. */
@@ -147,6 +171,11 @@ class Api(private val baseUrl: String, private val token: String) {
                 val port = if (final.port != HttpUrl.defaultPort(final.scheme)) ":${final.port}" else ""
                 "${final.scheme}://${final.host}$port"
             }
+        }
+
+        /** Posters already loaded, by URL, so scrolling back doesn't load them again. */
+        private val images = object : LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
+            override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
         }
 
         val client: OkHttpClient = OkHttpClient.Builder()
