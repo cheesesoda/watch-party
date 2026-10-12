@@ -161,6 +161,7 @@ input:focus {
 }
 .rooms li .end {
   flex: none;
+  padding-inline: 22px;
 }
 .item {
   width: 100%;

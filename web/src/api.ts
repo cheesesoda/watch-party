@@ -1,5 +1,8 @@
 import type { MediaInfo, MediaItem, RoomSummary } from "../../shared/protocol.ts";
 
+/** convert: the server can convert files browsers can't play as-is. */
+export type LibraryResponse = { items: MediaItem[]; convert: boolean };
+
 export class Unauthorized extends Error {}
 
 /** The host signed in with the password; a guest joined one party with its code. */
@@ -24,8 +27,8 @@ export const api = {
     call<{ room: RoomSummary }>("/api/join", { method: "POST", body: JSON.stringify({ code }) }).then((r) => r.room),
   login: (password: string) => call<{ token: string }>("/api/login", { method: "POST", body: JSON.stringify({ password }) }),
   logout: () => call("/api/logout", { method: "POST" }),
-  library: () => call<{ items: MediaItem[] }>("/api/library").then((r) => r.items),
-  rescan: () => call<{ items: MediaItem[] }>("/api/library/rescan", { method: "POST" }).then((r) => r.items),
+  library: () => call<LibraryResponse>("/api/library"),
+  rescan: () => call<LibraryResponse>("/api/library/rescan", { method: "POST" }),
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),
