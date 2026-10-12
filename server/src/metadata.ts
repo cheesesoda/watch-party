@@ -33,6 +33,17 @@ interface CacheEntry<T> {
   at: number;
   /** null: TMDB had nothing, asked again after RETRY_MISS_MS. */
   value: T | null;
+  /** Chosen by the host with Fix match: never looked up again. */
+  pinned?: boolean;
+}
+
+/** A search result the host can pick with Fix match. */
+export interface MatchCandidate {
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  overview: string | null;
+  posterPath: string | null;
 }
 
 interface CacheFile {
@@ -46,7 +57,14 @@ const RETRY_MISS_MS = 7 * 24 * 60 * 60 * 1000;
 const OFFLINE_RETRY_MS = 5 * 60 * 1000;
 const OFFLINE = Symbol("offline");
 
+const IMAGE = "https://image.tmdb.org/t/p";
+/** Poster and still sizes the server passes along; TMDB has others, but these cover every screen. */
+export const IMAGE_SIZES = new Set(["w92", "w185", "w342", "w500", "w300"]);
+const IMAGE_FILE = /^[A-Za-z0-9_-]+\.(jpg|png)$/;
+
 const key = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const movieKey = (item: MediaItem) => `${key(item.title)}|${item.year ?? ""}`;
+const showKey = (name: string) => key(name);
 const yearOf = (date: unknown) => (typeof date === "string" && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
 const text = (s: unknown) => (typeof s === "string" && s.trim() ? s.trim() : null);
 
@@ -82,15 +100,14 @@ export class Metadata {
   enrich(item: MediaItem): MediaItem {
     if (!this.enabled || item.extra) return item;
     if (item.episode) return this.enrichEpisode(item);
-    const movieKey = `${key(item.title)}|${item.year ?? ""}`;
-    const movie = this.lookup("movies", movieKey, () => this.findMovie(item.title, item.year ?? null));
+    const movie = this.lookup("movies", movieKey(item), () => this.findMovie(item.title, item.year ?? null));
     if (!movie) return item;
     return { ...item, meta: { tmdbId: movie.id, title: movie.title, year: movie.year, overview: movie.overview, posterPath: movie.posterPath } };
   }
 
   private enrichEpisode(item: MediaItem): MediaItem {
     const ep = item.episode!;
-    const show = this.lookup("shows", key(ep.show), () => this.findShow(ep.show));
+    const show = this.lookup("shows", showKey(ep.show), () => this.findShow(ep.show));
     if (!show) return item;
     const season = this.lookup("seasons", `${show.id}|${ep.season}`, () => this.findSeason(show.id, ep.season));
     const details = season?.episodes[ep.episode];
@@ -102,6 +119,8 @@ export class Metadata {
       posterPath: season?.posterPath ?? show.posterPath,
       stillPath: details?.stillPath ?? null,
       show: show.title,
+      showPosterPath: show.posterPath,
+      showOverview: show.overview,
     };
     // Most rips are named "Show.S01E02.mkv" with no episode title; fill it in so every client shows it.
     if (!ep.title && details?.name) {
@@ -120,6 +139,60 @@ export class Metadata {
       for (const item of items) this.enrich(item);
       await this.idle();
     }
+  }
+
+  /** TMDB movies or shows matching a search, for Fix match. */
+  async search(kind: "movie" | "tv", query: string): Promise<MatchCandidate[]> {
+    await this.loaded;
+    if (!this.enabled) return [];
+    const results = await this.search_(kind, query, {});
+    return results.slice(0, 12).map((hit) => {
+      const { id, ...rest } = this.toHit(kind, hit, query);
+      return { tmdbId: id, ...rest };
+    });
+  }
+
+  /**
+   * Fix match: ties the item's movie (or, for an episode, its whole show) to a TMDB id the host picked,
+   * or to nothing with null. Returns the item with its new details.
+   */
+  async setMatch(item: MediaItem, tmdbId: number | null): Promise<MediaItem> {
+    await this.loaded;
+    if (!this.enabled) throw new Error("Movie details are off. Add TMDB_TOKEN to the server's .env.");
+    const kind = item.episode ? "tv" : "movie";
+    let value: MovieHit | null = null;
+    if (tmdbId !== null) {
+      const data = await this.get(`/${kind}/${tmdbId}`, {});
+      if (!data || typeof data.id !== "number") throw new Error("TMDB doesn't have that one.");
+      value = this.toHit(kind, data, item.episode?.show ?? item.title);
+    }
+    const entry = { at: this.now(), value, pinned: true };
+    if (item.episode) this.cache.shows[showKey(item.episode.show)] = entry;
+    else this.cache.movies[movieKey(item)] = entry;
+    this.scheduleSave();
+    // A newly matched show's season is looked up now, so the answer can already have its episode names.
+    if (item.episode && value) {
+      this.enrich(item);
+      await this.idle();
+    }
+    return this.enrich(item);
+  }
+
+  /** The path of a TMDB poster or still saved on this server, downloading it the first time. */
+  async image(size: string, file: string): Promise<string | null> {
+    if (!IMAGE_SIZES.has(size) || !IMAGE_FILE.test(file) || !this.config.file) return null;
+    const local = path.join(path.dirname(this.config.file), "images", size, file);
+    try {
+      await fs.access(local);
+      return local;
+    } catch {}
+    const res = await this.fetchImpl(`${IMAGE}/${size}/${file}`, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return null;
+    await fs.mkdir(path.dirname(local), { recursive: true });
+    const tmp = `${local}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, Buffer.from(await res.arrayBuffer()));
+    await fs.rename(tmp, local);
+    return local;
   }
 
   /** Resolves once every lookup started so far has finished and been saved (for tests). */
@@ -143,7 +216,7 @@ export class Metadata {
     find: () => Promise<CacheFile[K][string]["value"]>,
   ): CacheFile[K][string]["value"] {
     const entry = this.cache[kind][id];
-    const fresh = entry && (entry.value !== null || this.now() - entry.at < RETRY_MISS_MS);
+    const fresh = entry && (entry.value !== null || entry.pinned || this.now() - entry.at < RETRY_MISS_MS);
     const task = `${kind}:${id}`;
     if (!fresh && !this.pending.has(task)) {
       this.pending.add(task);
@@ -153,7 +226,7 @@ export class Metadata {
           if (!this.enabled) return;
           // The file may already have it now that it's loaded.
           const cached = this.cache[kind][id];
-          if (cached && (cached.value !== null || this.now() - cached.at < RETRY_MISS_MS)) return;
+          if (cached && (cached.value !== null || cached.pinned || this.now() - cached.at < RETRY_MISS_MS)) return;
           const value = await find();
           (this.cache[kind] as Record<string, CacheEntry<unknown>>)[id] = { at: this.now(), value };
           this.scheduleSave();
@@ -174,18 +247,20 @@ export class Metadata {
   }
 
   private async findMovie(title: string, year: number | null): Promise<MovieHit | null> {
-    let results = await this.search("movie", title, year ? { year: String(year) } : {});
+    let results = await this.search_("movie", title, year ? { year: String(year) } : {});
     // A wrong year in the file name shouldn't hide the movie altogether.
-    if (results.length === 0 && year) results = await this.search("movie", title, {});
-    const hit = results[0];
-    if (!hit) return null;
-    return { id: hit.id, title: text(hit.title) ?? title, year: yearOf(hit.release_date), overview: text(hit.overview), posterPath: text(hit.poster_path) };
+    if (results.length === 0 && year) results = await this.search_("movie", title, {});
+    return results[0] ? this.toHit("movie", results[0], title) : null;
   }
 
   private async findShow(name: string): Promise<ShowHit | null> {
-    const hit = (await this.search("tv", name, {}))[0];
-    if (!hit) return null;
-    return { id: hit.id, title: text(hit.name) ?? name, year: yearOf(hit.first_air_date), overview: text(hit.overview), posterPath: text(hit.poster_path) };
+    const hit = (await this.search_("tv", name, {}))[0];
+    return hit ? this.toHit("tv", hit, name) : null;
+  }
+
+  private toHit(kind: "movie" | "tv", hit: any, fallback: string): MovieHit {
+    const title = text(kind === "movie" ? hit.title : hit.name) ?? fallback;
+    return { id: hit.id, title, year: yearOf(kind === "movie" ? hit.release_date : hit.first_air_date), overview: text(hit.overview), posterPath: text(hit.poster_path) };
   }
 
   private async findSeason(showId: number, season: number): Promise<SeasonHit | null> {
@@ -199,7 +274,7 @@ export class Metadata {
     return { posterPath: text(data.poster_path), episodes };
   }
 
-  private async search(kind: "movie" | "tv", query: string, extra: Record<string, string>): Promise<any[]> {
+  private async search_(kind: "movie" | "tv", query: string, extra: Record<string, string>): Promise<any[]> {
     const data = await this.get(`/search/${kind}`, { query, include_adult: "false", ...extra });
     return Array.isArray(data?.results) ? data.results.filter((r: any) => typeof r?.id === "number") : [];
   }

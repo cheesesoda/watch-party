@@ -1,7 +1,10 @@
 import type { MediaInfo, MediaItem, RoomSummary } from "../../shared/protocol.ts";
 
-/** convert: the server can convert files browsers can't play as-is. */
-export type LibraryResponse = { items: MediaItem[]; convert: boolean };
+/** A TMDB movie or show the host can pick with Fix match. */
+export type MatchCandidate = { tmdbId: number; title: string; year: number | null; overview: string | null; posterPath: string | null };
+
+/** convert: the server can convert files browsers can't play as-is. details: TMDB lookups are on. */
+export type LibraryResponse = { items: MediaItem[]; convert: boolean; details?: boolean };
 
 export class Unauthorized extends Error {}
 
@@ -29,6 +32,11 @@ export const api = {
   logout: () => call("/api/logout", { method: "POST" }),
   library: () => call<LibraryResponse>("/api/library"),
   rescan: () => call<LibraryResponse>("/api/library/rescan", { method: "POST" }),
+  searchMatch: (kind: "movie" | "tv", q: string) =>
+    call<{ results: MatchCandidate[] }>(`/api/metadata/search?kind=${kind}&q=${encodeURIComponent(q)}`).then((r) => r.results),
+  /** Fix match: the TMDB movie or show for this video (for an episode, its whole show), or none. */
+  setMatch: (id: string, tmdbId: number | null) =>
+    call<LibraryResponse>(`/api/media/${id}/match`, { method: "POST", body: JSON.stringify({ tmdbId }) }),
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),
@@ -41,6 +49,8 @@ export const api = {
 
 export const streamUrl = (id: string) => `/api/media/${id}/stream`;
 export const hlsUrl = (id: string) => `/api/media/${id}/hls/index.m3u8`;
+/** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
+export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300") => `/api/images/${size}${path}`;
 export const subtitleUrl = (id: string, index: number) => `/api/media/${id}/subtitles/${index}.vtt`;
 
 const NAME_KEY = "wp_name";

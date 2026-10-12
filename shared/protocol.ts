@@ -47,6 +47,9 @@ export interface MediaMeta {
   stillPath?: string | null;
   /** The show's name as TMDB has it, for episodes. */
   show?: string | null;
+  /** The show's own poster and summary, for episodes. */
+  showPosterPath?: string | null;
+  showOverview?: string | null;
 }
 
 export interface ExtraInfo {

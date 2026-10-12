@@ -432,11 +432,30 @@ input:focus {
   display: flex;
   gap: 6px;
 }
-/* A movie with extras: a toggle beside it, and the extras listed underneath, indented. */
-.items li.with-extras {
-  display: grid;
-  grid-template-columns: 1fr auto;
+/* A row with buttons beside it (Details, extras), and a movie's extras listed underneath, indented. */
+.items li.row-line {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+.items li.row-line > .item {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.items li.row-line > .items.extras {
+  flex-basis: 100%;
+}
+.row-tool {
+  flex: none;
+  width: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.row-tool:hover,
+.row-tool:focus-visible {
+  color: var(--text);
 }
 .extras-toggle {
   padding-inline: 16px;
@@ -449,7 +468,6 @@ input:focus {
   border-color: var(--accent);
 }
 .items.extras {
-  grid-column: 1 / -1;
   padding-left: 24px;
 }
 .items.extras .item {
@@ -922,4 +940,237 @@ input.code,
   flex: 1;
   min-width: 0;
   max-width: 220px;
+}
+
+/* TMDB posters and stills. An empty frame keeps rows lined up when there's no image. */
+.poster,
+.still,
+.details-poster {
+  display: block;
+  object-fit: cover;
+  background: var(--panel-2);
+  border-radius: 6px;
+}
+.item.has-poster {
+  grid-template-columns: 36px 1fr auto;
+  grid-template-areas: "poster title action" "poster meta action";
+  align-items: center;
+  padding-block: 8px;
+}
+.item.has-poster .poster {
+  grid-area: poster;
+  width: 36px;
+  height: 54px;
+  border-radius: 4px;
+}
+.item.has-poster .title {
+  align-self: end;
+}
+.item.has-poster .meta {
+  align-self: start;
+}
+.overview-line {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tile.has-poster {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 4px 12px;
+  padding: 10px;
+}
+.tile.has-poster .poster {
+  grid-row: 1 / span 2;
+  width: 64px;
+  height: 96px;
+}
+.tile.has-poster .meta {
+  align-self: end;
+}
+/* An episode: number, still, then its name, summary and length. */
+.item.episode.has-still {
+  grid-template-columns: 34px 128px 1fr auto;
+  grid-template-areas: "num still title action" "num still overview action" "num still meta action";
+  grid-template-rows: auto auto 1fr;
+  column-gap: 14px;
+  align-items: start;
+}
+.item.episode.has-still .still {
+  grid-area: still;
+  width: 128px;
+  height: 72px;
+}
+.item.episode .overview {
+  grid-area: overview;
+  color: var(--muted);
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+@container (max-width: 640px) {
+  .item.episode.has-still {
+    grid-template-columns: 96px 1fr auto;
+    grid-template-areas: "still title action" "still overview action" "still meta action";
+  }
+  .item.episode.has-still .num {
+    display: none;
+  }
+  .item.episode.has-still .still {
+    width: 96px;
+    height: 54px;
+  }
+}
+.show-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 4px 0 14px;
+}
+.show-head .poster {
+  flex: none;
+  width: 92px;
+  height: 138px;
+}
+.show-head h3 {
+  margin: 0 0 6px;
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  font-size: 24px;
+}
+.show-head .year,
+.details .year {
+  color: var(--muted);
+  font-weight: 400;
+}
+.show-head .overview {
+  margin: 0 0 8px;
+  color: var(--muted);
+  max-width: 70ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+button.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+button.link:hover,
+button.link:focus-visible {
+  text-decoration: underline;
+}
+
+/* Details window (from the library's Details button). */
+.details-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.65);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.details {
+  background: var(--bg);
+  border: 1px solid var(--panel-2);
+  border-radius: 14px;
+  padding: 20px;
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.details-main {
+  display: flex;
+  gap: 20px;
+}
+.details-poster {
+  flex: none;
+  width: 180px;
+  height: 270px;
+}
+.details-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.details h2 {
+  margin: 0;
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  font-size: 30px;
+  line-height: 1.1;
+}
+.details p {
+  margin: 0;
+}
+.details-sub {
+  font-weight: 600;
+}
+.details .meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+.details .overview {
+  line-height: 1.5;
+}
+.details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.fix-match {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--panel-2);
+  display: grid;
+  gap: 10px;
+}
+.fix-match h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.fix-match form {
+  display: flex;
+  gap: 8px;
+}
+.fix-match .item[aria-current="true"] {
+  border-color: var(--accent);
+}
+.credit {
+  margin-top: 18px !important;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 560px) {
+  .details-main {
+    flex-direction: column;
+  }
+  .details-poster {
+    width: 120px;
+    height: 180px;
+  }
+}
+/* Phones: cards are too narrow for a poster beside the title. */
+@container (max-width: 640px) {
+  .tile.has-poster {
+    display: flex;
+    padding: 12px 14px;
+  }
+  .tile.has-poster .poster {
+    display: none;
+  }
+  .item.episode .overview {
+    display: none;
+  }
 }

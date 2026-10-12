@@ -204,7 +204,12 @@ export function createApp(config: Config): App {
   });
 
   // convert: the server can turn any file into something browsers play (ffmpeg is installed).
-  const libraryResponse = async () => ({ items: withDurations(await library.list()).map((item) => metadata.enrich(item)), convert: (await transcoder.encoderName()) !== null });
+  // details: TMDB lookups are on, so the host can fix a wrong match.
+  const libraryResponse = async () => ({
+    items: withDurations(await library.list()).map((item) => metadata.enrich(item)),
+    convert: (await transcoder.encoderName()) !== null,
+    details: metadata.enabled,
+  });
 
   // Lengths come from ffprobe, which takes a moment per file, so they're read one file at a time in the
   // background and show up on later loads of the library.
@@ -230,6 +235,39 @@ export function createApp(config: Config): App {
     await library.scan();
     void metadata.warm(await library.list());
     res.json(await libraryResponse());
+  });
+
+  // Posters and stills come through the server, so friends' devices never talk to TMDB.
+  app.get("/api/images/:size/:file", async (req, res) => {
+    const file = await metadata.image(req.params.size, req.params.file).catch(() => null);
+    if (!file) return void res.status(404).end();
+    res.set("Cache-Control", "private, max-age=2592000, immutable");
+    res.sendFile(file);
+  });
+
+  app.get("/api/metadata/search", async (req, res) => {
+    const kind = req.query.kind === "tv" ? "tv" : "movie";
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+    if (!q) return void res.json({ results: [] });
+    try {
+      res.json({ results: await metadata.search(kind, q) });
+    } catch (err) {
+      res.status(502).json({ error: `TMDB search failed: ${err instanceof Error ? err.message : err}` });
+    }
+  });
+
+  // Fix match: the host picks the right TMDB movie or show (tmdbId), or none (null).
+  app.post("/api/media/:id/match", async (req, res) => {
+    const item = library.peek(req.params.id)?.item;
+    if (!item) return void res.status(404).json({ error: "Not found." });
+    const tmdbId = req.body?.tmdbId;
+    if (tmdbId !== null && !(Number.isInteger(tmdbId) && tmdbId > 0)) return void res.status(400).json({ error: "tmdbId must be a TMDB id or null." });
+    try {
+      await metadata.setMatch(item, tmdbId);
+      res.json(await libraryResponse());
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.get("/api/media/:id/stream", async (req, res) => {
