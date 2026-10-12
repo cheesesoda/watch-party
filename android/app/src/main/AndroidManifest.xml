@@ -10,6 +10,10 @@
     <!-- One APK for phones and Android TV. -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <!-- Google's code scanner locks its activity to portrait and the player locks to landscape. Each makes Play require
+         that screen orientation, and the portrait one hid the app from TVs. The app works in either orientation. -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
 
     <application
         android:allowBackup="true"
