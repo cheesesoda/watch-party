@@ -133,6 +133,11 @@ class RoomActivity : ComponentActivity() {
     }
 
     private var members: List<Member> = emptyList()
+    /** The binge, if the party has one. */
+    private var queue: Queue? = null
+    private var upNext: AlertDialog? = null
+    private lateinit var prevButton: Button
+    private lateinit var nextButton: Button
     private var iceServers: List<IceServer> = emptyList()
     private var voice: VoiceChat? = null
     private var muted = false
@@ -176,6 +181,11 @@ class RoomActivity : ComponentActivity() {
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (!switchToConverted()) Toast.makeText(this@RoomActivity, "Can't play this video: ${error.errorCodeName}", Toast.LENGTH_LONG).show()
+            }
+
+            // In a binge, the server moves everyone on to the next video once a screen reports the end.
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) loadedMediaId?.let { connection.send(Protocol.ended(it)) }
             }
 
             // A sound or picture track this device can't decode is skipped silently, so check for that too.
@@ -236,6 +246,8 @@ class RoomActivity : ComponentActivity() {
                 KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> player.playWhenReady = false
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SKIP_MS)
                 KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo(maxOf(0L, player.currentPosition - SKIP_MS))
+                KeyEvent.KEYCODE_MEDIA_NEXT -> bingeStep(1)?.let { playForEveryone(it) }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> bingeStep(-1)?.let { playForEveryone(it) }
             }
         }
         return true
@@ -244,7 +256,7 @@ class RoomActivity : ComponentActivity() {
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
         KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-        KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_PREVIOUS,
     )
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -271,8 +283,10 @@ class RoomActivity : ComponentActivity() {
                 chat.addAll(msg.chat)
                 showMembers(msg.members)
                 applyState(msg.state, msg.media)
+                setQueue(msg.queue)
                 renderChat()
             }
+            is ServerMessage.QueueChanged -> setQueue(msg.queue)
             is ServerMessage.State -> applyState(msg.state, msg.media)
             is ServerMessage.Members -> {
                 voice?.syncMembers(msg.members)
@@ -322,6 +336,8 @@ class RoomActivity : ComponentActivity() {
             ?: if (host) "Nothing playing. Use Change video to pick something. Friends join with code $roomCode."
             else "Waiting for the host to pick something."
         companionTitle.text = media?.title ?: "Nothing playing"
+        updateBingeButtons()
+        if (::membersText.isInitialized) showMembers(members)
         if (companion) return
         if (media != null && media.id != loadedMediaId) {
             loadedMediaId = media.id
@@ -405,7 +421,14 @@ class RoomActivity : ComponentActivity() {
         // TVs show icon and label; phones show icons (long-press for the name) so the bar fits.
         val iconOnly = !isTv
         topBar.addView(barButton("Chat", R.drawable.ic_chat, iconOnly) { openChat() })
-        if (host) topBar.addView(barButton("Change video", R.drawable.ic_video, iconOnly) { pickVideo() })
+        // Previous and next in a binge, only while there is one.
+        prevButton = barButton("Previous", R.drawable.ic_skip_previous, iconOnly) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        nextButton = barButton("Next", R.drawable.ic_skip_next, iconOnly) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        if (host) {
+            topBar.addView(prevButton)
+            topBar.addView(nextButton)
+            topBar.addView(barButton("Change video", R.drawable.ic_video, iconOnly) { pickVideo() })
+        }
         voiceButton = barButton("Join voice", R.drawable.ic_mic, iconOnly) { toggleVoice() }
         topBar.addView(voiceButton)
         muteButton = barButton("Mute", R.drawable.ic_mic_off, iconOnly) { toggleMute() }.apply { visibility = View.GONE }
@@ -463,7 +486,7 @@ class RoomActivity : ComponentActivity() {
 
     private fun showMembers(members: List<Member>) {
         this.members = members
-        membersText.text = members.map { it.name }.distinct().joinToString(", ")
+        membersText.text = bingeLabel() + members.map { it.name }.distinct().joinToString(", ")
         renderVoice()
         val self = me ?: return
         val ownTv = members.any { it.id != self.id && it.device == "tv" && it.name.equals(self.name, ignoreCase = true) }
@@ -924,6 +947,71 @@ class RoomActivity : ComponentActivity() {
                 .setNeutralButton("End party") { _, _ -> connection.send(Protocol.end()) }
                 .setNegativeButton("Cancel", null),
         )
+    }
+
+    // --- binge ---
+
+    /** The video [delta] places from the current one in the binge, if there is one. Host only. */
+    private fun bingeStep(delta: Int): MediaItem? {
+        val items = queue?.items ?: return null
+        if (!host) return null
+        val at = items.indexOfFirst { it.id == lastMedia?.id }
+        return if (at < 0) null else items.getOrNull(at + delta)
+    }
+
+    private fun playForEveryone(item: MediaItem) = connection.send(Protocol.select(item.id))
+
+    private fun bingeLabel(): String {
+        val items = queue?.items ?: return ""
+        val at = items.indexOfFirst { it.id == lastMedia?.id }
+        return if (at < 0) "" else "Binge ${at + 1} of ${items.size} · "
+    }
+
+    private fun setQueue(q: Queue?) {
+        queue = q
+        updateBingeButtons()
+        showMembers(members)
+        val advance = q?.advance
+        val next = advance?.let { a -> q.items.firstOrNull { it.id == a.mediaId } }
+        if (next == null) {
+            upNext?.dismiss()
+            upNext = null
+            return
+        }
+        if (upNext?.isShowing == true) return
+        if (!host) {
+            Toast.makeText(this, "Up next: ${next.title}", Toast.LENGTH_LONG).show()
+            return
+        }
+        // The host can start it right away or stay on this video; otherwise it starts by itself.
+        upNext = present(
+            dialog()
+                .setTitle("Up next")
+                .setMessage(next.title)
+                .setPositiveButton("Play now") { _, _ -> playForEveryone(next) }
+                .setNegativeButton("Stay here") { _, _ -> connection.send(Protocol.cancelAdvance()) },
+        ).also { d ->
+            val tick = object : Runnable {
+                override fun run() {
+                    if (!d.isShowing) return
+                    val left = ((advance.at - sync.clock.serverNow(System.currentTimeMillis())) / 1000).coerceAtLeast(0)
+                    d.setMessage("${next.title}\n\nStarts in $left s")
+                    main.postDelayed(this, 500)
+                }
+            }
+            main.post(tick)
+        }
+    }
+
+    private fun updateBingeButtons() {
+        if (!::prevButton.isInitialized) return
+        val inBinge = host && queue != null && !companion
+        prevButton.visibility = if (inBinge) View.VISIBLE else View.GONE
+        nextButton.visibility = if (inBinge) View.VISIBLE else View.GONE
+        prevButton.isEnabled = bingeStep(-1) != null
+        nextButton.isEnabled = bingeStep(1) != null
+        prevButton.alpha = if (prevButton.isEnabled) 1f else 0.4f
+        nextButton.alpha = if (nextButton.isEnabled) 1f else 0.4f
     }
 
     private fun pickVideo() {
