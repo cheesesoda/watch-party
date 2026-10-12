@@ -423,7 +423,8 @@ private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
                 Text("Sign in with your phone", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text("Scan the code with your phone's camera, then enter the party code and a name. The TV joins on its own.", color = Muted)
                 error?.let { Text(it, color = ErrorColor) }
-                OutlinedButton(onClick = onBack, modifier = Modifier.focusRing()) { Text("Back") }
+                // The only button here, so it needs no focus ring.
+                OutlinedButton(onClick = onBack) { Text("Back") }
             }
         }
     }
