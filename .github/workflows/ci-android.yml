@@ -26,6 +26,24 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+      # Android TV has no camera or touchscreen: a library that marks either as required would hide
+      # the app from TVs on Play. Lists the merged manifest's features and fails if any is required.
+      - name: Check the app still installs on TVs
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          A = "{http://schemas.android.com/apk/res/android}"
+          path = glob.glob("app/build/intermediates/merged_manifests/release/**/AndroidManifest.xml", recursive=True)[0]
+          bad = []
+          for f in ET.parse(path).getroot().iter("uses-feature"):
+              name, required = f.get(A + "name"), f.get(A + "required", "true")
+              print(f"uses-feature {name} required={required}")
+              if required == "true" and name and name != "android.software.leanback" and f.get(A + "glEsVersion") is None:
+                  bad.append(name)
+          if bad:
+              print(f"::error::These features are required, so Play would hide the app from TVs: {', '.join(bad)}")
+              sys.exit(1)
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: watch-party-apk
