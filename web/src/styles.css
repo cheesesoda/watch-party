@@ -196,7 +196,7 @@ input:focus {
   font-weight: 600;
 }
 
-/* Library: a rail of folders (or shows) beside the list. It's sized by its own width, since it also
+/* Library: one menu rail (All videos, Movies, TV shows) beside the list. It's sized by its own width, since it also
    shows in the narrower Choose a video dialog. */
 .library {
   container-type: inline-size;
@@ -207,8 +207,7 @@ input:focus {
   gap: 20px;
   align-items: start;
 }
-.rail,
-.shows {
+.rail {
   display: grid;
   gap: 4px;
   position: sticky;
@@ -241,24 +240,13 @@ input:focus {
   margin: 6px 0;
   width: 100%;
 }
-.shows .show {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.shows .show .title {
+/* A show card in the TV shows row: orange outline when it's the one showing. */
+.tile.show .title {
   font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
   font-weight: 700;
   font-size: 19px;
 }
-.shows .show .meta {
-  color: var(--muted);
-  font-size: 13px;
-}
-.shows .show.on {
+.tile.show.on {
   background: var(--panel-2);
   border-color: var(--accent);
   color: var(--text);
@@ -369,8 +357,7 @@ input:focus {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
-  .rail,
-  .shows {
+  .rail {
     position: static;
     display: flex;
     overflow-x: auto;
@@ -381,10 +368,6 @@ input:focus {
   }
   .rail hr {
     display: none;
-  }
-  .shows .show {
-    flex: none;
-    min-width: 170px;
   }
 }
 .folder {
@@ -437,6 +420,31 @@ input:focus {
   align-items: center;
   gap: 10px;
   margin-top: 6px;
+}
+/* A running party: its progress sits in a middle column between the party details and Join. */
+.item.party {
+  grid-template-columns: 1fr minmax(180px, 380px) auto;
+  grid-template-areas: "title progress action" "meta progress action";
+}
+.item.party .progress {
+  grid-area: progress;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 0;
+}
+.item.party .progress-bar {
+  flex: none;
+}
+@media (max-width: 640px) {
+  .item.party {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "title action" "meta action" "progress progress";
+  }
+  .item.party .progress {
+    margin-top: 6px;
+  }
 }
 .progress-bar {
   flex: 1;

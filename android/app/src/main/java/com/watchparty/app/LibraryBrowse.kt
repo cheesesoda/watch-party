@@ -1,7 +1,7 @@
 package com.watchparty.app
 
 /** Which part of the library is showing. */
-enum class LibraryView(val label: String) { All("Everything"), Movies("Movies"), Shows("TV shows") }
+enum class LibraryView(val label: String) { All("All videos"), Movies("Movies"), Shows("TV shows") }
 
 enum class LibrarySort(val label: String) { Recent("Recently added"), AZ("A–Z"), Length("Length"), Size("Size") }
 
@@ -54,7 +54,7 @@ fun matches(item: MediaItem, query: String): Boolean {
     return q.isEmpty() || item.title.contains(q, ignoreCase = true) || item.relPath.contains(q, ignoreCase = true)
 }
 
-/** The list under the sort buttons. In Everything, each show is one row that opens its episodes. */
+/** The list under the sort buttons. In All videos, each show is one row that opens its episodes. */
 fun libraryRows(
     items: List<MediaItem>,
     view: LibraryView,
