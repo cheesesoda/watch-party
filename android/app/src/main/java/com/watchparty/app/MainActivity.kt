@@ -434,6 +434,7 @@ private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
 /** Opened on a phone from a TV's QR code: choose what the TV signs in as. */
 @Composable
 private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val signedInHost = prefs.isSetUp && prefs.serverUrl == server
     val api = remember { Api(server, if (signedInHost) prefs.token else "") }
     val scope = rememberCoroutineScope()
@@ -445,6 +446,8 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf(false) }
+    /** The party the TV joined with a code, so this phone can join it too without typing it again. */
+    var tvParty by remember { mutableStateOf<String?>(null) }
 
     val submit: () -> Unit = submit@{
         if (!asHost && code.isBlank()) {
@@ -465,7 +468,31 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
                     code = if (asHost) null else Prefs.roomCode(code),
                     password = if (asHost && !signedInHost) password else null,
                 )
+                tvParty = if (asHost) null else Prefs.roomCode(code)
                 done = true
+            } catch (e: Exception) {
+                error = e.message ?: "Couldn't reach the server."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    // Joins the TV's party here under the TV's name, so this phone becomes the chat and voice screen.
+    val joinHere: () -> Unit = joinHere@{
+        val party = tvParty ?: return@joinHere
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val joined = api.join(party)
+                prefs.serverUrl = server
+                // A host's phone keeps its host sign-in; anyone else's gets the party's guest pass.
+                if (!signedInHost) prefs.token = joined.token.orEmpty()
+                prefs.name = name.trim().take(32)
+                prefs.lastRoom = joined.room.id
+                RoomActivity.start(context, joined.room.id, host = signedInHost)
+                onClose()
             } catch (e: Exception) {
                 error = e.message ?: "Couldn't reach the server."
             } finally {
@@ -477,8 +504,17 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
     if (done) {
         FormCard {
             Text("All set", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Your TV is signing in now.", color = Muted)
-            Button(onClick = onClose, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Done") }
+            if (tvParty != null) {
+                Text("Your TV is joining the party. Join on this phone too to chat and talk while you watch on the TV.", color = Muted)
+                error?.let { Text(it, color = ErrorColor) }
+                Button(onClick = joinHere, enabled = !busy, modifier = Modifier.focusRing().fillMaxWidth()) {
+                    Text(if (busy) "Joining…" else "Join on this phone too")
+                }
+                OutlinedButton(onClick = onClose, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Done") }
+            } else {
+                Text("Your TV is signing in now.", color = Muted)
+                Button(onClick = onClose, modifier = Modifier.focusRing().fillMaxWidth()) { Text("Done") }
+            }
         }
         return
     }
