@@ -420,7 +420,8 @@ class RoomActivity : ComponentActivity() {
         topBar.addView(titles, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         // TVs show icon and label; phones show icons (long-press for the name) so the bar fits.
         val iconOnly = !isTv
-        topBar.addView(barButton("Chat", R.drawable.ic_chat, iconOnly) { openChat() })
+        val chatButton = barButton("Chat", R.drawable.ic_chat, iconOnly) { openChat() }
+        topBar.addView(chatButton)
         // Previous and next in a binge, only while there is one.
         prevButton = barButton("Previous", R.drawable.ic_skip_previous, iconOnly) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
         nextButton = barButton("Next", R.drawable.ic_skip_next, iconOnly) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
@@ -438,6 +439,7 @@ class RoomActivity : ComponentActivity() {
         // One button for both, so the bar still fits on a phone: leave alone, or end it for everyone.
         topBar.addView(barButton("Leave", R.drawable.ic_leave, iconOnly) { confirmLeave() })
         root.addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
+        wireControlFocus(chatButton)
 
         chatOverlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1086,6 +1088,36 @@ class RoomActivity : ComponentActivity() {
             val scale = if (hasFocus) 1.1f else 1f
             v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
         }
+    }
+
+    /**
+     * Fixed up/down moves for a TV remote, in rows from top to bottom: the top bar, the play/pause row, the seek bar,
+     * then the settings and subtitle buttons. Android's own guess goes by distance, so Up from the seek bar could land
+     * on the top bar and Down from there on the 15-second skip.
+     */
+    private fun wireControlFocus(chatButton: View) {
+        val playPause = androidx.media3.ui.R.id.exo_play_pause
+        val progress = androidx.media3.ui.R.id.exo_progress
+        val settings = androidx.media3.ui.R.id.exo_settings
+        val middleRow = listOf(
+            androidx.media3.ui.R.id.exo_prev, androidx.media3.ui.R.id.exo_rew, playPause,
+            androidx.media3.ui.R.id.exo_ffwd, androidx.media3.ui.R.id.exo_next,
+        )
+        val bottomRow = listOf(settings, androidx.media3.ui.R.id.exo_subtitle, androidx.media3.ui.R.id.exo_overflow_show, androidx.media3.ui.R.id.exo_overflow_hide)
+        for (i in 0 until topBar.childCount) {
+            val child = topBar.getChildAt(i)
+            if (child is Button) child.nextFocusDownId = playPause
+        }
+        if (chatButton.id == View.NO_ID) chatButton.id = View.generateViewId()
+        for (id in middleRow) playerView.findViewById<View>(id)?.apply {
+            nextFocusUpId = chatButton.id
+            nextFocusDownId = progress
+        }
+        playerView.findViewById<View>(progress)?.apply {
+            nextFocusUpId = playPause
+            nextFocusDownId = settings
+        }
+        for (id in bottomRow) playerView.findViewById<View>(id)?.nextFocusUpId = progress
     }
 
     private fun pill(color: Int) = GradientDrawable().apply {
