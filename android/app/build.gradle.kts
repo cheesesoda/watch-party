@@ -7,22 +7,36 @@ plugins {
 
 android {
     namespace = "com.watchparty.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.watchparty.app"
+        // Play identity: permanent once the first build is uploaded to Play Console.
+        applicationId = "io.github.cheesesoda.watchparty"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 36
+        // The release workflow passes these; local and PR builds use the defaults.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = findProperty("versionName") as String? ?: "0.1.0"
+    }
+
+    // Upload key for Google Play, supplied only by the release workflow (never committed).
+    val uploadKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
+    signingConfigs {
+        if (uploadKeystore != null) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the APK installs without extra setup.
-            // Swap in a real signing config before publishing anywhere.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without the upload key, fall back to the debug key so the APK installs without extra setup.
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
         }
     }
 
