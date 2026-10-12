@@ -1,15 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { RoomSummary } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
+import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
 export const inviteLink = (code: string) => `${location.origin}${location.pathname}#/join/${code.toUpperCase()}`;
 
-/** The host's home: start a party, see the ones running, or join one by code. */
+/** The host's home: pick a movie to start a party (it shows the code; nothing plays until you join), see running parties, or join by code. */
 export function Home(props: { name: string; onRename: () => void; onSignOut: () => void }) {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
-  const [started, setStarted] = useState<string | null>(null);
+  const [started, setStarted] = useState<RoomSummary | null>(null);
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,11 +22,12 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
     return () => clearInterval(t);
   }, []);
 
-  const start = async () => {
+  const start = async (mediaId: string) => {
     setError(null);
     try {
-      const room = await api.createRoom();
-      setStarted(room.id);
+      const room = await api.createRoom(mediaId);
+      setStarted(room);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
     } catch (err) {
       setError((err as Error).message);
@@ -62,24 +64,22 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
 
       {error && <p className="error">{error}</p>}
 
-      <section>
-        {started ? (
+      {started && (
+        <section>
           <div className="card started">
-            <p className="muted">Your party is ready. Share the code or the invite link, then join and pick something to watch.</p>
-            <p className="party-code">{started.toUpperCase()}</p>
+            <p className="muted">
+              Party ready for <strong>{started.media?.title}</strong>. Share the code or the invite link, then join when you're ready to watch.
+            </p>
+            <p className="party-code">{started.id.toUpperCase()}</p>
             <div className="row">
-              <button className="primary" onClick={() => navigate(`/room/${started}`)}>
+              <button className="primary" onClick={() => navigate(`/room/${started.id}`)}>
                 Join party
               </button>
-              <button onClick={() => copy(started)}>{copied ? "Link copied" : "Copy invite link"}</button>
+              <button onClick={() => copy(started.id)}>{copied ? "Link copied" : "Copy invite link"}</button>
             </div>
           </div>
-        ) : (
-          <button className="primary big" onClick={start}>
-            Start a party
-          </button>
-        )}
-      </section>
+        </section>
+      )}
 
       <section>
         <h2>Watch parties</h2>
@@ -104,6 +104,11 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
           <input placeholder="Party code" value={code} maxLength={12} onChange={(e) => setCode(e.target.value.toUpperCase())} />
           <button>Join</button>
         </form>
+      </section>
+
+      <section>
+        <h2>Start a party</h2>
+        <Library actionLabel="Start party" onPick={(item) => start(item.id)} />
       </section>
     </div>
   );

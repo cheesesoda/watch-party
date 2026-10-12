@@ -158,8 +158,8 @@ A party code only gets you into that one party. It stops working when the host e
 **Starting (host):**
 
 1. Press **Start a party**, enter your name and the server password. You stay signed in on that browser.
-2. Press **Start a party** again. You get a party code and a **Copy invite link** button. Nothing loads yet.
-3. Send the link, press **Join party**, then **Browse library** to pick the movie. The **Invite** button in the party also shows the code.
+2. Find the movie under **Start a party** and press **Start party** next to it. You get a party code, a **Copy invite link** button and a **Join party** button. Nothing plays yet, and you stay on the home page.
+3. Send the link, then press **Join party** when you're ready to watch. **Change video** in the party picks something else. The **Invite** button in the party also shows the code.
 
 Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party.
 
@@ -195,7 +195,7 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 The app opens on **Join a party** and **Start a party**.
 
 - **Join a party (friends):** enter the party code and your name. The app already knows the host's server; press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
-- **Start a party (host):** enter your name and the password. Then press **Start a party** to get a code and a **Join party** button, and pick the movie with **Change video** once you're in.
+- **Start a party (host):** enter your name and the password. Then press **Start party** next to a movie to get its code and a **Join party** button.
 - **Sign in with your phone (TV only):** the TV shows a QR code. Scan it with your phone's camera, enter the party code and a name for the TV, and the TV joins by itself. The host can tap **I'm the host** instead to sign the TV in as host. On a phone with the app installed the link opens in the app, otherwise in the browser; both work.
 
 The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.

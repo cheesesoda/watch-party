@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -515,7 +516,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
-    var started by remember { mutableStateOf<String?>(null) }
+    var started by remember { mutableStateOf<RoomSummary?>(null) }
+    var library by remember { mutableStateOf<List<MediaItem>?>(null) }
+    var query by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -529,6 +532,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         null
     }
 
+    LaunchedEffect(Unit) {
+        guard { api.library() }?.let { library = it }
+    }
     LaunchedEffect(Unit) {
         while (true) {
             guard { api.rooms() }?.let { rooms = it }
@@ -545,10 +551,12 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         }
     }
 
+    val listState = rememberLazyListState()
     LazyColumn(
         Modifier
             .fillMaxSize()
             .padding(horizontal = 24.dp),
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -562,21 +570,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         }
         error?.let { item { Text(it, color = ErrorColor) } }
 
-        item {
-            val id = started
-            if (id == null) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            guard { api.createRoom(null) }?.let { room ->
-                                started = room.id
-                                rooms = rooms.filter { it.id != room.id } + room
-                            }
-                        }
-                    },
-                    modifier = Modifier.padding(top = 8.dp),
-                ) { Text("Start a party") }
-            } else {
+        started?.let { room ->
+            item(key = "started") {
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -585,9 +580,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Your party is ready. Share the code, then join and pick something to watch.", color = Muted)
-                    Text(id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
-                    Button(onClick = { RoomActivity.start(context, id) }) { Text("Join party") }
+                    Text("Party ready for ${room.media?.title ?: "your movie"}. Share the code, then join when you're ready to watch.", color = Muted)
+                    Text(room.id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
+                    Button(onClick = { RoomActivity.start(context, room.id) }) { Text("Join party") }
                 }
             }
         }
@@ -615,6 +610,54 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     modifier = Modifier.weight(1f),
                 )
                 Button(onClick = joinCode) { Text("Join") }
+            }
+        }
+        item { SectionTitle("Start a party") }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = {
+                    scope.launch { guard { api.library() }?.let { library = it } }
+                }) { Text("Refresh") }
+            }
+        }
+        val lib = library
+        if (lib == null) {
+            item { Text("Loading library…", color = Muted) }
+        } else {
+            val filtered = lib.filter { query.isBlank() || it.relPath.contains(query.trim(), ignoreCase = true) }
+            if (filtered.isEmpty()) item { Text("No videos found.", color = Muted) }
+            var lastFolder: String? = null
+            for (media in filtered) {
+                if (media.folder != lastFolder && media.folder.isNotEmpty()) {
+                    val folder = media.folder
+                    item(key = "folder-$folder") {
+                        Text(folder, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+                    }
+                }
+                lastFolder = media.folder
+                item(key = "media-" + media.id) {
+                    FocusRow(
+                        title = media.title,
+                        subtitle = formatSize(media.size) + if (media.subtitles.isNotEmpty()) " · CC" else "",
+                        action = "Start party",
+                        onClick = {
+                            scope.launch {
+                                guard { api.createRoom(media.id) }?.let { room ->
+                                    started = room
+                                    rooms = rooms.filter { it.id != room.id } + room
+                                    listState.animateScrollToItem(0)
+                                }
+                            }
+                        },
+                    )
+                }
             }
         }
         item { Spacer(Modifier.padding(bottom = 24.dp)) }
@@ -655,4 +698,9 @@ private fun FocusRow(title: String, subtitle: String, action: String, onClick: (
         Spacer(Modifier.width(12.dp))
         Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+private fun formatSize(bytes: Long): String {
+    val gb = bytes / (1024.0 * 1024 * 1024)
+    return if (gb >= 1) String.format("%.1f GB", gb) else "${maxOf(1, bytes / (1024 * 1024))} MB"
 }
