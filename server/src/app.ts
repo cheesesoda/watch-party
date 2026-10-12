@@ -12,17 +12,20 @@ import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
 import { RoomManager } from "./rooms.ts";
 import { srtToVtt } from "./subtitles.ts";
+import { Transcoder } from "./transcode.ts";
 
 export interface App {
   server: http.Server;
   library: Library;
   rooms: RoomManager;
+  transcoder: Transcoder;
   close(): Promise<void>;
 }
 
 export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
   const rooms = new RoomManager((id) => library.peek(id)?.item, Date.now, undefined, config.iceServers);
+  const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
@@ -115,6 +118,43 @@ export function createApp(config: Config): App {
     stream.on("error", () => res.destroy());
     res.on("close", () => stream.destroy());
     stream.pipe(res);
+  });
+
+  app.get("/api/media/:id/info", async (req, res) => {
+    const entry = await library.get(req.params.id);
+    if (!entry) return void res.status(404).json({ error: "Not found." });
+    const probe = await transcoder.probe(entry.absPath);
+    if (!probe) return void res.json({ info: null });
+    const { videoIndex: _v, audioIndex: _a, ...info } = probe;
+    res.json({ info });
+  });
+
+  // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS.
+  app.get("/api/media/:id/hls/index.m3u8", async (req, res) => {
+    const entry = await library.get(req.params.id);
+    const text = entry && (await transcoder.playlist(entry.item.id, entry.absPath));
+    if (!text) return void res.status(404).json({ error: "This file can't be converted." });
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    res.setHeader("Cache-Control", "no-cache");
+    res.send(text);
+  });
+
+  app.get("/api/media/:id/hls/:segment", async (req, res) => {
+    const match = /^(\d{1,6})\.ts$/.exec(req.params.segment);
+    const entry = match && (await library.get(req.params.id));
+    if (!entry) return void res.status(404).json({ error: "Not found." });
+    let file: string | null;
+    try {
+      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]));
+    } catch (err) {
+      return void res.status(500).json({ error: `Converting failed: ${(err as Error).message}` });
+    }
+    if (!file) return void res.status(404).json({ error: "Not found." });
+    res.setHeader("Content-Type", "video/mp2t");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.sendFile(file, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
   });
 
   app.get("/api/media/:id/subtitles/:index", async (req, res) => {
@@ -217,8 +257,10 @@ export function createApp(config: Config): App {
     server,
     library,
     rooms,
+    transcoder,
     async close() {
       clearInterval(sweeper);
+      await transcoder.close();
       for (const client of wss.clients) client.terminate();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

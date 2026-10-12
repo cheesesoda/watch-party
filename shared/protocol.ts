@@ -20,6 +20,18 @@ export interface MediaItem {
   subtitles: SubtitleTrack[];
 }
 
+/** What ffprobe found in a file, so a browser can tell whether it can play it as-is. */
+export interface MediaInfo {
+  /** ffprobe's format name, e.g. "matroska,webm" or "mov,mp4,m4a,3gp,3g2,mj2". */
+  container: string;
+  /** Seconds. */
+  duration: number;
+  video: { codec: string; width: number; height: number; pixFmt: string } | null;
+  audio: { codec: string; channels: number } | null;
+  /** The server can convert this file for browsers (ffmpeg is installed). */
+  convert: boolean;
+}
+
 export interface PlaybackState {
   mediaId: string | null;
   paused: boolean;

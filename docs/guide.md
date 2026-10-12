@@ -50,12 +50,13 @@ The server reads `.env` itself. Variables set in your shell override it, and `ME
 
 Run the server straight on Windows with Node. You don't need Docker or WSL: Docker Desktop on Windows runs inside WSL2 anyway, and reading movies from Windows drives through WSL is slow.
 
-1. Install Node, Git and Tailscale (skip any you already have):
+1. Install Node, Git, Tailscale and FFmpeg (skip any you already have). FFmpeg is optional: it lets the server convert movies browsers can't play.
 
    ```powershell
    winget install -e --id OpenJS.NodeJS.LTS
    winget install -e --id Git.Git
    winget install -e --id Tailscale.Tailscale
+   winget install -e --id Gyan.FFmpeg
    ```
 2. Close PowerShell and open a new window so it finds the new programs, then check them:
 
@@ -64,6 +65,7 @@ Run the server straight on Windows with Node. You don't need Docker or WSL: Dock
    npm --version
    git --version
    tailscale version
+   ffmpeg -version
    ```
 
    If `npm` says running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
@@ -106,6 +108,9 @@ To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 | `PORT` | `8080` | Port the server listens on. |
 | `ICE_SERVERS` | Google public STUN | STUN/TURN servers for voice, as JSON. Only needed if voice won't connect for someone. |
 | `TRUST_PROXY` | `loopback` | Which proxies to believe about a visitor's real address. Leave it alone with `tailscale serve`; only change it for a proxy on another machine. |
+| `TRANSCODE_ENCODER` | `auto` | How the server converts movies browsers can't play. `auto` uses an NVIDIA GPU (NVENC) if there is one, otherwise the CPU (`libx264`). `off` turns converting off. |
+| `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | Where FFmpeg is, if it isn't on your PATH. |
+| `TRANSCODE_DIR` | system temp folder | Where converted pieces go while a movie plays. They're deleted a few minutes after everyone stops watching. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
 
 **Upload speed matters.** Each friend streams straight from your computer, so a 10 Mbps movie watched by three friends needs about 30 Mbps of upload.
@@ -147,7 +152,7 @@ Anyone in a party can play, pause, seek or change the movie, and it changes for 
 
 To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone goes back to the home screen and the party disappears from the list. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
 
-Movies marked "may not play in browser" usually need the Android app. See [Troubleshooting](#troubleshooting).
+Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) are converted by the server while you watch, like Plex does, if the host has FFmpeg installed. This happens on its own: the browser checks the file and asks for the converted copy when it needs it. A **Convert** button in the top bar shows when it's on and lets you switch by hand if the picture or sound is missing. Converted video is 1080p H.264 with stereo sound. Each viewer's browser decides for itself, and the Android app still plays the original file.
 
 ## Install the Android app (phone or TV)
 
@@ -216,9 +221,10 @@ The see-through TV panel and phone chat mode need an APK built after October 11,
 
 | Problem | Why | Fix |
 | --- | --- | --- |
-| Movie won't play, or plays with no sound, in a browser | No transcoding yet: files play as-is. Browsers handle MP4 (H.264 + AAC) and WebM, but usually not MKV, HEVC/H.265, AC3 or DTS. | Watch it in the Android app, which plays most MKV and HEVC files. Or the host converts it once: `ffmpeg -i in.mkv -c:v libx264 -crf 20 -c:a aac -movflags +faststart out.mp4` |
+| Movie won't play in a browser, or has sound but no picture, or picture but no sound | The browser can't decode the file's video (often HEVC) or audio (AC3/DTS), and the server isn't converting it. | Press **Convert** in the top bar. If there's no Convert button, the host installs FFmpeg and restarts the server; its console says "transcode: converting with …" when it's ready. Or watch in the Android app. |
+| Converted movie stutters or keeps buffering | The server converts slower than real time, usually because it's using the CPU. | The server console says which encoder it picked. With an NVIDIA card it should say `h264_nvenc`; update the GPU driver if it says `libx264`. |
 | No sound in the Android app | AC3/DTS audio depends on the device or the soundbar it's plugged into. | Try another device, or convert the audio to AAC as below. |
-| Video plays but no sound (AC3 / DTS, often 5.1 MKVs) | Most browsers and many phones can't decode AC3 or DTS. | Convert just the audio, which takes seconds and leaves the picture untouched: `ffmpeg -i in.mkv -map 0 -c copy -c:a aac -b:a 384k out.mkv`. Save it as `.mp4` instead (and add `-movflags +faststart`) if it should also play in browsers. |
+| A file always needs converting for its sound (AC3 / DTS, often 5.1 MKVs) | Most browsers and many phones can't decode AC3 or DTS. | Convert just the audio once, which takes seconds and leaves the picture untouched: `ffmpeg -i in.mkv -map 0 -c copy -c:a aac -b:a 384k out.mkv`. Save it as `.mp4` instead (and add `-movflags +faststart`) if it should also play in browsers without converting. |
 | Can hear voice but can't talk (browser) | Browsers only allow the mic over HTTPS. | Use the `https://…ts.net` address from the host, not `http://`. |
 | Others hear the movie or themselves echo | Your mic picks up your speakers. | Wear headphones. On a TV, talk through phone chat mode with headphones on the phone. |
 | Dashed red outline around someone's name | Your voice connection to them couldn't be set up, usually a strict router or mobile network. | Both join through Tailscale. Otherwise the host runs a TURN server and lists it in `ICE_SERVERS`. |

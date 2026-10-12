@@ -1,7 +1,9 @@
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IceServer } from "../../shared/protocol.ts";
 import { DEFAULT_ICE_SERVERS } from "./rooms.ts";
+import type { TranscodeConfig } from "./transcode.ts";
 
 export interface Config {
   port: number;
@@ -20,6 +22,8 @@ export interface Config {
    * limit is per client address, so behind a proxy like `tailscale serve` it must see the real one.
    */
   trustProxy: string;
+  /** ffmpeg settings for converting files browsers can't play; left out, converting is off. */
+  transcode?: TranscodeConfig;
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -59,5 +63,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDir: path.resolve(env.WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url))),
     iceServers: parseIceServers(env.ICE_SERVERS),
     trustProxy: env.TRUST_PROXY?.trim() || "loopback",
+    transcode: {
+      ffmpeg: env.FFMPEG_PATH?.trim() || "ffmpeg",
+      ffprobe: env.FFPROBE_PATH?.trim() || "ffprobe",
+      dir: path.resolve(env.TRANSCODE_DIR?.trim() || path.join(os.tmpdir(), "watch-party-transcode")),
+      encoder: env.TRANSCODE_ENCODER?.trim() || "auto",
+    },
   };
 }
