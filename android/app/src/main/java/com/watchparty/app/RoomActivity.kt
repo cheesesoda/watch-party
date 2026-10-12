@@ -452,7 +452,7 @@ class RoomActivity : ComponentActivity() {
 
         // Who is in voice and who is talking; stays visible when the controls hide.
         voiceStrip = text(14f, Color.WHITE).apply {
-            background = pill(Color.argb(200, 0x1A, 0x09, 0x33))
+            background = pill(Color.argb(200, 0x18, 0x13, 0x1F))
             setPadding(dp(14), dp(6), dp(14), dp(7))
             visibility = View.GONE
         }
@@ -470,7 +470,7 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         statusText = text(14f, ON_SURFACE).apply {
-            background = pill(Color.argb(220, 0x1A, 0x09, 0x33))
+            background = pill(Color.argb(220, 0x18, 0x13, 0x1F))
             setPadding(dp(20), dp(10), dp(20), dp(10))
             visibility = View.GONE
         }
@@ -578,7 +578,7 @@ class RoomActivity : ComponentActivity() {
                 if (m.muted) append(" · muted")
                 if (m.id in brokenVoice) append(" · can't connect")
                 val color = when {
-                    m.id in brokenVoice -> Color.rgb(0xFF, 0x52, 0x52)
+                    m.id in brokenVoice -> Color.rgb(0xE0, 0x66, 0x66)
                     m.id in speaking -> ACCENT
                     else -> Color.WHITE
                 }
@@ -696,7 +696,7 @@ class RoomActivity : ComponentActivity() {
             val age = serverNow - m.ts
             val view = text(14f, if (m.system) Color.LTGRAY else Color.WHITE).apply {
                 text = formatMessage(m)
-                background = GradientDrawable().apply { setColor(Color.argb(200, 0x1A, 0x09, 0x33)); cornerRadius = dp(16).toFloat() }
+                background = GradientDrawable().apply { setColor(Color.argb(200, 0x18, 0x13, 0x1F)); cornerRadius = dp(16).toFloat() }
                 setPadding(dp(12), dp(6), dp(12), dp(7))
                 alpha = ((CHAT_FADE_MS - age) / 2000f).coerceIn(0f, 1f)
             }
@@ -768,7 +768,7 @@ class RoomActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             // A see-through side sheet: rounded on the movie's side, so the film stays visible behind it.
             background = GradientDrawable().apply {
-                setColor(Color.argb(180, 0x1A, 0x09, 0x33))
+                setColor(Color.argb(180, 0x18, 0x13, 0x1F))
                 val r = dp(28).toFloat()
                 cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
             }
@@ -801,10 +801,11 @@ class RoomActivity : ComponentActivity() {
             setOnClickListener { send() }
             val focused = intArrayOf(android.R.attr.state_focused)
             background = StateListDrawable().apply {
-                addState(focused, pill(ACCENT).apply { setStroke(dp(2), Color.WHITE) })
+                addState(focused, pill(FOCUS_FILL))
                 addState(intArrayOf(), pill(ACCENT))
             }
             stateListAnimator = null
+            growOnFocus(this)
         }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
     }
 
@@ -907,7 +908,7 @@ class RoomActivity : ComponentActivity() {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         val focused = intArrayOf(android.R.attr.state_focused)
         background = StateListDrawable().apply {
-            addState(focused, GradientDrawable().apply { setColor(BUBBLE_SOLID); cornerRadius = dp(22).toFloat(); setStroke(dp(2), ACCENT) })
+            addState(focused, GradientDrawable().apply { setColor(BUBBLE_SOLID); cornerRadius = dp(22).toFloat(); setStroke(dp(2), FOCUS_FILL) })
             addState(intArrayOf(), GradientDrawable().apply { setColor(BUBBLE_SOLID); cornerRadius = dp(22).toFloat() })
         }
         setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -1048,8 +1049,8 @@ class RoomActivity : ComponentActivity() {
     /** A fully rounded shape, as Material 3 uses for buttons and chips. */
     /**
      * Media3's own focus mark on the play/pause, skip and seek-bar controls is a faint grey that's easy to lose from
-     * the couch. Give them the same orange the top bar uses: an orange circle behind the focused button, and an
-     * orange outline around the seek bar while it has focus.
+     * the couch. Mark them as Google TV does: the focused button becomes a white circle with a dark icon and grows a
+     * little, and the seek bar gets a soft white band while it has focus. No colored outlines.
      */
     private fun highlightControlFocus() {
         val focused = intArrayOf(android.R.attr.state_focused)
@@ -1061,18 +1062,29 @@ class RoomActivity : ComponentActivity() {
         for (id in ids) {
             val button = playerView.findViewById<View>(id) ?: continue
             button.background = StateListDrawable().apply {
-                addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) })
+                addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(FOCUS_FILL) })
                 addState(intArrayOf(), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) })
             }
             if (button is ImageButton) button.imageTintList = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
+            growOnFocus(button)
         }
         playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
             setPlayedColor(ACCENT)
             setScrubberColor(ACCENT)
             background = StateListDrawable().apply {
-                addState(focused, GradientDrawable().apply { setColor(Color.argb(90, 0xFF, 0x8E, 0x44)); setStroke(dp(2), ACCENT); cornerRadius = dp(12).toFloat() })
+                addState(focused, GradientDrawable().apply { setColor(Color.argb(46, 0xFF, 0xFF, 0xFF)); cornerRadius = dp(12).toFloat() })
                 addState(intArrayOf(), GradientDrawable().apply { setColor(Color.TRANSPARENT) })
             }
+        }
+    }
+
+    /** Grows a view a little while a TV remote is on it, alongside its white focused background. */
+    private fun growOnFocus(view: View) {
+        val previous = view.onFocusChangeListener
+        view.setOnFocusChangeListener { v, hasFocus ->
+            previous?.onFocusChange(v, hasFocus)
+            val scale = if (hasFocus) 1.1f else 1f
+            v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
         }
     }
 
@@ -1093,12 +1105,13 @@ class RoomActivity : ComponentActivity() {
         setOnClickListener { onClick() }
         val focused = intArrayOf(android.R.attr.state_focused)
         val pressed = intArrayOf(android.R.attr.state_pressed)
-        // Amber marks the focused button; no ring needed on top.
+        // White marks the focused button (and it grows a little); no ring needed on top.
         background = StateListDrawable().apply {
-            addState(focused, pill(ACCENT))
+            addState(focused, pill(FOCUS_FILL))
             addState(pressed, pill(ACCENT))
             addState(intArrayOf(), pill(TONAL))
         }
+        growOnFocus(this)
         val content = ColorStateList(arrayOf(focused, pressed, intArrayOf()), intArrayOf(ON_ACCENT, ON_ACCENT, ON_SURFACE))
         setTextColor(content)
         compoundDrawableTintList = content
@@ -1162,7 +1175,7 @@ class RoomActivity : ComponentActivity() {
         }
         trackDrawable = StateListDrawable().apply {
             addState(checked, track(ACCENT, ACCENT))
-            addState(focused, track(SURFACE, ACCENT))
+            addState(focused, track(SURFACE, FOCUS_FILL))
             addState(intArrayOf(), track(SURFACE, ON_SURFACE_VARIANT))
         }
         thumbDrawable = StateListDrawable().apply {
@@ -1198,19 +1211,21 @@ class RoomActivity : ComponentActivity() {
         private const val SKIP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
-        /** The app's orange, as on the home screen. */
-        private val ACCENT = Color.rgb(0xFF, 0x8E, 0x44)
-        // Material 3 dark roles, built around the orange on deep purple.
-        private val ON_ACCENT = Color.rgb(0x1A, 0x09, 0x33)
-        private val SURFACE = Color.rgb(0x1A, 0x09, 0x33)
-        private val SURFACE_HIGH = Color.rgb(0x3D, 0x1D, 0x6E)
-        private val TONAL = Color.argb(200, 0x2A, 0x12, 0x50)
-        private val ON_SURFACE = Color.rgb(0xEC, 0xEE, 0xF3)
-        private val ON_SURFACE_VARIANT = Color.rgb(0xC4, 0xB3, 0xE0)
+        /** The app's muted orange, as on the home screen. */
+        private val ACCENT = Color.rgb(0xE0, 0x9A, 0x62)
+        // Material 3 dark roles, built around the muted orange on dusky plum (as on the web app).
+        private val ON_ACCENT = Color.rgb(0x18, 0x13, 0x1F)
+        /** What a TV remote is on: white, with dark text or icon (ON_ACCENT), as on Google TV. */
+        private val FOCUS_FILL = Color.rgb(0xF2, 0xEE, 0xF7)
+        private val SURFACE = Color.rgb(0x18, 0x13, 0x1F)
+        private val SURFACE_HIGH = Color.rgb(0x31, 0x28, 0x3E)
+        private val TONAL = Color.argb(200, 0x23, 0x1C, 0x2D)
+        private val ON_SURFACE = Color.rgb(0xEE, 0xEA, 0xF3)
+        private val ON_SURFACE_VARIANT = Color.rgb(0xB0, 0xA6, 0xBF)
         private val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         /** Other people's bubbles: solid on the phone's chat screen, see-through over the movie. */
-        private val BUBBLE_SOLID = Color.rgb(0x3D, 0x1D, 0x6E)
-        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x2A, 0x12, 0x50)
+        private val BUBBLE_SOLID = Color.rgb(0x31, 0x28, 0x3E)
+        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x23, 0x1C, 0x2D)
         private val NAME_COLORS = intArrayOf(
             Color.rgb(0x7C, 0xC4, 0xFF), Color.rgb(0x8E, 0xE0, 0x9B), Color.rgb(0xF4, 0x8F, 0xB1),
             Color.rgb(0xB3, 0x9D, 0xFF), Color.rgb(0x6F, 0xE0, 0xD6), Color.rgb(0xFF, 0xB0, 0x7A),
