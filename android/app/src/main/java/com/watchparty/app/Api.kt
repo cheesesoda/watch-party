@@ -107,8 +107,12 @@ class Api(private val baseUrl: String, private val token: String) {
         request("/api/rooms/$id/end", buildJsonObject { put("name", name) }.toString())
     }
 
-    suspend fun createRoom(mediaId: String?): RoomSummary {
-        val body = buildJsonObject { if (mediaId != null) put("mediaId", mediaId) }.toString()
+    /** queue: a binge, the videos to play one after another from the first. */
+    suspend fun createRoom(mediaId: String?, queue: List<String>? = null): RoomSummary {
+        val body = buildJsonObject {
+            if (mediaId != null) put("mediaId", mediaId)
+            if (queue != null) put("queue", kotlinx.serialization.json.JsonArray(queue.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        }.toString()
         return Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", body)).room
     }
 

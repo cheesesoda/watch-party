@@ -35,7 +35,12 @@ data class MediaItem(
     val extra: ExtraInfo? = null,
     /** Details from TMDB, when the server has a TMDB token and found a match. */
     val meta: MediaMeta? = null,
+    /** One piece of a movie split into files ("Pt 1", "Pt 2"): which one, and every part's id in order. */
+    val part: PartInfo? = null,
 )
+
+@Serializable
+data class PartInfo(val index: Int, val ids: List<String>)
 
 /** Movie or episode details from TMDB. Image paths are TMDB file paths, loaded through the server. */
 @Serializable
@@ -124,7 +129,20 @@ data class RoomSummary(
     val media: MediaItem? = null,
     val members: List<Member> = emptyList(),
     val playback: RoomPlayback? = null,
+    /** Set for a binge: where the party is in it, e.g. 3 of 10. */
+    val binge: BingePosition? = null,
 )
+
+@Serializable
+data class BingePosition(val index: Int, val length: Int)
+
+/** A binge: the videos the party plays one after another, and the switch to the next one if it's coming up. */
+@Serializable
+data class Queue(val items: List<MediaItem> = emptyList(), val advance: Advance? = null) {
+    /** Counting down to the next video: which one, and when it starts (server clock, ms). */
+    @Serializable
+    data class Advance(val mediaId: String, val at: Long)
+}
 
 sealed interface ServerMessage {
     data class Welcome(
@@ -136,7 +154,11 @@ sealed interface ServerMessage {
         val chat: List<ChatMessage>,
         val serverTime: Long,
         val iceServers: List<IceServer>,
+        val queue: Queue? = null,
     ) : ServerMessage
+
+    /** The binge changed: started, moved on, counting down to the next video, or stopped (null). */
+    data class QueueChanged(val queue: Queue?) : ServerMessage
 
     data class State(val state: PlaybackState, val media: MediaItem?, val by: String?) : ServerMessage
     data class Members(val members: List<Member>) : ServerMessage
@@ -171,7 +193,11 @@ object Protocol {
         val chat: List<ChatMessage> = emptyList(),
         val serverTime: Long,
         val iceServers: List<IceServer> = emptyList(),
+        val queue: Queue? = null,
     )
+
+    @Serializable
+    private data class QueueDto(val queue: Queue? = null)
 
     @Serializable
     private data class StateDto(val state: PlaybackState, val media: MediaItem? = null, val by: String? = null)
@@ -202,7 +228,7 @@ object Protocol {
         val obj: JsonObject = json.parseToJsonElement(text).jsonObject
         return when (obj["type"]?.jsonPrimitive?.content) {
             "welcome" -> json.decodeFromJsonElement<WelcomeDto>(obj).let {
-                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime, it.iceServers)
+                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime, it.iceServers, it.queue)
             }
             "state" -> json.decodeFromJsonElement<StateDto>(obj).let { ServerMessage.State(it.state, it.media, it.by) }
             "members" -> ServerMessage.Members(json.decodeFromJsonElement<MembersDto>(obj).members)
@@ -211,6 +237,7 @@ object Protocol {
             "error" -> ServerMessage.Error(json.decodeFromJsonElement<ErrorDto>(obj).message)
             "voice-peers" -> ServerMessage.VoicePeers(json.decodeFromJsonElement<VoicePeersDto>(obj).peers)
             "signal" -> json.decodeFromJsonElement<SignalDto>(obj).let { ServerMessage.Signal(it.from, it.data) }
+            "queue" -> ServerMessage.QueueChanged(json.decodeFromJsonElement<QueueDto>(obj).queue)
             "ended" -> ServerMessage.Ended(json.decodeFromJsonElement<EndedDto>(obj).by)
             else -> null
         }
@@ -237,6 +264,15 @@ object Protocol {
     }.toString()
 
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
+
+    /** The video finished on this screen; in a binge, the next one comes up. */
+    fun ended(mediaId: String): String = buildJsonObject {
+        put("type", "ended")
+        put("mediaId", mediaId)
+    }.toString()
+
+    /** Host: don't move on to the next video in the binge. */
+    fun cancelAdvance(): String = buildJsonObject { put("type", "cancel-advance") }.toString()
 
     fun voice(on: Boolean, muted: Boolean): String = buildJsonObject {
         put("type", "voice")

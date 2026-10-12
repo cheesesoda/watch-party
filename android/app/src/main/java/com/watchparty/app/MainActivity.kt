@@ -765,7 +765,12 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Party ready for ${room.media?.title ?: "your movie"}. Share the code, then join when you're ready to watch.", color = Muted)
+                    Text(
+                        "Party ready for ${room.media?.title ?: "your movie"}" +
+                            (room.binge?.let { ", the first of ${it.length} in this binge" } ?: "") +
+                            ". Share the code, then join when you're ready to watch.",
+                        color = Muted,
+                    )
                     Text(room.id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { RoomActivity.start(context, room.id) }, modifier = Modifier.focusRing()) { Text("Join party") }
@@ -783,7 +788,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     FocusRow(
-                        title = room.media?.title ?: "Nothing picked yet",
+                        title = (room.media?.title ?: "Nothing picked yet") + (room.binge?.let { " · ${it.index} of ${it.length}" } ?: ""),
                         subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
                         action = "Join",
                         onClick = { RoomActivity.start(context, room.id) },
@@ -824,9 +829,10 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             }
         }
         val lib = library
-        val startParty = { media: MediaItem ->
+        // queue: a binge, played in order from its first video.
+        val startParty = { media: MediaItem, queue: List<String>? ->
             scope.launch {
-                guard { api.createRoom(media.id) }?.let { room ->
+                guard { api.createRoom(media.id, queue) }?.let { room ->
                     started = room
                     rooms = rooms.filter { it.id != room.id } + room
                     listState.animateScrollToItem(0)
@@ -840,7 +846,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         val mediaMeta = { media: MediaItem ->
             (media.extra?.let { x ->
                 x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
-            } ?: "") + (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+            } ?: "") + (media.part?.let { "${it.ids.size} parts" } ?: media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
         }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
@@ -850,8 +856,8 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             val allShows = shows(lib)
             // One menu: All videos, Movies and TV shows (when there are any), plus the subtitles filter.
             val counts = mapOf(
-                LibraryView.All to lib.count { !it.ownedExtra },
-                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra },
+                LibraryView.All to lib.count { !it.ownedExtra && !it.laterPart },
+                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra && !it.laterPart },
                 LibraryView.Shows to allShows.size,
             )
             item(key = "views") {
@@ -871,7 +877,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                 FocusTile(
                                     title = media.title,
                                     subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
-                                    onClick = { startParty(media) },
+                                    onClick = { startParty(media, media.part?.ids) },
                                     poster = if (details) ({ Poster(api, media.meta?.posterPath, "w185", 50.dp, 75.dp) }) else null,
                                 )
                             }
@@ -893,7 +899,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                                         title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
                                         subtitle = mediaMeta(row.item),
                                         action = "Start party",
-                                        onClick = { startParty(row.item) },
+                                        onClick = { startParty(row.item, row.item.part?.ids) },
                                         leading = if (details) ({ Poster(api, row.item.meta?.posterPath, "w92", 36.dp, 54.dp) }) else null,
                                     )
                                 }
@@ -907,7 +913,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             if (own != null && openExtras == row.item.id) {
                                 own.forEach { x ->
                                     Box(Modifier.padding(start = 24.dp)) {
-                                        FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                                        FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x, null) })
                                     }
                                 }
                             }
@@ -970,9 +976,24 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             }
                         }
                     }
+                    if (shownSeason != -1) {
+                        item(key = "binge") {
+                            val season = show.episodes.filter { it.episode!!.season == shownSeason }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+                                Button(onClick = { startParty(season.first(), season.map { it.id }) }, modifier = Modifier.focusRing()) {
+                                    Text("Binge season $shownSeason")
+                                }
+                                if (show.seasons.size > 1) {
+                                    OutlinedButton(onClick = { startParty(show.episodes.first(), show.episodes.map { it.id }) }, modifier = Modifier.focusRing()) {
+                                        Text("Binge all ${show.seasons.size} seasons")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (shownSeason == -1 && showExtras != null) {
                         items(showExtras, key = { "extra-" + it.id }) { x ->
-                            FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                            FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x, null) })
                         }
                     }
                     items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
@@ -981,7 +1002,7 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             title = "E${ep.episode}   " + (ep.title ?: "Episode ${ep.episode}"),
                             subtitle = mediaMeta(media),
                             action = "Start party",
-                            onClick = { startParty(media) },
+                            onClick = { startParty(media, media.part?.ids) },
                             leading = if (details) ({ Poster(api, media.meta?.stillPath, "w300", 112.dp, 63.dp) }) else null,
                             detail = media.meta?.overview,
                         )
