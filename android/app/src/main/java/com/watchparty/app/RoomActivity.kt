@@ -42,6 +42,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
+import android.text.TextUtils
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -79,13 +81,13 @@ class RoomActivity : ComponentActivity() {
     private lateinit var muteButton: Button
     private lateinit var voiceStrip: TextView
     private lateinit var chatPanel: LinearLayout
-    private lateinit var chatPanelHistory: TextView
+    private lateinit var chatPanelHistory: LinearLayout
     private lateinit var chatPanelInput: EditText
     private lateinit var popupsButton: Button
     private lateinit var companionView: LinearLayout
     private lateinit var companionTitle: TextView
     private lateinit var companionVoice: TextView
-    private lateinit var companionHistory: TextView
+    private lateinit var companionHistory: LinearLayout
     private lateinit var companionVoiceButton: Button
     private lateinit var companionMuteButton: Button
 
@@ -547,11 +549,63 @@ class RoomActivity : ComponentActivity() {
 
     private fun renderChat() {
         renderChatOverlay()
-        for (history in listOf(chatPanelHistory, companionHistory)) {
-            history.text = chatHistoryText(100)
-            (history.parent as? ScrollView)?.let { scroll -> scroll.post { scroll.fullScroll(View.FOCUS_DOWN) } }
-        }
+        renderHistory(chatPanelHistory, BUBBLE_SEE_THROUGH)
+        renderHistory(companionHistory, BUBBLE_SOLID)
     }
+
+    /**
+     * Chat history as message bubbles: yours on the right in amber, everyone else's on the left under
+     * their name, and joins, pauses and the like as small centered notes.
+     */
+    private fun renderHistory(list: LinearLayout, otherColor: Int) {
+        list.removeAllViews()
+        var previous: ChatMessage? = null
+        for (m in chat.takeLast(100)) {
+            val run = previous != null && !previous.system && !m.system && previous.from == m.from
+            list.addView(messageView(m, run, otherColor), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                topMargin = dp(if (run) 2 else 10)
+            })
+            previous = m
+        }
+        (list.parent as? ScrollView)?.let { scroll -> scroll.post { scroll.fullScroll(View.FOCUS_DOWN) } }
+    }
+
+    private fun messageView(m: ChatMessage, run: Boolean, otherColor: Int): View {
+        if (m.system) {
+            return text(12f, Color.rgb(0x90, 0x97, 0xA6)).apply {
+                text = m.text
+                gravity = Gravity.CENTER
+                setShadowLayer(3f, 0f, 1f, Color.BLACK)
+            }
+        }
+        val mine = m.from == me?.name
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = if (mine) Gravity.END else Gravity.START
+        }
+        if (!mine && !run) {
+            column.addView(text(12f, nameColor(m.from)).apply {
+                text = m.from
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(12), 0, dp(12), dp(2))
+                setShadowLayer(3f, 0f, 1f, Color.BLACK)
+            })
+        }
+        column.addView(text(15f, if (mine) Color.BLACK else Color.WHITE).apply {
+            text = m.text
+            maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt().coerceAtMost(dp(280))
+            background = GradientDrawable().apply {
+                setColor(if (mine) ACCENT else otherColor)
+                cornerRadius = dp(18).toFloat()
+            }
+            setPadding(dp(12), dp(7), dp(12), dp(8))
+            setLineSpacing(0f, 1.1f)
+        })
+        return column
+    }
+
+    /** Each person keeps one name color, picked from their name. */
+    private fun nameColor(name: String): Int = NAME_COLORS[Math.floorMod(name.hashCode(), NAME_COLORS.size)]
 
     private fun popupsLabel() = if (prefs.chatPopups) "Pop-ups on" else "Pop-ups off"
 
@@ -573,8 +627,8 @@ class RoomActivity : ComponentActivity() {
             val age = serverNow - m.ts
             val view = text(14f, if (m.system) Color.LTGRAY else Color.WHITE).apply {
                 text = formatMessage(m)
-                background = rounded(Color.argb(190, 10, 11, 14))
-                setPadding(dp(10), dp(5), dp(10), dp(5))
+                background = GradientDrawable().apply { setColor(Color.argb(200, 10, 11, 14)); cornerRadius = dp(16).toFloat() }
+                setPadding(dp(12), dp(6), dp(12), dp(7))
                 alpha = ((CHAT_FADE_MS - age) / 2000f).coerceIn(0f, 1f)
             }
             chatOverlay.addView(
@@ -590,20 +644,13 @@ class RoomActivity : ComponentActivity() {
                 setSpan(StyleSpan(Typeface.ITALIC), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
-        val color = if (m.from == me?.name) Color.rgb(124, 196, 255) else Color.rgb(229, 160, 13)
+        val color = if (m.from == me?.name) ACCENT else nameColor(m.from)
         return SpannableStringBuilder().apply {
             append(m.from)
             setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             setSpan(ForegroundColorSpan(color), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             append("  ")
             append(m.text)
-        }
-    }
-
-    private fun chatHistoryText(limit: Int): CharSequence = SpannableStringBuilder().apply {
-        chat.takeLast(limit).forEachIndexed { i, m ->
-            if (i > 0) append("\n")
-            append(formatMessage(m))
         }
     }
 
@@ -633,7 +680,7 @@ class RoomActivity : ComponentActivity() {
 
     private fun buildChatPanel(): LinearLayout {
         // A soft shadow keeps text readable over bright scenes now that the panel is see-through.
-        chatPanelHistory = text(15f, Color.WHITE).apply { setShadowLayer(4f, 0f, 1f, Color.BLACK) }
+        chatPanelHistory = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(8)) }
         chatPanelInput = chatInput()
         val send = { sendChat(chatPanelInput) }
         chatPanelInput.setOnEditorActionListener { _, actionId, _ -> sendOnAction(actionId, send) }
@@ -652,21 +699,55 @@ class RoomActivity : ComponentActivity() {
                 addView(barButton("Close") { closeChat() })
             }
             addView(header)
-            addView(ScrollView(this@RoomActivity).apply { addView(chatPanelHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            addView(LinearLayout(this@RoomActivity).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                addView(chatPanelInput, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-                addView(barButton("Send") { send() })
-            })
+            addView(ScrollView(this@RoomActivity).apply { isVerticalScrollBarEnabled = false; addView(chatPanelHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(composer(chatPanelInput, send))
+        }.also { panel -> padForSystemBars(panel, dp(16), dp(16), dp(16), dp(12)) }
+    }
+
+    /** The message box: a rounded field with an amber Send button beside it. */
+    private fun composer(input: EditText, send: () -> Unit) = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        addView(Button(this@RoomActivity).apply {
+            text = "Send"
+            isAllCaps = false
+            setTypeface(typeface, Typeface.BOLD)
+            setOnClickListener { send() }
+            val focused = intArrayOf(android.R.attr.state_focused)
+            background = StateListDrawable().apply {
+                addState(focused, GradientDrawable().apply { setColor(ACCENT); cornerRadius = dp(22).toFloat(); setStroke(dp(2), Color.WHITE) })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(ACCENT); cornerRadius = dp(22).toFloat() })
+            }
+            setTextColor(Color.BLACK)
+            stateListAnimator = null
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = dp(8) })
+    }
+
+    /**
+     * Keeps a view clear of the status bar, navigation bar, camera cutout and keyboard. Android 15 always
+     * draws apps edge to edge, so the views have to make room themselves.
+     */
+    private fun padForSystemBars(view: View, left: Int, top: Int, right: Int, bottom: Int) {
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime(),
+            )
+            v.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom)
+            insets
         }
     }
 
     // --- phone as a chat screen ---
 
     private fun buildCompanionView(): LinearLayout {
-        companionTitle = text(18f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD); maxLines = 1 }
+        companionTitle = text(18f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD); maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         companionVoice = text(14f, Color.WHITE).apply { visibility = View.GONE }
-        companionHistory = text(16f, Color.WHITE).apply { setLineSpacing(0f, 1.15f) }
+        companionHistory = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(8)) }
         companionVoiceButton = barButton("Join voice") { toggleVoice() }
         companionMuteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
         val input = chatInput()
@@ -682,7 +763,7 @@ class RoomActivity : ComponentActivity() {
                 addView(LinearLayout(this@RoomActivity).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(companionTitle)
-                    addView(text(13f, Color.LTGRAY).apply { text = "Chat only. The video plays on your TV." })
+                    addView(text(13f, Color.LTGRAY).apply { text = "Chat only. The video plays on your TV."; maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
                 }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
                 addView(barButton("Watch here") { exitCompanion() })
             })
@@ -692,13 +773,9 @@ class RoomActivity : ComponentActivity() {
                 addView(companionVoiceButton)
                 addView(companionMuteButton)
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
-            addView(ScrollView(this@RoomActivity).apply { addView(companionHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
-            addView(LinearLayout(this@RoomActivity).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-                addView(barButton("Send") { send() })
-            })
-        }
+            addView(ScrollView(this@RoomActivity).apply { isVerticalScrollBarEnabled = false; addView(companionHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
+            addView(composer(input, send), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
+        }.also { view -> padForSystemBars(view, dp(16), dp(12), dp(16), dp(10)) }
     }
 
     private fun enterCompanion(auto: Boolean) {
@@ -713,8 +790,7 @@ class RoomActivity : ComponentActivity() {
         companionView.visibility = View.VISIBLE
         // A chat screen wants the keyboard and the status bar back, and works best upright.
         WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
-        WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        ViewCompat.requestApplyInsets(companionView)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         renderChat()
         renderVoice()
@@ -731,7 +807,6 @@ class RoomActivity : ComponentActivity() {
         playerView.visibility = View.VISIBLE
         chatOverlay.visibility = View.VISIBLE
         renderVoice()
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         sync.start()
@@ -742,11 +817,18 @@ class RoomActivity : ComponentActivity() {
     // --- chat input helpers ---
 
     private fun chatInput() = EditText(this).apply {
-        hint = "Say something…"
+        hint = "Message"
         setSingleLine()
         imeOptions = EditorInfo.IME_ACTION_SEND
         setTextColor(Color.WHITE)
         setHintTextColor(Color.GRAY)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        val focused = intArrayOf(android.R.attr.state_focused)
+        background = StateListDrawable().apply {
+            addState(focused, GradientDrawable().apply { setColor(BUBBLE_SOLID); cornerRadius = dp(22).toFloat(); setStroke(dp(2), ACCENT) })
+            addState(intArrayOf(), GradientDrawable().apply { setColor(BUBBLE_SOLID); cornerRadius = dp(22).toFloat() })
+        }
+        setPadding(dp(16), dp(10), dp(16), dp(10))
     }
 
     private fun sendChat(input: EditText) {
@@ -848,6 +930,13 @@ class RoomActivity : ComponentActivity() {
         private const val CHAT_PANEL_DP = 320
         /** The app's amber, as on the home screen. */
         private val ACCENT = Color.rgb(0xE5, 0xA0, 0x0D)
+        /** Other people's bubbles: solid on the phone's chat screen, see-through over the movie. */
+        private val BUBBLE_SOLID = Color.rgb(0x22, 0x26, 0x31)
+        private val BUBBLE_SEE_THROUGH = Color.argb(200, 0x22, 0x26, 0x31)
+        private val NAME_COLORS = intArrayOf(
+            Color.rgb(0x7C, 0xC4, 0xFF), Color.rgb(0x8E, 0xE0, 0x9B), Color.rgb(0xF4, 0x8F, 0xB1),
+            Color.rgb(0xB3, 0x9D, 0xFF), Color.rgb(0x6F, 0xE0, 0xD6), Color.rgb(0xFF, 0xB0, 0x7A),
+        )
 
         fun start(context: Context, roomId: String, host: Boolean = true) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))

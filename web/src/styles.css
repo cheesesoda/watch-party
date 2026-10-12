@@ -344,42 +344,69 @@ input:focus {
 .chat.expanded .chat-list {
   pointer-events: auto;
   background: rgba(10, 11, 14, 0.7);
-  border-radius: var(--radius);
-  padding: 8px;
+  border-radius: 16px;
+  padding: 10px;
   max-height: 55vh;
+  gap: 2px;
 }
+/* Pop-ups over the video: compact pills with the sender's name. */
 .chat-msg {
   align-self: flex-start;
-  background: rgba(10, 11, 14, 0.72);
-  border-radius: 8px;
-  padding: 5px 9px;
+  background: rgba(10, 11, 14, 0.78);
+  border-radius: 16px;
+  padding: 6px 12px;
   max-width: 100%;
   overflow-wrap: anywhere;
   transition: opacity 0.5s;
 }
-.chat.expanded .chat-msg {
-  background: transparent;
-  padding: 2px 4px;
-}
 .chat-msg .from {
   font-weight: 650;
-  color: var(--accent);
   margin-right: 6px;
 }
 .chat-msg.mine .from {
-  color: #7cc4ff;
+  color: var(--accent);
 }
 .chat-msg.system {
   color: var(--muted);
   font-size: 13px;
-  font-style: italic;
+}
+/* Open chat: message bubbles, yours on the right in amber, others on the left under their name. */
+.chat.expanded .chat-msg {
+  background: var(--panel-2);
+  border-radius: 18px;
+  padding: 7px 12px;
+  max-width: 80%;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.chat.expanded .chat-msg.run {
+  margin-top: 0;
+}
+.chat.expanded .chat-msg .from {
+  font-size: 12px;
+  margin: 0 0 1px;
+}
+.chat.expanded .chat-msg.mine {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.chat.expanded .chat-msg.system {
+  align-self: center;
+  background: transparent;
+  padding: 2px 4px;
+  max-width: 100%;
+  font-size: 12px;
 }
 .chat form {
   pointer-events: auto;
 }
 .chat input {
-  background: rgba(10, 11, 14, 0.72);
+  background: rgba(10, 11, 14, 0.78);
   border-color: transparent;
+  border-radius: 22px;
+  padding-left: 14px;
 }
 .room.idle .chat:not(.expanded) input,
 .chat.quiet:not(.expanded) input {
