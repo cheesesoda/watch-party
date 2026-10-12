@@ -140,7 +140,7 @@ export function Home(props: {
               {rooms.map((r) => (
                 <li key={r.id}>
                   <button
-                    className="item"
+                    className="item party"
                     onClick={() => navigate(`/room/${r.id}`)}
                   >
                     <span className="title">

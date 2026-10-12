@@ -132,13 +132,13 @@ input:focus {
 /* Home */
 .page-wrap {
   min-height: 100%;
-  padding: 16px;
+  padding: 12px;
 }
 /* A deep purple sheet over the gradient keeps the small grey text readable. */
+/* Full width, like a TV app; the gradient shows as a thin frame around it. */
 .page {
-  max-width: 960px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 24px 32px;
   background: rgba(26, 9, 51, 0.9);
   border-radius: 20px;
 }
@@ -196,7 +196,7 @@ input:focus {
   font-weight: 600;
 }
 
-/* Library: a rail of folders (or shows) beside the list. It's sized by its own width, since it also
+/* Library: one menu rail (All videos, Movies, TV shows) beside the list. It's sized by its own width, since it also
    shows in the narrower Choose a video dialog. */
 .library {
   container-type: inline-size;
@@ -207,8 +207,7 @@ input:focus {
   gap: 20px;
   align-items: start;
 }
-.rail,
-.shows {
+.rail {
   display: grid;
   gap: 4px;
   position: sticky;
@@ -241,24 +240,13 @@ input:focus {
   margin: 6px 0;
   width: 100%;
 }
-.shows .show {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.shows .show .title {
+/* A show card in the TV shows row: orange outline when it's the one showing. */
+.tile.show .title {
   font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
   font-weight: 700;
   font-size: 19px;
 }
-.shows .show .meta {
-  color: var(--muted);
-  font-size: 13px;
-}
-.shows .show.on {
+.tile.show.on {
   background: var(--panel-2);
   border-color: var(--accent);
   color: var(--text);
@@ -267,22 +255,71 @@ input:focus {
   font-size: 16px;
   margin: 0 0 8px;
 }
+.shelf-wrap {
+  position: relative;
+  margin: 0 -3px 12px;
+}
+/* Cards share the row evenly (as many whole ones as fit); the rest are a swipe or an arrow away. */
 .shelf {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 168px;
-  gap: 8px;
+  grid-auto-columns: calc((100% - 5 * 10px) / 6);
+  gap: 10px;
   overflow-x: auto;
-  padding: 3px 3px 10px;
-  margin: 0 -3px 8px;
-  scrollbar-width: thin;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 3px;
+  padding: 3px;
+  scrollbar-width: none;
+}
+.shelf::-webkit-scrollbar {
+  display: none;
+}
+.shelf > * {
+  scroll-snap-align: start;
+}
+@container (min-width: 1500px) {
+  .shelf {
+    grid-auto-columns: calc((100% - 7 * 10px) / 8);
+  }
+}
+@container (max-width: 1000px) {
+  .shelf {
+    grid-auto-columns: calc((100% - 3 * 10px) / 4);
+  }
+}
+@container (max-width: 640px) {
+  .shelf {
+    grid-auto-columns: calc((100% - 10px) / 2.3);
+  }
+}
+.shelf-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 24px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+.shelf-arrow.left {
+  left: -10px;
+}
+.shelf-arrow.right {
+  right: -10px;
 }
 .tile {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 10px;
-  min-height: 92px;
+  min-height: 104px;
   text-align: left;
   background: var(--panel);
   border-radius: 12px;
@@ -320,8 +357,7 @@ input:focus {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
-  .rail,
-  .shows {
+  .rail {
     position: static;
     display: flex;
     overflow-x: auto;
@@ -332,10 +368,6 @@ input:focus {
   }
   .rail hr {
     display: none;
-  }
-  .shows .show {
-    flex: none;
-    min-width: 170px;
   }
 }
 .folder {
@@ -354,6 +386,29 @@ input:focus {
 .rooms li {
   display: flex;
   gap: 6px;
+}
+/* A movie with extras: a toggle beside it, and the extras listed underneath, indented. */
+.items li.with-extras {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.extras-toggle {
+  padding-inline: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.extras-toggle[aria-expanded="true"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.items.extras {
+  grid-column: 1 / -1;
+  padding-left: 24px;
+}
+.items.extras .item {
+  background: var(--panel-2);
 }
 .rooms li .end {
   flex: none;
@@ -388,6 +443,31 @@ input:focus {
   align-items: center;
   gap: 10px;
   margin-top: 6px;
+}
+/* A running party: its progress sits in a middle column between the party details and Join. */
+.item.party {
+  grid-template-columns: 1fr minmax(180px, 380px) auto;
+  grid-template-areas: "title progress action" "meta progress action";
+}
+.item.party .progress {
+  grid-area: progress;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 0;
+}
+.item.party .progress-bar {
+  flex: none;
+}
+@media (max-width: 640px) {
+  .item.party {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "title action" "meta action" "progress progress";
+  }
+  .item.party .progress {
+    margin-top: 6px;
+  }
 }
 .progress-bar {
   flex: 1;

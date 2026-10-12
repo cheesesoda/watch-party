@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
 
@@ -35,10 +35,7 @@ interface Show {
   addedAt: number;
 }
 
-/** "Movies/Action/Alien.mkv" -> "Movies"; files at the root have no folder. */
-const topFolder = (item: MediaItem) => item.folder.split("/")[0];
-
-/** The library: folders, sorting and a Recently added row for films, and shows grouped into seasons. */
+/** The library: one menu (All videos, Movies, TV shows), sorting, a Recently added row, and shows grouped into seasons. */
 export function Library(props: { onPick: (item: MediaItem) => void; actionLabel: string }) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [convert, setConvert] = useState(true);
@@ -46,10 +43,10 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("all");
   const [sort, setSort] = useState<Sort>("az");
-  const [folder, setFolder] = useState<string | null>(null);
   const [subsOnly, setSubsOnly] = useState(false);
   const [showName, setShowName] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
+  const [openExtras, setOpenExtras] = useState<string | null>(null);
 
   const load = (rescan = false) => {
     setError(null);
@@ -65,6 +62,20 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
 
   const q = query.trim().toLowerCase();
   const matches = (i: MediaItem) => !q || i.title.toLowerCase().includes(q) || i.relPath.toLowerCase().includes(q);
+
+  // Extras (behind the scenes, trailers…) that belong to a movie or show are listed under it, not on their own.
+  const owned = (i: MediaItem) => !!(i.extra && (i.extra.of || i.extra.show));
+  const { movieExtras, showExtras, byId } = useMemo(() => {
+    const movieExtras = new Map<string, MediaItem[]>();
+    const showExtras = new Map<string, MediaItem[]>();
+    for (const i of items ?? []) {
+      const key = i.extra?.of ?? i.extra?.show;
+      if (!key) continue;
+      const map = i.extra!.of ? movieExtras : showExtras;
+      map.set(key, [...(map.get(key) ?? []), i].sort((a, b) => byName(a.title, b.title)));
+    }
+    return { movieExtras, showExtras, byId: new Map((items ?? []).map((i) => [i.id, i])) };
+  }, [items]);
 
   const shows = useMemo(() => {
     const map = new Map<string, Show>();
@@ -83,16 +94,11 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
     return [...map.values()].sort((a, b) => byName(a.name, b.name));
   }, [items]);
 
-  const folders = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of items ?? []) counts.set(topFolder(item), (counts.get(topFolder(item)) ?? 0) + 1);
-    return [...counts.entries()].filter(([name]) => name).sort((a, b) => byName(a[0], b[0]));
-  }, [items]);
-
-  // Films and anything else that isn't an episode, plus one row per show in the Everything view.
+  // Movies (anything that isn't an episode), plus one row per show under All videos.
   const rows = useMemo(() => {
     const list = (items ?? []).filter(
-      (i) => (view === "all" || !i.episode) && (!folder || topFolder(i) === folder) && (!subsOnly || i.subtitles.length > 0) && matches(i),
+      // While searching, matching extras show up on their own too, labeled with what they belong to.
+      (i) => (view === "all" || (!i.episode && !i.extra?.show)) && (q || !owned(i)) && (!subsOnly || i.subtitles.length > 0) && matches(i),
     );
     const singles = list.filter((i) => !i.episode);
     const showRows = view === "all" ? shows.filter((s) => s.episodes.some((e) => list.includes(e))) : [];
@@ -109,20 +115,21 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
       size: (a, b) => size(b) - size(a),
     };
     return all.sort(cmp[sort]);
-  }, [items, shows, view, folder, subsOnly, sort, q]);
+  }, [items, shows, view, subsOnly, sort, q]);
 
   const recent = useMemo(
     () =>
       (items ?? [])
-        .filter((i) => !i.episode && (!folder || topFolder(i) === folder))
+        .filter((i) => !i.episode && !i.extra)
         .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
-        .slice(0, 8),
-    [items, folder],
+        .slice(0, 12),
+    [items],
   );
 
   const visibleShows = shows.filter((s) => !q || s.name.toLowerCase().includes(q) || s.episodes.some(matches));
   const show = visibleShows.find((s) => s.name === showName) ?? visibleShows[0];
-  const shownSeason = show && season !== null && show.seasons.includes(season) ? season : show?.seasons[0];
+  const shownSeason =
+    show && season !== null && (show.seasons.includes(season) || (season === EXTRAS && showExtras.has(show.name))) ? season : show?.seasons[0];
 
   const openShow = (name: string) => {
     setView("shows");
@@ -132,6 +139,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
 
   const meta = (item: MediaItem) => (
     <>
+      {item.extra && `${item.extra.kind}${q && (item.extra.of || item.extra.show) ? ` · ${byId.get(item.extra.of ?? "")?.title ?? item.extra.show}` : ""} · `}
       {item.duration ? fmtLength(item.duration) : fmtSize(item.size)}
       {item.subtitles.length > 0 && " · CC"}
       {/* With ffmpeg the server converts whatever browsers can't play, so there's nothing to warn about. */}
@@ -144,147 +152,207 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
     </>
   );
 
+  const listed = (items ?? []).filter((i) => !owned(i));
+  const movieCount = listed.filter((i) => !i.episode).length;
+  const menu: [View, string, number][] = [
+    ["all", "All videos", listed.length],
+    ["movies", "Movies", movieCount],
+    ...(shows.length > 0 ? [["shows", "TV shows", shows.length] as [View, string, number]] : []),
+  ];
+
+  const extraRow = (e: MediaItem) => (
+    <li key={e.id}>
+      <button className="item" onClick={() => props.onPick(e)}>
+        <span className="title">{e.title}</span>
+        <span className="meta">{meta(e)}</span>
+        <span className="action">{props.actionLabel}</span>
+      </button>
+    </li>
+  );
+
+  const episodeRow = (e: MediaItem) => (
+    <li key={e.id}>
+      <button className="item episode" onClick={() => props.onPick(e)}>
+        <span className="num">E{e.episode!.episode}</span>
+        <span className="title">{e.episode!.title ?? `Episode ${e.episode!.episode}`}</span>
+        <span className="meta">{meta(e)}</span>
+        <span className="action">{props.actionLabel}</span>
+      </button>
+    </li>
+  );
+
   return (
     <div className="library">
       <div className="library-bar">
-        {shows.length > 0 && (
-          <div className="chips" role="tablist">
-            {(
-              [
-                ["all", "Everything"],
-                ["movies", "Movies"],
-                ["shows", "TV shows"],
-              ] as [View, string][]
-            ).map(([v, label]) => (
-              <button key={v} role="tab" aria-selected={view === v} className={view === v ? "chip on" : "chip"} onClick={() => setView(v)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-        <input type="search" placeholder={`Search ${items?.length ?? ""} videos`.replace("  ", " ")} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input type="search" placeholder={items ? `Search ${listed.length} videos` : "Search"} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button onClick={() => load(true)}>Rescan</button>
       </div>
       {error && <p className="error">{error}</p>}
       {!items && !error && <p className="muted">Loading library…</p>}
       {items?.length === 0 && <p className="muted">No videos found. Put files in the server's media folder and press Rescan.</p>}
 
-      {items && items.length > 0 && view !== "shows" && (
+      {items && items.length > 0 && (
         <div className="browse">
           <nav className="rail">
-            <button className={folder === null ? "on" : ""} onClick={() => setFolder(null)}>
-              All videos <b>{items.length}</b>
-            </button>
-            {folders.length > 1 &&
-              folders.map(([name, count]) => (
-                <button key={name} className={folder === name ? "on" : ""} onClick={() => setFolder(name)}>
-                  {name} <b>{count}</b>
-                </button>
-              ))}
-            <hr />
-            <button className={subsOnly ? "on" : ""} aria-pressed={subsOnly} onClick={() => setSubsOnly(!subsOnly)}>
-              Has subtitles <b>{items.filter((i) => i.subtitles.length > 0).length}</b>
-            </button>
-          </nav>
-          <div className="browse-main">
-            {!q && sort !== "recent" && recent.length > 2 && (
-              <section>
-                <h3 className="shelf-title">Recently added</h3>
-                <div className="shelf">
-                  {recent.map((item) => (
-                    <button key={item.id} className="tile" onClick={() => props.onPick(item)}>
-                      <span className="title">{item.title}</span>
-                      <span className="meta">
-                        {item.year ? `${item.year} · ` : ""}
-                        {meta(item)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
-            <div className="sortbar">
-              <span className="muted">Sort</span>
-              {SORTS.map(([s, label]) => (
-                <button key={s} className={sort === s ? "chip on" : "chip"} aria-pressed={sort === s} onClick={() => setSort(s)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {rows.length === 0 && <p className="muted">No videos match.</p>}
-            <ul className="items">
-              {rows.map((r) =>
-                r.kind === "item" ? (
-                  <li key={r.item.id}>
-                    <button className="item" onClick={() => props.onPick(r.item)}>
-                      <span className="title">
-                        {r.item.title}
-                        {r.item.year && <span className="year"> {r.item.year}</span>}
-                      </span>
-                      <span className="meta">{meta(r.item)}</span>
-                      <span className="action">{props.actionLabel}</span>
-                    </button>
-                  </li>
-                ) : (
-                  <li key={"show-" + r.show.name}>
-                    <button className="item" onClick={() => openShow(r.show.name)}>
-                      <span className="title">{r.show.name}</span>
-                      <span className="meta">
-                        TV show · {r.show.seasons.length} {r.show.seasons.length === 1 ? "season" : "seasons"} · {r.show.episodes.length}{" "}
-                        {r.show.episodes.length === 1 ? "episode" : "episodes"}
-                      </span>
-                      <span className="action">Episodes</span>
-                    </button>
-                  </li>
-                ),
-              )}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {items && view === "shows" && (
-        <div className="browse">
-          <nav className="shows">
-            {visibleShows.length === 0 && <p className="muted">No shows match.</p>}
-            {visibleShows.map((s) => (
-              <button key={s.name} className={s === show ? "show on" : "show"} onClick={() => openShow(s.name)}>
-                <span className="title">{s.name}</span>
-                <span className="meta">
-                  {s.seasons.length} {s.seasons.length === 1 ? "season" : "seasons"} · {s.episodes.length} {s.episodes.length === 1 ? "episode" : "episodes"}
-                </span>
+            {menu.map(([v, label, count]) => (
+              <button key={v} className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => setView(v)}>
+                {label} <b>{count}</b>
               </button>
             ))}
+            {view !== "shows" && (
+              <>
+                <hr />
+                <button className={subsOnly ? "on" : ""} aria-pressed={subsOnly} onClick={() => setSubsOnly(!subsOnly)}>
+                  Has subtitles <b>{listed.filter((i) => i.subtitles.length > 0 && (view === "all" || !i.episode)).length}</b>
+                </button>
+              </>
+            )}
           </nav>
-          {show && (
+
+          {view !== "shows" ? (
             <div className="browse-main">
-              <h3 className="shelf-title">{show.name}</h3>
-              {show.seasons.length > 1 && (
-                <div className="sortbar">
-                  {show.seasons.map((n) => (
-                    <button key={n} className={n === shownSeason ? "chip on" : "chip"} aria-pressed={n === shownSeason} onClick={() => setSeason(n)}>
-                      Season {n}
-                    </button>
-                  ))}
-                </div>
+              {!q && sort !== "recent" && recent.length > 2 && (
+                <section>
+                  <h3 className="shelf-title">Recently added</h3>
+                  <Shelf>
+                    {recent.map((item) => (
+                      <button key={item.id} className="tile" onClick={() => props.onPick(item)}>
+                        <span className="title">{item.title}</span>
+                        <span className="meta">
+                          {item.year ? `${item.year} · ` : ""}
+                          {meta(item)}
+                        </span>
+                      </button>
+                    ))}
+                  </Shelf>
+                </section>
               )}
+              <div className="sortbar">
+                <span className="muted">Sort</span>
+                {SORTS.map(([s, label]) => (
+                  <button key={s} className={sort === s ? "chip on" : "chip"} aria-pressed={sort === s} onClick={() => setSort(s)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {rows.length === 0 && <p className="muted">No videos match.</p>}
               <ul className="items">
-                {show.episodes
-                  .filter((e) => e.episode!.season === shownSeason)
-                  .map((e) => (
-                    <li key={e.id}>
-                      <button className="item episode" onClick={() => props.onPick(e)}>
-                        <span className="num">E{e.episode!.episode}</span>
-                        <span className="title">{e.episode!.title ?? `Episode ${e.episode!.episode}`}</span>
-                        <span className="meta">{meta(e)}</span>
+                {rows.map((r) =>
+                  r.kind === "item" ? (
+                    <li key={r.item.id} className={!q && movieExtras.has(r.item.id) ? "with-extras" : undefined}>
+                      <button className="item" onClick={() => props.onPick(r.item)}>
+                        <span className="title">
+                          {r.item.title}
+                          {r.item.year && <span className="year"> {r.item.year}</span>}
+                        </span>
+                        <span className="meta">{meta(r.item)}</span>
                         <span className="action">{props.actionLabel}</span>
                       </button>
+                      {!q && movieExtras.has(r.item.id) && (
+                        <button
+                          className="extras-toggle"
+                          aria-expanded={openExtras === r.item.id}
+                          onClick={() => setOpenExtras(openExtras === r.item.id ? null : r.item.id)}
+                        >
+                          {plural(movieExtras.get(r.item.id)!.length, "extra")}
+                        </button>
+                      )}
+                      {!q && openExtras === r.item.id && <ul className="items extras">{movieExtras.get(r.item.id)!.map(extraRow)}</ul>}
                     </li>
-                  ))}
+                  ) : (
+                    <li key={"show-" + r.show.name}>
+                      <button className="item" onClick={() => openShow(r.show.name)}>
+                        <span className="title">{r.show.name}</span>
+                        <span className="meta">
+                          TV show · {plural(r.show.seasons.length, "season")} · {plural(r.show.episodes.length, "episode")}
+                          {showExtras.has(r.show.name) && ` · ${plural(showExtras.get(r.show.name)!.length, "extra")}`}
+                        </span>
+                        <span className="action">Episodes</span>
+                      </button>
+                    </li>
+                  ),
+                )}
               </ul>
+            </div>
+          ) : (
+            <div className="browse-main">
+              {visibleShows.length === 0 && <p className="muted">No shows match.</p>}
+              <Shelf>
+                {visibleShows.map((s) => (
+                  <button key={s.name} className={s === show ? "tile show on" : "tile show"} aria-pressed={s === show} onClick={() => openShow(s.name)}>
+                    <span className="title">{s.name}</span>
+                    <span className="meta">
+                      {plural(s.seasons.length, "season")} · {plural(s.episodes.length, "episode")}
+                    </span>
+                  </button>
+                ))}
+              </Shelf>
+              {show && (
+                <>
+                  <h3 className="shelf-title">{show.name}</h3>
+                  {(show.seasons.length > 1 || showExtras.has(show.name)) && (
+                    <div className="sortbar">
+                      {show.seasons.map((n) => (
+                        <button key={n} className={n === shownSeason ? "chip on" : "chip"} aria-pressed={n === shownSeason} onClick={() => setSeason(n)}>
+                          Season {n}
+                        </button>
+                      ))}
+                      {showExtras.has(show.name) && (
+                        <button className={shownSeason === EXTRAS ? "chip on" : "chip"} aria-pressed={shownSeason === EXTRAS} onClick={() => setSeason(EXTRAS)}>
+                          Extras
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <ul className="items">
+                    {shownSeason === EXTRAS
+                      ? showExtras.get(show.name)!.map(extraRow)
+                      : show.episodes.filter((e) => e.episode!.season === shownSeason).map(episodeRow)}
+                  </ul>
+                </>
+              )}
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** The Extras tab next to a show's seasons. */
+const EXTRAS = -1;
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** A row of cards with no scrollbar: arrow buttons page through it when it doesn't all fit. Swiping still works. */
+function Shelf(props: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const update = () => {
+    const el = ref.current;
+    if (el) setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  };
+  useEffect(() => {
+    update();
+    const observer = new ResizeObserver(update);
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  const page = (direction: number) => ref.current?.scrollBy({ left: direction * ref.current.clientWidth * 0.9, behavior: "smooth" });
+  return (
+    <div className="shelf-wrap">
+      <div className="shelf" ref={ref} onScroll={update}>
+        {props.children}
+      </div>
+      {edges.left && (
+        <button className="shelf-arrow left" onClick={() => page(-1)} aria-label="Previous">
+          ‹
+        </button>
+      )}
+      {edges.right && (
+        <button className="shelf-arrow right" onClick={() => page(1)} aria-label="More">
+          ›
+        </button>
       )}
     </div>
   );

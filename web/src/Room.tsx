@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MediaInfo } from "../../shared/protocol.ts";
 import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
-import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon } from "./Icons.tsx";
+import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
@@ -310,9 +310,20 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           </span>
         </div>
         <span className="spacer" />
-        {props.host && <button onClick={() => setPicking(true)}>Change video</button>}
-        <button className={voiceStatus === "off" ? "" : "on"} onClick={toggleVoice} disabled={voiceStatus === "starting" || view.status !== "open"}>
-          {voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining…" : "Leave voice"}
+        {props.host && (
+          <button className="icon" onClick={() => setPicking(true)} title="Change video" aria-label="Change video">
+            <ListVideoIcon />
+          </button>
+        )}
+        <button
+          className={voiceStatus === "off" ? "icon" : "icon on"}
+          onClick={toggleVoice}
+          disabled={voiceStatus === "starting" || view.status !== "open"}
+          title={voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining voice…" : "Leave voice"}
+          aria-label={voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining voice" : "Leave voice"}
+          aria-pressed={voiceStatus === "on"}
+        >
+          <HeadphonesIcon />
         </button>
         {voiceStatus === "on" && hasMic && (
           <button className="icon" onClick={toggleMute} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}>

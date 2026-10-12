@@ -26,6 +26,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -650,10 +651,10 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     var query by remember { mutableStateOf("") }
     var view by remember { mutableStateOf(LibraryView.All) }
     var sort by remember { mutableStateOf(LibrarySort.AZ) }
-    var folder by remember { mutableStateOf<String?>(null) }
     var subsOnly by remember { mutableStateOf(false) }
     var showName by remember { mutableStateOf<String?>(null) }
     var season by remember { mutableStateOf<Int?>(null) }
+    var openExtras by remember { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -783,7 +784,9 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                         subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
                         action = "Join",
                         onClick = { RoomActivity.start(context, room.id) },
-                        progress = room.playback?.let { { PartyProgress(it, (now - fetchedAt).coerceAtLeast(0)) } },
+                        progress = if (room.playback == null) null else { inline ->
+                            PartyProgress(room.playback, (now - fetchedAt).coerceAtLeast(0), inline)
+                        },
                     )
                 }
                 OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End") }
@@ -828,8 +831,11 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             }
             Unit
         }
+        val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
         val mediaMeta = { media: MediaItem ->
-            (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
+            (media.extra?.let { x ->
+                x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
+            } ?: "") + (media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
         }
         if (lib == null) {
             item { Text("Loading library…", color = Muted) }
@@ -837,21 +843,21 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             item { Text("No videos found.", color = Muted) }
         } else {
             val allShows = shows(lib)
-            if (allShows.isNotEmpty()) {
-                item(key = "views") {
-                    ChipRow { LibraryView.entries.forEach { v -> Chip(v.label, view == v) { view = v } } }
+            // One menu: All videos, Movies and TV shows (when there are any), plus the subtitles filter.
+            val counts = mapOf(
+                LibraryView.All to lib.count { !it.ownedExtra },
+                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra },
+                LibraryView.Shows to allShows.size,
+            )
+            item(key = "views") {
+                ChipRow {
+                    LibraryView.entries.filter { it != LibraryView.Shows || allShows.isNotEmpty() }
+                        .forEach { v -> Chip("${v.label} · ${counts[v]}", view == v) { view = v } }
+                    if (view != LibraryView.Shows) Chip("Has subtitles", subsOnly) { subsOnly = !subsOnly }
                 }
             }
             if (view != LibraryView.Shows) {
-                val folders = lib.groupBy { topFolder(it) }.filterKeys { it.isNotEmpty() }.toSortedMap { a, b -> naturalCompare(a, b) }
-                item(key = "folders") {
-                    ChipRow {
-                        Chip("All videos · ${lib.size}", folder == null) { folder = null }
-                        if (folders.size > 1) folders.forEach { (name, list) -> Chip("$name · ${list.size}", folder == name) { folder = name } }
-                        Chip("Has subtitles", subsOnly) { subsOnly = !subsOnly }
-                    }
-                }
-                val recent = recentlyAdded(lib, folder)
+                val recent = recentlyAdded(lib, null)
                 if (query.isBlank() && sort != LibrarySort.Recent && recent.size > 2) {
                     item(key = "recent-title") { SectionTitle("Recently added", small = true) }
                     item(key = "recent") {
@@ -869,19 +875,39 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 item(key = "sort") {
                     ChipRow(label = "Sort") { LibrarySort.entries.forEach { s -> Chip(s.label, sort == s) { sort = s } } }
                 }
-                val rows = libraryRows(lib, view, folder, subsOnly, query, sort)
+                val rows = libraryRows(lib, view, null, subsOnly, query, sort)
                 if (rows.isEmpty()) item { Text("No videos match.", color = Muted) }
                 items(rows, key = { if (it is LibraryRow.Video) "media-" + it.item.id else "show-" + (it as LibraryRow.ShowRow).show.name }) { row ->
                     when (row) {
-                        is LibraryRow.Video -> FocusRow(
-                            title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
-                            subtitle = mediaMeta(row.item),
-                            action = "Start party",
-                            onClick = { startParty(row.item) },
-                        )
+                        is LibraryRow.Video -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val own = extras[row.item.id].takeIf { query.isBlank() }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(Modifier.weight(1f)) {
+                                    FocusRow(
+                                        title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
+                                        subtitle = mediaMeta(row.item),
+                                        action = "Start party",
+                                        onClick = { startParty(row.item) },
+                                    )
+                                }
+                                if (own != null) {
+                                    OutlinedButton(
+                                        onClick = { openExtras = if (openExtras == row.item.id) null else row.item.id },
+                                        modifier = Modifier.focusRing(),
+                                    ) { Text(plural(own.size, "extra")) }
+                                }
+                            }
+                            if (own != null && openExtras == row.item.id) {
+                                own.forEach { x ->
+                                    Box(Modifier.padding(start = 24.dp)) {
+                                        FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                                    }
+                                }
+                            }
+                        }
                         is LibraryRow.ShowRow -> FocusRow(
                             title = row.show.name,
-                            subtitle = "TV show · " + row.show.summary,
+                            subtitle = "TV show · " + row.show.summary + (extras[row.show.name]?.let { " · " + plural(it.size, "extra") } ?: ""),
                             action = "Episodes",
                             onClick = {
                                 view = LibraryView.Shows
@@ -906,10 +932,22 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                     }
                 }
                 if (show != null) {
-                    val shownSeason = season?.takeIf { it in show.seasons } ?: show.seasons.first()
+                    // -1 is the Extras chip after the seasons.
+                    val showExtras = extras[show.name]
+                    val shownSeason = season?.takeIf { it in show.seasons || (it == -1 && showExtras != null) } ?: show.seasons.first()
                     item(key = "show-title") { SectionTitle(show.name, small = true) }
-                    if (show.seasons.size > 1) {
-                        item(key = "seasons") { ChipRow { show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } } } }
+                    if (show.seasons.size > 1 || showExtras != null) {
+                        item(key = "seasons") {
+                            ChipRow {
+                                show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } }
+                                if (showExtras != null) Chip("Extras", shownSeason == -1) { season = -1 }
+                            }
+                        }
+                    }
+                    if (shownSeason == -1 && showExtras != null) {
+                        items(showExtras, key = { "extra-" + it.id }) { x ->
+                            FocusRow(title = x.title, subtitle = mediaMeta(x), action = "Start party", onClick = { startParty(x) })
+                        }
                     }
                     items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
                         val ep = media.episode!!
@@ -1014,11 +1052,15 @@ private fun FocusRow(
     subtitle: String,
     action: String,
     onClick: () -> Unit,
-    progress: (@Composable () -> Unit)? = null,
+    // Called with true when it sits in its own middle column (wide screens), false when it goes under the subtitle.
+    progress: (@Composable (inline: Boolean) -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(10.dp)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val width = maxWidth
+    val wide = width >= 560.dp
     Row(
         Modifier
             .fillMaxWidth()
@@ -1032,10 +1074,15 @@ private fun FocusRow(
         Column(Modifier.weight(1f)) {
             Text(title, color = Color.White, fontWeight = FontWeight.Medium)
             Text(subtitle, color = Muted, fontSize = 13.sp)
-            progress?.invoke()
+            if (!wide) progress?.invoke(false)
+        }
+        if (wide && progress != null) {
+            Spacer(Modifier.width(16.dp))
+            Box(Modifier.width((width * 0.32f).coerceAtMost(360.dp))) { progress(true) }
         }
         Spacer(Modifier.width(12.dp))
         Text(action, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
     }
 }
 
@@ -1056,12 +1103,12 @@ private fun Modifier.focusRing(): Modifier = composed {
 
 /** How far along a running party is: a bar when the length is known, and the time with Playing or Paused. */
 @Composable
-private fun PartyProgress(playback: RoomPlayback, sinceFetchMs: Long) {
+private fun PartyProgress(playback: RoomPlayback, sinceFetchMs: Long, inline: Boolean = false) {
     val duration = playback.duration
     var position = playback.position + if (playback.paused) 0.0 else sinceFetchMs / 1000.0
     if (duration != null) position = position.coerceAtMost(duration)
     val color = if (playback.paused) Muted else Accent
-    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.padding(top = if (inline) 0.dp else 8.dp), verticalArrangement = Arrangement.spacedBy(if (inline) 6.dp else 4.dp)) {
         if (duration != null && duration > 0) {
             Box(
                 Modifier

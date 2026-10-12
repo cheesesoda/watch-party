@@ -31,10 +31,15 @@ data class MediaItem(
     val duration: Double? = null,
     /** Set when the file name looks like a TV episode. */
     val episode: EpisodeInfo? = null,
+    /** Set for bonus material (behind the scenes, trailers…), with the movie id or show name it belongs to. */
+    val extra: ExtraInfo? = null,
 )
 
 @Serializable
 data class EpisodeInfo(val show: String, val season: Int, val episode: Int, val title: String? = null)
+
+@Serializable
+data class ExtraInfo(val kind: String, val of: String? = null, val show: String? = null)
 
 /** What ffprobe found in a file. Mirrors MediaInfo in shared/protocol.ts. */
 @Serializable
