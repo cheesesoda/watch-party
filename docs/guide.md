@@ -218,7 +218,7 @@ The app opens on **Join a party** and **Start a party**.
 
 The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
 
-On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video** for the host, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
+On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video** for the host, **Join voice**, **Settings**, **Leave**; on a phone the buttons are icons, and a long press shows their names); the remote's Menu button also opens chat. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
 
 ## Chat, voice and phone chat mode
 
