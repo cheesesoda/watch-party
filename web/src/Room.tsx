@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { streamUrl, subtitleUrl } from "./api.ts";
+import type { MediaInfo } from "../../shared/protocol.ts";
+import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
+import { canPlayDirect, nativeHls } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
@@ -24,6 +26,10 @@ export function Room(props: { roomId: string; name: string }) {
   const [speaking, setSpeaking] = useState<Set<string>>(new Set());
   const [broken, setBroken] = useState<Set<string>>(new Set());
   const [info, setInfo] = useState<string | null>(null);
+  /** What the server found in the current file; null if it couldn't tell, undefined while asking. */
+  const [mediaInfo, setMediaInfo] = useState<MediaInfo | null | undefined>(undefined);
+  /** Playing the server's converted copy instead of the original file. */
+  const [converted, setConverted] = useState(false);
 
   const { view, send } = useRoom(props.roomId, props.name, {
     onState: (s) => syncRef.current?.setState(s),
@@ -97,6 +103,85 @@ export function Room(props: { roomId: string; name: string }) {
     setMuted(!muted);
   };
 
+  const mediaId = view.media?.id;
+
+  // Find out what is in the file, and convert it up front if this browser can't play it.
+  useEffect(() => {
+    setMediaInfo(undefined);
+    setConverted(false);
+    if (!mediaId) return;
+    let cancelled = false;
+    api
+      .info(mediaId)
+      .catch(() => null)
+      .then((i) => {
+        if (cancelled) return;
+        setMediaInfo(i);
+        setConverted(Boolean(i?.convert && !canPlayDirect(i)));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId]);
+
+  // Point the video at the original file or the converted stream.
+  useEffect(() => {
+    const video = videoRef.current!;
+    if (!mediaId || mediaInfo === undefined) return;
+    let destroy = () => {};
+    let cancelled = false;
+    if (!converted) {
+      video.src = streamUrl(mediaId);
+    } else if (nativeHls(video)) {
+      video.src = hlsUrl(mediaId);
+    } else {
+      void import("hls.js").then(({ default: Hls }) => {
+        if (cancelled) return;
+        // The server may need several seconds to start converting from a new spot, so wait for it.
+        const wait = { maxTimeToFirstByteMs: 45_000, maxLoadTimeMs: 120_000, timeoutRetry: null, errorRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000 } };
+        const hls = new Hls({ startPosition: syncRef.current?.expected() ?? 0, fragLoadPolicy: { default: wait } });
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) setInfo(`The converted stream failed: ${data.details}. Check the server's console.`);
+        });
+        hls.loadSource(hlsUrl(mediaId));
+        hls.attachMedia(video);
+        destroy = () => hls.destroy();
+      });
+    }
+    return () => {
+      cancelled = true;
+      destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [mediaId, mediaInfo, converted]);
+
+  // If the original won't play after all (an error, or sound with no picture), switch to converting.
+  useEffect(() => {
+    const video = videoRef.current!;
+    if (converted || !mediaInfo) return;
+    const fallBack = () => {
+      if (mediaInfo.convert) {
+        setConverted(true);
+        setInfo("This browser can't play the original file, so the server is converting it.");
+      } else {
+        setInfo("This browser can't play this file. Install ffmpeg on the server so it can convert it, or use the Android app.");
+      }
+    };
+    const onError = () => {
+      if (video.getAttribute("src")) fallBack();
+    };
+    const onLoaded = () => {
+      if (mediaInfo.video && video.videoWidth === 0) fallBack();
+    };
+    video.addEventListener("error", onError);
+    video.addEventListener("loadeddata", onLoaded);
+    return () => {
+      video.removeEventListener("error", onError);
+      video.removeEventListener("loadeddata", onLoaded);
+    };
+  }, [mediaInfo, converted]);
+
   // Re-apply the room state once the new source has loaded.
   useEffect(() => {
     if (view.state) syncRef.current?.setState(view.state);
@@ -157,7 +242,6 @@ export function Room(props: { roomId: string; name: string }) {
       <video
         ref={videoRef}
         className={media ? "" : "hidden"}
-        src={media ? streamUrl(media.id) : undefined}
         controls
         controlsList="nofullscreen"
         playsInline
@@ -182,6 +266,15 @@ export function Room(props: { roomId: string; name: string }) {
         <span className="spacer" />
         <button onClick={invite}>{copied ? "Link copied" : "Invite"}</button>
         <button onClick={() => setPicking(true)}>Change video</button>
+        {mediaInfo?.convert && (
+          <button
+            className={converted ? "on" : ""}
+            onClick={() => setConverted(!converted)}
+            title="Play a copy the server converts for browsers. Use it when the picture or sound is missing."
+          >
+            Convert
+          </button>
+        )}
         <button className={voiceStatus === "off" ? "" : "on"} onClick={toggleVoice} disabled={voiceStatus === "starting" || view.status !== "open"}>
           {voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining…" : "Leave voice"}
         </button>

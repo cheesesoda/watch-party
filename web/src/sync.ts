@@ -75,6 +75,11 @@ export class VideoSync {
     this.reconcile();
   }
 
+  /** Where the room's playback is right now. */
+  expected(): number {
+    return this.target();
+  }
+
   private target(): number {
     return this.state ? expectedPosition(this.state, this.serverNow()) : 0;
   }

@@ -10,6 +10,8 @@ COPY web web
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
+# Converts files browsers can't play. CPU only: the image has no GPU drivers.
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 MEDIA_DIR=/media
 COPY --from=build /app/package.json ./

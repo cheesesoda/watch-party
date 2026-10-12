@@ -107,14 +107,19 @@ The APK is signed with a debug key for easy sideloading. Use your own signing ke
 
 ## Video formats
 
-There's no transcoding yet, so files play as-is:
+Files play as-is when they can. When a browser can't play a file (HEVC/H.265, AC3/DTS audio, some MKVs),
+the server converts it on the fly if FFmpeg is installed:
 
-- **Works everywhere:** MP4 with H.264 video and AAC audio, and WebM.
-- **Android app only (usually):** MKV, and HEVC/H.265 on devices with a hardware decoder. Browsers mostly
-  can't play these, and the library marks them "may not play in browser". AC3/DTS audio depends on the
-  device or what it's plugged into.
-
-To convert a file for the browser: `ffmpeg -i in.mkv -c:v libx264 -crf 20 -c:a aac -movflags +faststart out.mp4`.
+- The server reads each file's codecs with `ffprobe`; the browser compares them with what it can decode
+  and asks for the converted copy if needed. It also switches if the original errors or plays without a
+  picture. A **Convert** button toggles it by hand.
+- The converted copy is HLS: 4-second H.264 pieces (1080p at most) with stereo AAC, made by `ffmpeg`
+  as they're requested. Seeking far ahead restarts ffmpeg at that spot. Every piece keeps its place on the
+  movie's timeline, so pieces from different runs fit together and everyone in the party shares one copy.
+- `TRANSCODE_ENCODER=auto` uses NVENC on an NVIDIA GPU and falls back to `libx264` on the CPU. The Docker
+  image includes ffmpeg but no GPU support, so it uses the CPU.
+- The Android app always plays the original file; ExoPlayer handles MKV and, with a hardware decoder, HEVC.
+  AC3/DTS audio on Android still depends on the device.
 
 Subtitles: put `.srt` or `.vtt` files next to the video with the same name (`Movie.mp4` + `Movie.srt`,
 or `Movie.en.srt` for a language tag). They're converted to WebVTT on the fly.

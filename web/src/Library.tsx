@@ -53,7 +53,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
                     {fmtSize(item.size)}
                     {item.subtitles.length > 0 && " · CC"}
                     {!BROWSER_SAFE.has(item.mime) && (
-                      <span className="warn" title="Browsers may not play this format. The Android app usually can.">
+                      <span className="warn" title="Browsers may not play this format as-is. The server converts it when ffmpeg is installed, and the Android app usually plays it directly.">
                         {" "}
                         · may not play in browser
                       </span>
