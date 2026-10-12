@@ -62,7 +62,7 @@ test("episodes without a title in the file name get TMDB's episode name", async 
   const got = meta.enrich(ep);
   assert.equal(got.title, "Game of Thrones S1 E1 · Winter Is Coming");
   assert.equal(got.episode?.title, "Winter Is Coming");
-  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones" });
+  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…" });
 
   // A title from the file name is kept.
   const named = item({ title: "Game of Thrones S1 E1 · Pilot", episode: { show: "Game of Thrones", season: 1, episode: 1, title: "Pilot" } });
@@ -115,4 +115,49 @@ test("when TMDB can't be reached, lookups pause instead of each failing", async 
   movies.forEach((m) => meta.enrich(m));
   await meta.idle();
   assert.equal(calls, 2);
+});
+
+test("Fix match ties a movie or a whole show to the TMDB id the host picked", async () => {
+  const tmdb = fakeTmdb({
+    "/3/search/movie": { results: [{ id: 1, title: "Wrong", release_date: "1990-01-01" }, { id: 2, title: "Right", release_date: "2001-01-01" }] },
+    "/3/movie/2": { id: 2, title: "Right", release_date: "2001-01-01", overview: "The one.", poster_path: "/r.jpg" },
+    "/3/search/tv": { results: [{ id: 10, name: "Office (UK)", first_air_date: "2001-07-09" }] },
+    "/3/tv/20": { id: 20, name: "The Office", first_air_date: "2005-03-24", poster_path: "/us.jpg" },
+    "/3/tv/20/season/2": { episodes: [{ episode_number: 1, name: "The Dundies" }] },
+  });
+  const meta = new Metadata(config("fix"), tmdb.fetchImpl, Date.now, noPause);
+  const movie = item({ title: "Right", year: null });
+  await meta.warm([movie]);
+  assert.equal(meta.enrich(movie).meta?.tmdbId, 1);
+  assert.deepEqual((await meta.search("movie", "right")).map((c) => c.tmdbId), [1, 2]);
+  assert.equal((await meta.setMatch(movie, 2)).meta?.overview, "The one.");
+
+  const ep = item({ title: "The Office S2 E1", episode: { show: "The Office", season: 2, episode: 1, title: null } });
+  const fixed = await meta.setMatch(ep, 20);
+  assert.equal(fixed.title, "The Office S2 E1 · The Dundies");
+  assert.equal(fixed.meta?.tmdbId, 20);
+
+  // "None of these" keeps it bare, for good.
+  assert.equal((await meta.setMatch(movie, null)).meta, undefined);
+  await meta.idle();
+  const reloaded = new Metadata(config("fix"), fakeTmdb({}).fetchImpl, () => Date.now() + 365 * 24 * 60 * 60 * 1000, noPause);
+  await reloaded.warm([movie, ep]);
+  assert.equal(reloaded.enrich(movie).meta, undefined);
+  assert.equal(reloaded.enrich(ep).meta?.tmdbId, 20);
+});
+
+test("posters are downloaded once and only for known sizes and plain file names", async () => {
+  let downloads = 0;
+  const fetchImpl = (async (input: string) => {
+    downloads++;
+    assert.equal(input, "https://image.tmdb.org/t/p/w342/abc.jpg");
+    return new Response(new Uint8Array([1, 2, 3]));
+  }) as unknown as typeof fetch;
+  const meta = new Metadata(config("images"), fetchImpl, Date.now, noPause);
+  const file = await meta.image("w342", "abc.jpg");
+  assert.deepEqual([...(await fs.readFile(file!))], [1, 2, 3]);
+  assert.equal(await meta.image("w342", "abc.jpg"), file);
+  assert.equal(downloads, 1);
+  assert.equal(await meta.image("original", "abc.jpg"), null);
+  assert.equal(await meta.image("w342", "..%2Fsecret.jpg"), null);
 });
