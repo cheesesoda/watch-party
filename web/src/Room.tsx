@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MediaInfo } from "../../shared/protocol.ts";
 import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
+import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
@@ -37,6 +38,12 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   const [blocked, setBlocked] = useState(false);
   const [idle, setIdle] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
   const voiceRef = useRef<Voice | null>(null);
   const duckerRef = useRef<Ducker | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("off");
@@ -293,8 +300,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       </video>
 
       <div className="room-top">
-        <button onClick={() => navigate("/")} title="Leave">
-          ←
+        <button className="icon" onClick={() => navigate("/")} title="Leave" aria-label="Leave">
+          <BackIcon />
         </button>
         <div className="room-title">
           <strong>{media?.title ?? "Nothing playing"}</strong>
@@ -303,31 +310,36 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           </span>
         </div>
         <span className="spacer" />
-        <button onClick={invite} title={`Party code ${props.roomId.toUpperCase()}`}>
-          {copied ? "Link copied" : `Invite · ${props.roomId.toUpperCase()}`}
-        </button>
         {props.host && <button onClick={() => setPicking(true)}>Change video</button>}
-        {mediaInfo?.convert && (
-          <button
-            className={converted ? "on" : ""}
-            onClick={() => setConverted(!converted)}
-            title="Play a copy the server converts for browsers. Use it when the picture or sound is missing."
-          >
-            Convert
-          </button>
-        )}
         <button className={voiceStatus === "off" ? "" : "on"} onClick={toggleVoice} disabled={voiceStatus === "starting" || view.status !== "open"}>
           {voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining…" : "Leave voice"}
         </button>
-        {voiceStatus === "on" && hasMic && <button onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>}
-        <button className={pinned ? "on" : ""} onClick={() => setPinned(!pinned)}>
-          Chat
+        {voiceStatus === "on" && hasMic && (
+          <button className="icon" onClick={toggleMute} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}>
+            {muted ? <MicOffIcon /> : <MicIcon />}
+          </button>
+        )}
+        <span className="divider" />
+        <button
+          className="icon"
+          onClick={invite}
+          title={copied ? "Invite link copied" : `Invite · party code ${props.roomId.toUpperCase()}`}
+          aria-label={copied ? "Invite link copied" : "Invite"}
+        >
+          {copied ? <CheckIcon /> : <ShareIcon />}
         </button>
-        <button onClick={() => setSettingsOpen(true)}>Settings</button>
-        <button onClick={toggleFullscreen}>Fullscreen</button>
+        <button className={pinned ? "icon on" : "icon"} onClick={() => setPinned(!pinned)} title="Chat" aria-label="Chat" aria-pressed={pinned}>
+          <ChatIcon />
+        </button>
+        <button className="icon" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
+          <SettingsIcon />
+        </button>
+        <button className="icon" onClick={toggleFullscreen} title={fullscreen ? "Exit fullscreen" : "Fullscreen"} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
+          {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+        </button>
         {props.host && (
-          <button onClick={endParty} disabled={view.status !== "open"}>
-            End party
+          <button className="icon end" onClick={endParty} disabled={view.status !== "open"} title="End party for everyone" aria-label="End party">
+            <PowerIcon />
           </button>
         )}
       </div>
@@ -390,6 +402,15 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
               </span>
               <input type="checkbox" role="switch" checked={popups} onChange={(e) => changePopups(e.target.checked)} />
             </label>
+            {mediaInfo?.convert && (
+              <label className="switch-row">
+                <span>
+                  Play the server's converted copy
+                  <small>Turns on by itself when this browser can't play the file. Turn it on if the picture or sound is missing. Only this video, on this device.</small>
+                </span>
+                <input type="checkbox" role="switch" checked={converted} onChange={(e) => setConverted(e.target.checked)} />
+              </label>
+            )}
           </div>
         </div>
       )}
