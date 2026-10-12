@@ -69,8 +69,8 @@ test("streams with range support", async () => {
   assert.equal((await fetch(url, { headers: { Range: "bytes=50-" } })).status, 416);
 });
 
-function connect(roomId: string, name: string, withToken = true) {
-  const qs = new URLSearchParams({ room: roomId, name, ...(withToken ? { token } : {}) });
+function connect(roomId: string, name: string, as: string | null = token) {
+  const qs = new URLSearchParams({ room: roomId, name, ...(as ? { token: as } : {}) });
   const ws = new WebSocket(`${base.replace("http", "ws")}/ws?${qs}`);
   const inbox: ServerMessage[] = [];
   const waiters: Array<() => void> = [];
@@ -119,6 +119,55 @@ test("websocket rooms sync playback and chat", async () => {
 
   a.ws.close();
   b.ws.close();
+});
+
+test("a party code lets a viewer into that party only, until it ends", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const create = (mediaId?: string) =>
+    fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ mediaId }) }).then((r) => r.json());
+  const { room } = await create();
+  const { room: other } = await create(items[0].id);
+  const join = (code: string, headers: Record<string, string> = {}) =>
+    fetch(`${base}/api/join`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "100.64.1.1", ...headers }, body: JSON.stringify({ code }) });
+
+  assert.equal((await join("nope00")).status, 404);
+  const hostJoin = await (await join(room.id.toUpperCase(), auth())).json();
+  assert.equal(hostJoin.token, null, "the host keeps their own sign-in");
+  const res = await join(` ${room.id.toUpperCase()} `);
+  assert.equal(res.status, 200);
+  const guest: string = (await res.json()).token;
+  assert.match(res.headers.get("set-cookie") ?? "", /wp_token=g\./);
+  const as = { Authorization: `Bearer ${guest}` };
+
+  assert.deepEqual(await (await fetch(`${base}/api/me`, { headers: as })).json(), { ok: true, role: "guest", room: room.id });
+  assert.equal((await fetch(`${base}/api/rooms/${room.id}`, { headers: as })).status, 200);
+  for (const path of ["/api/library", "/api/rooms", `/api/rooms/${other.id}`, `/api/media/${items[0].id}/stream`]) {
+    assert.equal((await fetch(base + path, { headers: as })).status, 403, path);
+  }
+  assert.equal((await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...as, "content-type": "application/json" }, body: "{}" })).status, 403);
+
+  const denied = new WebSocket(`${base.replace("http", "ws")}/ws?room=${other.id}&token=${guest}`);
+  await new Promise<void>((r) => denied.on("error", () => r()));
+
+  const host = connect(room.id, "Host");
+  const viewer = connect(room.id, "Viewer", guest);
+  await viewer.next((m) => m.type === "welcome");
+  viewer.ws.send(JSON.stringify({ type: "select", mediaId: items[0].id }));
+  assert.ok((await viewer.next((m) => m.type === "error")).type === "error");
+  viewer.ws.send(JSON.stringify({ type: "end" }));
+  assert.ok((await viewer.next((m) => m.type === "error")).type === "error");
+
+  // Once the host picks something, the viewer can stream it.
+  host.ws.send(JSON.stringify({ type: "select", mediaId: items[0].id }));
+  await viewer.next((m) => m.type === "state");
+  assert.equal((await fetch(`${base}/api/media/${items[0].id}/stream`, { headers: as })).status, 200);
+
+  host.ws.send(JSON.stringify({ type: "end" }));
+  await viewer.next((m) => m.type === "ended");
+  assert.equal((await fetch(`${base}/api/me`, { headers: as })).status, 401);
+  assert.equal((await join(room.id)).status, 404);
+  host.ws.close();
+  viewer.ws.close();
 });
 
 test("behind a local proxy, one visitor's wrong passwords don't lock out another", async () => {

@@ -55,7 +55,9 @@ export function cleanName(name: unknown): string {
 export class Room {
   state: PlaybackState;
   media: MediaItem | null = null;
-  readonly members = new Map<string, { member: Member; send: Send; close: Close }>();
+  readonly members = new Map<string, { member: Member; send: Send; close: Close; guest: boolean }>();
+  /** Secret half of the viewer pass handed out for this party's join code; dies with the room. */
+  readonly guestKey = crypto.randomBytes(18).toString("base64url");
   /** Set by the RoomManager so ending a party also removes it from the list. */
   onEnded: () => void = () => {};
   ended = false;
@@ -80,11 +82,12 @@ export class Room {
     return [...this.members.values()].map((m) => m.member);
   }
 
-  join(name: string, send: Send, device: Device = "web", close: Close = () => {}): Member {
+  /** `guest` members joined with the party code: they can watch, chat and talk, but not change the video or end the party. */
+  join(name: string, send: Send, device: Device = "web", close: Close = () => {}, guest = false): Member {
     const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
-    this.members.set(member.id, { member, send, close });
+    this.members.set(member.id, { member, send, close, guest });
     send({
       type: "welcome",
       you: member,
@@ -128,7 +131,7 @@ export class Room {
   handle(memberId: string, msg: ClientMessage): void {
     const entry = this.members.get(memberId);
     if (!entry) return;
-    const { member, send } = entry;
+    const { member, send, guest } = entry;
     const now = this.now();
 
     switch (msg.type) {
@@ -165,10 +168,12 @@ export class Room {
       }
 
       case "end":
+        if (guest) return send({ type: "error", message: "Only the host can end the party." });
         this.end(member.name);
         return;
 
       case "select": {
+        if (guest) return send({ type: "error", message: "Only the host can change the video." });
         if (typeof msg.mediaId !== "string" || !this.select(msg.mediaId)) {
           send({ type: "error", message: "That file is not in the library." });
           return;
