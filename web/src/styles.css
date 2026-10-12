@@ -432,6 +432,62 @@ input:focus {
   max-height: 85vh;
   overflow-y: auto;
 }
+.modal-body.settings {
+  width: min(460px, 100%);
+}
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.switch-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+/* A Material-style switch made from a checkbox. */
+.switch-row input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--panel-2);
+  border: 2px solid var(--muted);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.switch-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s, width 0.15s, height 0.15s, top 0.15s, background 0.15s;
+}
+.switch-row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch-row input[type="checkbox"]:checked::after {
+  top: 2px;
+  width: 24px;
+  height: 24px;
+  background: var(--accent-text);
+  transform: translateX(20px);
+}
+.switch-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
 .modal-head {
   display: flex;
   justify-content: space-between;

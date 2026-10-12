@@ -26,12 +26,13 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       return true;
     }
   });
-  const togglePopups = () => {
-    setPopups(!popups);
+  const changePopups = (on: boolean) => {
+    setPopups(on);
     try {
-      localStorage.setItem(POPUPS_KEY, popups ? "off" : "on");
+      localStorage.setItem(POPUPS_KEY, on ? "on" : "off");
     } catch {}
   };
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [idle, setIdle] = useState(false);
@@ -322,9 +323,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <button className={pinned ? "on" : ""} onClick={() => setPinned(!pinned)}>
           Chat
         </button>
-        <button className={popups ? "on" : ""} onClick={togglePopups} title="Show new messages over the video">
-          Pop-ups
-        </button>
+        <button onClick={() => setSettingsOpen(true)}>Settings</button>
         <button onClick={toggleFullscreen}>Fullscreen</button>
         {props.host && (
           <button onClick={endParty} disabled={view.status !== "open"}>
@@ -376,6 +375,24 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       )}
 
       <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} popups={popups} onSend={(text) => send({ type: "chat", text })} />
+
+      {settingsOpen && (
+        <div className="modal" onClick={() => setSettingsOpen(false)}>
+          <div className="modal-body settings" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Settings on this device</h2>
+              <button onClick={() => setSettingsOpen(false)}>Done</button>
+            </div>
+            <label className="switch-row">
+              <span>
+                Pop up new chat messages over the video
+                <small>Each device keeps its own setting, so pop-ups can be on the TV and off on your phone.</small>
+              </span>
+              <input type="checkbox" role="switch" checked={popups} onChange={(e) => changePopups(e.target.checked)} />
+            </label>
+          </div>
+        </div>
+      )}
 
       {picking && props.host && (
         <div className="modal" onClick={() => setPicking(false)}>
