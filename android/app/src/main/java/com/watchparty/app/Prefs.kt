@@ -18,6 +18,11 @@ class Prefs(context: Context) {
         get() = sp.getString("name", "") ?: ""
         set(v) = sp.edit().putString("name", v).apply()
 
+    /** New chat messages pop up over the video. */
+    var chatPopups: Boolean
+        get() = sp.getBoolean("chat_popups", true)
+        set(v) = sp.edit().putBoolean("chat_popups", v).apply()
+
     val isSetUp: Boolean
         get() = serverUrl.isNotBlank() && name.isNotBlank() && sp.getBoolean("signed_in", false)
 
