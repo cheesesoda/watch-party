@@ -29,7 +29,7 @@ class Prefs(context: Context) {
             var url = input.trim().trimEnd('/')
             if (url.isEmpty()) return url
             if (!url.startsWith("http://") && !url.startsWith("https://")) url = "http://$url"
-            // Invite links look like http://host/#/room/abc; keep only the server part.
+            // Invite links look like https://host/#/join/ABC123; keep only the server part.
             url = url.substringBefore("/#").substringBefore("#").trimEnd('/')
             return url
         }
@@ -37,7 +37,7 @@ class Prefs(context: Context) {
         /** Pulls a room code out of an invite link or returns the input as a code. */
         fun roomCode(input: String): String {
             val trimmed = input.trim()
-            val fromLink = Regex("""/room/([\w-]+)""").find(trimmed)?.groupValues?.get(1)
+            val fromLink = Regex("""/(?:room|join)/([\w-]+)""").find(trimmed)?.groupValues?.get(1)
             return (fromLink ?: trimmed).lowercase()
         }
     }

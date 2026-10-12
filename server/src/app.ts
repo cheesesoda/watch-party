@@ -5,7 +5,8 @@ import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol.ts";
-import { checkPassword, COOKIE_NAME, isAuthorized, tokenFor } from "./auth.ts";
+import type { IncomingMessage } from "node:http";
+import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
 import { parseRange } from "./range.ts";
@@ -44,6 +45,18 @@ export function createApp(config: Config): App {
     res.json({ ok: true, authRequired: Boolean(config.password) });
   });
 
+  const hostToken = config.password ? tokenFor(config.password) : "";
+  /** Who is asking: the host (signed in with the password), a guest of one party, or nobody. */
+  const accessOf = (req: IncomingMessage): Access | null => {
+    if (!config.password) return { kind: "host" };
+    const token = extractToken(req);
+    if (!token) return null;
+    if (safeEqual(token, hostToken)) return { kind: "host" };
+    const guest = parseGuestToken(token);
+    const room = guest && rooms.get(guest.roomId);
+    return room && safeEqual(guest.key, room.guestKey) ? { kind: "guest", roomId: room.id } : null;
+  };
+
   const loginLimiter = new FailureLimiter();
   app.post("/api/login", (req, res) => {
     const client = req.ip ?? "unknown";
@@ -63,18 +76,61 @@ export function createApp(config: Config): App {
     res.json({ token });
   });
 
+  // Viewers join one party with its code, no password. The pass stops working when the party ends.
+  const joinLimiter = new FailureLimiter();
+  app.post("/api/join", (req, res) => {
+    const client = req.ip ?? "unknown";
+    const wait = joinLimiter.blockedFor(client);
+    if (wait > 0) {
+      res.setHeader("Retry-After", String(wait));
+      return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
+    }
+    const code = req.body?.code;
+    const room = typeof code === "string" && code.trim() ? rooms.get(code.trim()) : undefined;
+    if (!room) {
+      joinLimiter.fail(client);
+      return void res.status(404).json({ error: "No party with that code. It may have ended." });
+    }
+    // The host keeps their own sign-in rather than trading it for a viewer pass.
+    if (accessOf(req)?.kind === "host") return void res.json({ token: null, room: room.summary() });
+    const token = guestToken(room.id, room.guestKey);
+    res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: 7 * 24 * 3600 * 1000 });
+    res.json({ token, room: room.summary() });
+  });
+
   app.post("/api/logout", (_req, res) => {
     res.clearCookie(COOKIE_NAME);
     res.json({ ok: true });
   });
 
   app.use("/api", (req, res, next) => {
-    if (isAuthorized(config.password, req)) return next();
-    res.status(401).json({ error: "Not signed in." });
+    const access = accessOf(req);
+    if (!access) return void res.status(401).json({ error: "Not signed in." });
+    res.locals.access = access;
+    next();
   });
 
   app.get("/api/me", (_req, res) => {
-    res.json({ ok: true });
+    const access: Access = res.locals.access;
+    res.json(access.kind === "host" ? { ok: true, role: "host" } : { ok: true, role: "guest", room: access.roomId });
+  });
+
+  // Guests only get what their own party is playing.
+  app.use("/api/media/:id", (req, res, next) => {
+    const access: Access = res.locals.access;
+    if (access.kind === "host" || rooms.get(access.roomId)?.media?.id === req.params.id) return next();
+    res.status(403).json({ error: "That isn't playing in your party." });
+  });
+  app.get("/api/rooms/:id", (req, res, next) => {
+    const access: Access = res.locals.access;
+    if (access.kind === "host" || rooms.get(req.params.id)?.id === access.roomId) return next();
+    res.status(403).json({ error: "You can only see the party you joined." });
+  });
+  // Everything else (the library, the list of parties, starting one) is for the host.
+  app.use("/api", (req, res, next) => {
+    const access: Access = res.locals.access;
+    if (access.kind === "host" || /^\/(media|rooms)\/[^/]+/.test(req.path)) return next();
+    res.status(403).json({ error: "Only the host can do that. Ask them for the password." });
   });
 
   app.get("/api/library", async (_req, res) => {
@@ -204,14 +260,15 @@ export function createApp(config: Config): App {
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== "/ws") return void socket.destroy();
-    if (!isAuthorized(config.password, req)) {
+    const access = accessOf(req);
+    if (!access || (access.kind === "guest" && rooms.get(url.searchParams.get("room") ?? "")?.id !== access.roomId)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return void socket.destroy();
     }
-    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url));
+    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url, access.kind === "guest"));
   });
 
-  async function onConnection(ws: WebSocket, url: URL): Promise<void> {
+  async function onConnection(ws: WebSocket, url: URL, guest: boolean): Promise<void> {
     const send = (msg: ServerMessage) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
     };
@@ -227,6 +284,7 @@ export function createApp(config: Config): App {
       send,
       device === "phone" || device === "tv" ? device : "web",
       () => ws.close(4404, "Party ended"),
+      guest,
     );
     let alive = true;
     ws.on("pong", () => (alive = true));

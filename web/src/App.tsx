@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, getName, setName, Unauthorized } from "./api.ts";
+import { api, getName, setName, Unauthorized, type Me } from "./api.ts";
 import { Home } from "./Home.tsx";
-import { Login } from "./Login.tsx";
+import { Join, Landing, Login } from "./Login.tsx";
+import { navigate } from "./nav.ts";
 import { Room } from "./Room.tsx";
 
-/** Hash routes: "#/" home, "#/room/<id>" a watch party. Hash routing keeps invite links working behind any server. */
+/**
+ * Hash routes: "#/" start or join, "#/start" host sign-in, "#/join/<code>" join a party,
+ * "#/room/<code>" a watch party. Hash routing keeps invite links working behind any server.
+ */
 function useHashRoute(): string {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -17,32 +21,59 @@ function useHashRoute(): string {
 
 export function App() {
   const route = useHashRoute();
-  const [auth, setAuth] = useState<"checking" | "in" | "out">("checking");
+  /** null while checking; "out" when neither the host nor a guest. */
+  const [me, setMe] = useState<Me | "out" | null>(null);
   const [name, setNameState] = useState(getName());
 
+  // Re-check on every route change: a guest pass stops working when its party ends.
   useEffect(() => {
     api
       .me()
-      .then(() => setAuth("in"))
-      .catch((err) => setAuth(err instanceof Unauthorized ? "out" : "in"));
-  }, []);
+      .then(setMe)
+      .catch((err) => setMe(err instanceof Unauthorized ? "out" : { role: "host" }));
+  }, [route]);
 
-  if (auth === "checking") return <div className="center muted">Loading…</div>;
-  if (auth === "out" || !name) {
+  const saveName = (n: string) => {
+    setName(n);
+    setNameState(n);
+  };
+
+  if (me === null) return <div className="center muted">Loading…</div>;
+  const host = me !== "out" && me.role === "host";
+  const guestRoom = me !== "out" && me.role === "guest" ? me.room : null;
+
+  const code = /^\/(?:room|join)\/([\w-]*)/.exec(route)?.[1]?.toLowerCase();
+  if (code !== undefined) {
+    if (code && (host || guestRoom === code) && name) return <Room roomId={code} name={name} host={host} />;
     return (
-      <Login
-        needPassword={auth === "out"}
+      <Join
         initialName={name}
-        onDone={(n) => {
-          setName(n);
-          setNameState(n);
-          setAuth("in");
+        initialCode={code}
+        onDone={(n, roomId) => {
+          saveName(n);
+          if (!host) setMe({ role: "guest", room: roomId });
+          navigate(`/room/${roomId}`);
         }}
       />
     );
   }
 
-  const roomMatch = /^\/room\/([\w-]+)/.exec(route);
-  if (roomMatch) return <Room roomId={roomMatch[1]} name={name} />;
-  return <Home name={name} onRename={() => setNameState("")} onSignOut={() => api.logout().then(() => setAuth("out"))} />;
+  if (route === "/start" || (host && !name)) {
+    return (
+      <Login
+        needPassword={!host}
+        initialName={name}
+        onDone={(n) => {
+          saveName(n);
+          setMe({ role: "host" });
+          navigate("/");
+        }}
+      />
+    );
+  }
+
+  if (host) {
+    return <Home name={name} onRename={() => saveName("")} onSignOut={() => api.logout().then(() => setMe("out"))} />;
+  }
+  return <Landing />;
 }

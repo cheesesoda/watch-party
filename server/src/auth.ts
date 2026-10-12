@@ -11,7 +11,7 @@ export function tokenFor(password: string): string {
   return crypto.createHmac("sha256", password).update("watch-party-v1").digest("base64url");
 }
 
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
@@ -38,8 +38,15 @@ export function extractToken(req: IncomingMessage): string | null {
   return null;
 }
 
-export function isAuthorized(password: string, req: IncomingMessage): boolean {
-  if (!password) return true;
-  const token = extractToken(req);
-  return token !== null && safeEqual(token, tokenFor(password));
+/** The host signed in with the password; a guest joined one party with its code. */
+export type Access = { kind: "host" } | { kind: "guest"; roomId: string };
+
+/** Viewer passes look like `g.<room code>.<room secret>`. */
+export function guestToken(roomId: string, key: string): string {
+  return `g.${roomId}.${key}`;
+}
+
+export function parseGuestToken(token: string): { roomId: string; key: string } | null {
+  const m = /^g\.([a-z0-9]+)\.([\w-]+)$/.exec(token);
+  return m ? { roomId: m[1], key: m[2] } : null;
 }

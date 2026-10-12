@@ -41,7 +41,7 @@ On Windows, see the [guide's PowerShell steps](docs/guide.md#windows-powershell)
 
 | Variable | Default | |
 | --- | --- | --- |
-| `WATCH_PASSWORD` | _(required)_ | Shared password everyone signs in with. The server won't start without it. |
+| `WATCH_PASSWORD` | _(required)_ | The host's password for starting parties and browsing the library. Viewers join with a party code instead. The server won't start without it. |
 | `ALLOW_NO_PASSWORD` | _(off)_ | Set to `1` to run with no password at all. Only do this on a network you trust. |
 | `MEDIA_DIR` | `./media` | Folder to index. Use `MEDIA_DIRS` with commas for several. Subfolders show up as groups. |
 | `PORT` | `8080` | |
@@ -59,7 +59,8 @@ Your friends need to reach the server. The easiest options:
   [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) to get a public HTTPS URL without opening ports.
 - **Port forward** 8080 on your router, ideally behind a reverse proxy like Caddy for HTTPS.
 
-Then send them the invite link from the room's **Invite** button. They sign in with the password and pick a name.
+Then start a party and send them its invite link. They pick a name and join; the party code in the link
+gets them into that party only, and stops working when the party ends.
 
 ### Security
 
@@ -87,8 +88,8 @@ CI builds an APK whenever a pull request changes `android/`. To build one on dem
 - **Android TV / Google TV:** sideload it, for example with `adb install app-release.apk`, or with the
   Downloader app or Send Files to TV. It shows up on the TV home screen like any other app.
 
-On first launch enter the server address (like `192.168.1.20:8080`, or your Tailscale name), your name,
-and the password. Join a party from the list, by typing its code, or by pasting an invite link.
+On first launch pick **Join a party** (server address, party code or invite link, and a name) or
+**Start a party** (server address, name and the password).
 
 In a party, the D-pad or a tap shows the player controls and the top bar (Chat, Change video, Join voice,
 Leave). On a TV remote, the Menu button also opens chat. New messages float over the video for a few

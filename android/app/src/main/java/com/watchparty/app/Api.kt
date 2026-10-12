@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -24,6 +25,7 @@ class Api(private val baseUrl: String, private val token: String) {
     @Serializable private data class LibraryResponse(val items: List<MediaItem>)
     @Serializable private data class RoomsResponse(val rooms: List<RoomSummary>)
     @Serializable private data class RoomResponse(val room: RoomSummary)
+    @Serializable data class JoinResponse(val token: String? = null, val room: RoomSummary)
     @Serializable private data class ErrorResponse(val error: String? = null)
 
     private val jsonType = "application/json".toMediaType()
@@ -34,7 +36,7 @@ class Api(private val baseUrl: String, private val token: String) {
         if (body != null) builder.post(body.toRequestBody(jsonType))
         client.newCall(builder.build()).execute().use { res ->
             val text = res.body?.string().orEmpty()
-            if (res.code == 401 && !path.endsWith("/login")) throw UnauthorizedException()
+            if (res.code == 401 && !path.endsWith("/login") && !path.endsWith("/join")) throw UnauthorizedException()
             if (!res.isSuccessful) {
                 val msg = runCatching { Protocol.json.decodeFromString<ErrorResponse>(text).error }.getOrNull()
                 throw ApiException(msg ?: "Server returned ${res.code}")
@@ -46,6 +48,12 @@ class Api(private val baseUrl: String, private val token: String) {
     suspend fun login(password: String): String {
         val body = buildJsonObject { put("password", password) }.toString()
         return Protocol.json.decodeFromString<LoginResponse>(request("/api/login", body)).token
+    }
+
+    /** Joins a party by its code. Viewers get a pass for just that party; a signed-in host gets a null token. */
+    suspend fun join(code: String): JoinResponse {
+        val body = buildJsonObject { put("code", code.trim()) }.toString()
+        return Protocol.json.decodeFromString<JoinResponse>(request("/api/join", body))
     }
 
     suspend fun me() {
@@ -85,6 +93,18 @@ class Api(private val baseUrl: String, private val token: String) {
         if (token.isEmpty()) url else url.toHttpUrl().newBuilder().addQueryParameter("token", token).build().toString()
 
     companion object {
+        /**
+         * Follows any redirect (say, a short domain forwarding to a ts.net address) and returns the server it lands on,
+         * so later calls, including POSTs and the websocket, go straight there.
+         */
+        suspend fun resolveServer(url: String): String = withContext(Dispatchers.IO) {
+            client.newCall(Request.Builder().url("$url/api/health").build()).execute().use { res ->
+                val final = res.request.url
+                val port = if (final.port != HttpUrl.defaultPort(final.scheme)) ":${final.port}" else ""
+                "${final.scheme}://${final.host}$port"
+            }
+        }
+
         val client: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

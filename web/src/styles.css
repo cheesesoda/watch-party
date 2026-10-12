@@ -411,3 +411,39 @@ input:focus {
     bottom: 56px;
   }
 }
+
+/* Start / join */
+button.big {
+  padding: 14px;
+  font-size: 17px;
+}
+.small {
+  font-size: 13px;
+  margin: 0;
+}
+input.code,
+.party-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+}
+.party-code {
+  font-size: 40px;
+  font-weight: 700;
+  margin: 8px 0 16px;
+}
+.card.started {
+  width: auto;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.join-code {
+  margin-top: 12px;
+}
+.join-code input {
+  flex: 1;
+  min-width: 0;
+  max-width: 220px;
+}

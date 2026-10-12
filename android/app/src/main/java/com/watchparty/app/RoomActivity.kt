@@ -92,6 +92,9 @@ class RoomActivity : ComponentActivity() {
     private var companion = false
     private var autoSwitched = false
     private var ended = false
+    /** False for viewers who joined with the party code: no Change video, no End party. */
+    private var host = true
+    private var roomCode = ""
 
     private val closeChatOnBack = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = closeChat()
@@ -120,6 +123,8 @@ class RoomActivity : ComponentActivity() {
         prefs = Prefs(this)
         api = Api(prefs.serverUrl, prefs.token)
         val roomId = intent.getStringExtra(EXTRA_ROOM) ?: return finish()
+        host = intent.getBooleanExtra(EXTRA_HOST, true)
+        roomCode = roomId.uppercase()
         isTv = getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         onBackPressedDispatcher.addCallback(this, closeChatOnBack)
 
@@ -238,7 +243,9 @@ class RoomActivity : ComponentActivity() {
     private fun applyState(state: PlaybackState, media: MediaItem?) {
         lastState = state
         lastMedia = media
-        titleText.text = media?.title ?: "Nothing playing. Use Change video to pick something."
+        titleText.text = media?.title
+            ?: if (host) "Nothing playing. Use Change video to pick something. Friends join with code $roomCode."
+            else "Waiting for the host to pick something."
         companionTitle.text = media?.title ?: "Nothing playing"
         if (companion) return
         if (media != null && media.id != loadedMediaId) {
@@ -294,7 +301,7 @@ class RoomActivity : ComponentActivity() {
         titles.addView(membersText)
         topBar.addView(titles, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         topBar.addView(barButton("Chat") { openChat() })
-        topBar.addView(barButton("Change video") { pickVideo() })
+        if (host) topBar.addView(barButton("Change video") { pickVideo() })
         voiceButton = barButton("Join voice") { toggleVoice() }
         topBar.addView(voiceButton)
         muteButton = barButton("Mute") { toggleMute() }.apply { visibility = View.GONE }
@@ -663,6 +670,7 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun confirmLeave() {
+        if (!host) return finish()
         AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Leave the watch party?")
             .setMessage("Leave just takes you out. End party sends everyone back to the home screen.")
@@ -716,12 +724,13 @@ class RoomActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ROOM = "room"
+        const val EXTRA_HOST = "host"
         private const val CHAT_FADE_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
         private const val CHAT_PANEL_DP = 320
 
-        fun start(context: Context, roomId: String) {
-            context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId))
+        fun start(context: Context, roomId: String, host: Boolean = true) {
+            context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))
         }
     }
 }

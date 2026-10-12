@@ -8,7 +8,7 @@ Popcorn Club lets you stream movies from your own computer to friends, with play
 - **Friends:** skip to [Join on the web](#join-on-the-web) or [Install the Android app](#install-the-android-app-phone-or-tv), then [Chat, voice and phone chat mode](#chat-voice-and-phone-chat-mode).
 - **Something not working:** see [Troubleshooting](#troubleshooting) at the end.
 
-You need three things from the host before joining: the server address, the shared password, and a party code or invite link.
+Friends only need an invite link from the host, or the server address plus a party code. The server password is just for the host, who uses it to start parties.
 
 ## Host the server
 
@@ -103,7 +103,7 @@ To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `WATCH_PASSWORD` | required | Shared password for everyone. Changing it signs everyone out. |
+| `WATCH_PASSWORD` | required | The host's password for starting parties. Friends join with a party code instead. Changing it signs the host out everywhere. |
 | `MEDIA_PATH` | `./media` | Movie folder. `MEDIA_DIR` also works without Docker; `MEDIA_DIRS` takes several. |
 | `PORT` | `8080` | Port the server listens on. |
 | `ICE_SERVERS` | Google public STUN | STUN/TURN servers for voice, as JSON. Only needed if voice won't connect for someone. |
@@ -132,7 +132,7 @@ Use Tailscale so friends can reach the server without opening ports, and so brow
 5. Let friends in. Pick one:
    - **Share the machine (more private):** in the Tailscale admin console, share the server machine with each friend. They install Tailscale, accept the share, and then the `https://…ts.net` address works for them.
    - **Funnel (no Tailscale for friends):** run `tailscale funnel --bg 8080` instead of `serve`. The same address becomes reachable from the whole internet, so only the password protects it. Use a long random one: wrong guesses are blocked after 10 tries per visitor, which slows guessing but doesn't stop it.
-6. Send friends the `https://…ts.net` address and the password, or an invite link from a party's **Invite** button.
+6. Start a party and send friends its invite link (it holds the address and the party code). They don't need the password.
 
 `--bg` keeps the HTTPS address set up after you close the terminal and across reboots, but the server itself still needs starting after a reboot. On Windows, turn on **Run unattended** in the Tailscale tray menu's preferences so it stays connected while you're signed out.
 
@@ -144,16 +144,25 @@ The exact admin console wording may have changed since this was written; [Tailsc
 
 ## Join on the web
 
-Any modern browser on a computer or phone works; nothing to install.
+Any modern browser on a computer or phone works; nothing to install. The app opens on two choices: **Join a party** and **Start a party**.
 
-1. Open the address or invite link the host sent you. Use the `https://` one if you want to talk in voice chat.
-2. Enter the shared password, then pick a name. Use the same name everywhere if you also use the TV app.
-3. Join a party from the list (each shows who's in it and its code), or open the invite link straight into one.
-4. To start your own, pick a movie in the library and press **Start party**. Press **Invite** in the party to copy a link for others.
+**Joining (friends):**
 
-Anyone in a party can play, pause, seek or change the movie, and it changes for everyone. If you join late, you land at the right spot.
+1. Open the invite link the host sent you. Use the `https://` one if you want to talk in voice chat.
+2. The party code is already filled in. Pick a name and press **Join**. Use the same name everywhere if you also use the TV app.
+3. Without a link, open the server address, press **Join a party**, and type the code.
 
-To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone goes back to the home screen and the party disappears from the list. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
+A party code only gets you into that one party. It stops working when the host ends the party, or 30 minutes after everyone has left. Viewers can't browse the library or start parties.
+
+**Starting (host):**
+
+1. Press **Start a party**, enter your name and the server password. You stay signed in on that browser.
+2. Press **Start a party** again. You get a party code and a **Copy invite link** button. Nothing loads yet.
+3. Send the link, press **Join party**, then **Browse library** to pick the movie. The **Invite** button in the party also shows the code.
+
+Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party.
+
+To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone is sent out and the code stops working. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
 
 Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) are converted by the server while you watch, like Plex does, if the host has FFmpeg installed. This happens on its own: the browser checks the file and asks for the converted copy when it needs it. A **Convert** button in the top bar shows when it's on and lets you switch by hand if the picture or sound is missing. Converted video is 1080p H.264 with stereo sound. Each viewer's browser decides for itself, and the Android app still plays the original file.
 
@@ -182,11 +191,14 @@ The TV will ask you to allow unknown apps for whichever app opened the APK; the 
 
 ### First launch
 
-1. Enter the server address. Either the Tailscale one (`https://your-pc.tail1234.ts.net`, which needs Tailscale on that device too) or a local one on the same Wi-Fi (`192.168.1.20:8080`).
-2. Enter your name and the password.
-3. Join a party from the list, type its code, or paste an invite link.
+The app opens on **Join a party** and **Start a party**.
 
-On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video**, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video. **Leave** asks whether to just leave or to end the party for everyone.
+- **Join a party (friends):** enter the party code and your name. The app already knows the host's server; press **Other server** only if the host gave you a different address. Pasting a whole invite link into the code box works too.
+- **Start a party (host):** enter the server address, your name and the password. Then press **Start a party** to get a code and a **Join party** button, and pick the movie with **Change video** once you're in.
+
+The server address is the host's `https://` one, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
+
+On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video** for the host, **Join voice**, **Leave**); the remote's Menu button also opens chat. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
 
 ## Chat, voice and phone chat mode
 
@@ -233,7 +245,8 @@ The see-through TV panel and phone chat mode need an APK built after October 11,
 | Dashed red outline around someone's name | Your voice connection to them couldn't be set up, usually a strict router or mobile network. | Both join through Tailscale. Otherwise the host runs a TURN server and lists it in `ICE_SERVERS`. |
 | Phone doesn't switch to chat only | Names differ, or an older app. | Use the identical name on phone and TV; get the latest APK. |
 | Voice drops when I switch apps on Android | Android stops background apps using the mic. | Keep the app open while you talk. |
+| "No party with that code" | The party ended, or it sat empty for 30 minutes, or the code has a typo. | Ask the host for a new code. After 10 wrong codes in 15 minutes, that address has to wait out the 15 minutes. |
 | Can't sign in, even with the right password | After 10 wrong passwords in 15 minutes from one address, that address is blocked until the 15 minutes pass. It only affects that person, including behind `tailscale serve`. | Wait 15 minutes, then type carefully. |
-| Everyone signed out at once | The host changed `WATCH_PASSWORD`. | Sign in with the new password. |
+| Host signed out on every device | The host changed `WATCH_PASSWORD`. | Sign in with the new password. Viewers aren't affected. |
 | Video stutters for everyone | The host's upload speed is shared by every viewer. | Fewer viewers, or a smaller file. |
 | New movie doesn't show up | The library rescans about once a minute. | Press **Rescan** in the library. |

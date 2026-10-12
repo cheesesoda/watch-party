@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MediaInfo } from "../../shared/protocol.ts";
 import { api, hlsUrl, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
+import { inviteLink } from "./Home.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
@@ -9,7 +10,8 @@ import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
 
-export function Room(props: { roomId: string; name: string }) {
+/** `host` is false for viewers who joined with the code: they can't change the video or end the party. */
+export function Room(props: { roomId: string; name: string; host: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const syncRef = useRef<VideoSync | null>(null);
@@ -219,7 +221,7 @@ export function Room(props: { roomId: string; name: string }) {
   };
 
   const invite = async () => {
-    const link = `${location.origin}${location.pathname}#/room/${props.roomId}`;
+    const link = inviteLink(props.roomId);
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -248,7 +250,7 @@ export function Room(props: { roomId: string; name: string }) {
         <div className="card">
           <p>{view.status === "ended" ? `${view.endedBy ?? "Someone"} ended the watch party.` : "This watch party has ended or the code is wrong."}</p>
           <button className="primary" onClick={() => navigate("/")}>
-            Back to library
+            Back
           </button>
         </div>
       </div>
@@ -284,8 +286,10 @@ export function Room(props: { roomId: string; name: string }) {
           </span>
         </div>
         <span className="spacer" />
-        <button onClick={invite}>{copied ? "Link copied" : "Invite"}</button>
-        <button onClick={() => setPicking(true)}>Change video</button>
+        <button onClick={invite} title={`Party code ${props.roomId.toUpperCase()}`}>
+          {copied ? "Link copied" : `Invite · ${props.roomId.toUpperCase()}`}
+        </button>
+        {props.host && <button onClick={() => setPicking(true)}>Change video</button>}
         {mediaInfo?.convert && (
           <button
             className={converted ? "on" : ""}
@@ -303,17 +307,25 @@ export function Room(props: { roomId: string; name: string }) {
           Chat
         </button>
         <button onClick={toggleFullscreen}>Fullscreen</button>
-        <button onClick={endParty} disabled={view.status !== "open"}>
-          End party
-        </button>
+        {props.host && (
+          <button onClick={endParty} disabled={view.status !== "open"}>
+            End party
+          </button>
+        )}
       </div>
 
       {!media && !picking && (
         <div className="room-empty">
-          <p>Pick something to watch together.</p>
-          <button className="primary" onClick={() => setPicking(true)}>
-            Browse library
-          </button>
+          {props.host ? (
+            <>
+              <p>Pick something to watch together. Friends join with the code {props.roomId.toUpperCase()}.</p>
+              <button className="primary" onClick={() => setPicking(true)}>
+                Browse library
+              </button>
+            </>
+          ) : (
+            <p>Waiting for the host to pick something.</p>
+          )}
         </div>
       )}
 
@@ -346,7 +358,7 @@ export function Room(props: { roomId: string; name: string }) {
 
       <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} onSend={(text) => send({ type: "chat", text })} />
 
-      {picking && (
+      {picking && props.host && (
         <div className="modal" onClick={() => setPicking(false)}>
           <div className="modal-body" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
