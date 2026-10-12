@@ -31,8 +31,12 @@ export function visitorOf(req) {
 }
 
 /** What INVITE_HOST answers for a path: a redirect to the app, or null to pass it to the server. */
+/** The Fire TV app, at an address short enough to type on a remote (Downloader app). */
+export const APK_URL = "https://github.com/cheesesoda/watch-party/releases/latest/download/popcorn-club.apk";
+
 export function inviteRoute(path, appHost) {
   if (path.startsWith("/.well-known/")) return null;
+  if (/^\/apk\/?$/i.test(path.split("?")[0])) return APK_URL;
   const join = /^\/join\/([\w-]{1,32})\/?$/.exec(path.split("?")[0]);
   if (join) return `https://${appHost}/join/${join[1]}`;
   return `https://${appHost}/`;
