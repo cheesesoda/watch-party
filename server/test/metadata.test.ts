@@ -161,3 +161,21 @@ test("posters are downloaded once and only for known sizes and plain file names"
   assert.equal(await meta.image("original", "abc.jpg"), null);
   assert.equal(await meta.image("w342", "..%2Fsecret.jpg"), null);
 });
+
+test("a show is found whether the folder says \"and\" or \"&\", and older misses are asked again", async () => {
+  const fetchImpl = (async (input: URL) => {
+    const url = new URL(input);
+    const q = url.searchParams.get("query");
+    if (url.pathname === "/3/search/tv") return Response.json({ results: q === "Franklin & Bash" ? [{ id: 7, name: "Franklin & Bash" }] : [] });
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  const file = config("and").file;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify({ shows: { "franklin and bash": { at: Date.now(), value: null } } }));
+  const meta = new Metadata(config("and"), fetchImpl, Date.now, noPause);
+  const ep = (show: string) => item({ title: `${show} S1 E1`, episode: { show, season: 1, episode: 1, title: null } });
+  await meta.warm([ep("Franklin and Bash"), ep("Franklin And Bash")]);
+  assert.equal(meta.enrich(ep("Franklin and Bash")).meta?.tmdbId, 7);
+  assert.equal(meta.enrich(ep("Franklin And Bash")).meta?.tmdbId, 7);
+  assert.equal(meta.enrich(ep("Franklin & Bash")).meta?.tmdbId, 7);
+});

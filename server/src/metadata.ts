@@ -62,7 +62,21 @@ const IMAGE = "https://image.tmdb.org/t/p";
 export const IMAGE_SIZES = new Set(["w92", "w185", "w342", "w500", "w300"]);
 const IMAGE_FILE = /^[A-Za-z0-9_-]+\.(jpg|png)$/;
 
-const key = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const key = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/** "Franklin and Bash" and "Franklin & Bash": TMDB's search only finds the spelling it has, so try both. */
+function spellings(query: string): string[] {
+  const all = [query, query.replace(/\s+and\s+/gi, " & "), query.replace(/\s*&\s*/g, " and ")];
+  return all.filter((q, i) => all.findIndex((o) => o.toLowerCase() === q.toLowerCase()) === i);
+}
+
+/** Bumped when lookups get better, so answers of "not found" from older versions are asked again. */
+const CACHE_VERSION = 2;
 const movieKey = (item: MediaItem) => `${key(item.title)}|${item.year ?? ""}`;
 const showKey = (name: string) => key(name);
 const yearOf = (date: unknown) => (typeof date === "string" && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
@@ -247,15 +261,21 @@ export class Metadata {
   }
 
   private async findMovie(title: string, year: number | null): Promise<MovieHit | null> {
-    let results = await this.search_("movie", title, year ? { year: String(year) } : {});
-    // A wrong year in the file name shouldn't hide the movie altogether.
-    if (results.length === 0 && year) results = await this.search_("movie", title, {});
-    return results[0] ? this.toHit("movie", results[0], title) : null;
+    for (const q of spellings(title)) {
+      let results = await this.search_("movie", q, year ? { year: String(year) } : {});
+      // A wrong year in the file name shouldn't hide the movie altogether.
+      if (results.length === 0 && year) results = await this.search_("movie", q, {});
+      if (results[0]) return this.toHit("movie", results[0], title);
+    }
+    return null;
   }
 
   private async findShow(name: string): Promise<ShowHit | null> {
-    const hit = (await this.search_("tv", name, {}))[0];
-    return hit ? this.toHit("tv", hit, name) : null;
+    for (const q of spellings(name)) {
+      const hit = (await this.search_("tv", q, {}))[0];
+      if (hit) return this.toHit("tv", hit, name);
+    }
+    return null;
   }
 
   private toHit(kind: "movie" | "tv", hit: any, fallback: string): MovieHit {
@@ -312,6 +332,11 @@ export class Metadata {
     try {
       const data = JSON.parse(await fs.readFile(this.config.file, "utf8"));
       this.cache = { movies: data.movies ?? {}, shows: data.shows ?? {}, seasons: data.seasons ?? {} };
+      if ((data.version ?? 1) < CACHE_VERSION) {
+        for (const table of Object.values(this.cache) as Record<string, CacheEntry<unknown>>[]) {
+          for (const [id, entry] of Object.entries(table)) if (entry.value === null && !entry.pinned) delete table[id];
+        }
+      }
     } catch (err: any) {
       if (err?.code !== "ENOENT") console.warn(`Couldn't read ${this.config.file}, starting with no movie details: ${err?.message ?? err}`);
     }
@@ -334,7 +359,7 @@ export class Metadata {
   private async write() {
     await fs.mkdir(path.dirname(this.config.file), { recursive: true });
     const tmp = `${this.config.file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(this.cache));
+    await fs.writeFile(tmp, JSON.stringify({ version: CACHE_VERSION, ...this.cache }));
     await fs.rename(tmp, this.config.file);
   }
 }

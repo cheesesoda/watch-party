@@ -88,7 +88,7 @@ export function Library(props: { onPick: (item: MediaItem) => void; actionLabel:
     for (const item of items ?? []) {
       if (!item.episode) continue;
       // With TMDB, "Franklin & Bash" and "Franklin and Bash" folders are one show, under TMDB's name.
-      const id = item.meta?.tmdbId ? `tmdb:${item.meta.tmdbId}` : item.episode.show;
+      const id = item.meta?.tmdbId ? `tmdb:${item.meta.tmdbId}` : item.episode.show.toLowerCase().replace(/\s*&\s*/g, " and ");
       if (!map.has(id)) map.set(id, { name: item.meta?.show ?? item.episode.show, aliases: [], episodes: [], seasons: [], addedAt: 0 });
       const show = map.get(id)!;
       if (!show.aliases.includes(item.episode.show)) show.aliases.push(item.episode.show);
