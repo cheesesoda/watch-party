@@ -26,6 +26,7 @@ sealed class TrayApp : ApplicationContext
 
     LogWindow? logWindow;
     bool updating;
+    bool starting;
 
     public TrayApp(string[] args)
     {
@@ -86,11 +87,63 @@ sealed class TrayApp : ApplicationContext
 
     // --- server ---
 
-    void StartServer()
+    async void StartServer()
     {
+        if (starting || server.Running) return;
         if (!Settings.IsRepo(settings.RepoPath) && !PickRepo()) return;
-        if (!server.Start(settings.RepoPath)) Notify("The server couldn't start. Is Node installed? See Show log.");
-        Refresh();
+        starting = true;
+        try
+        {
+            if (!await FreePort(settings.Port())) return;
+            if (!server.Start(settings.RepoPath)) Notify("The server couldn't start. Is Node installed? See Show log.");
+        }
+        finally
+        {
+            starting = false;
+            Refresh();
+        }
+    }
+
+    /**
+     * Makes sure nothing else holds the port: a server started from PowerShell, or one left over
+     * from an earlier copy of the tray app. Offers to stop it rather than failing with EADDRINUSE.
+     */
+    async Task<bool> FreePort(int port)
+    {
+        if (await PortCheck.WaitFree(port, 5000)) return true;
+        using var owner = await PortCheck.Owner(port);
+        var who = owner == null ? "another program" : $"{owner.ProcessName}.exe (process {owner.Id})";
+        log.Add($"Port {port} is already in use by {who}.");
+        if (owner == null || !owner.ProcessName.Equals("node", StringComparison.OrdinalIgnoreCase))
+        {
+            Notify($"Port {port} is already in use by {who}, so the server can't start. See Show log.");
+            return false;
+        }
+        var answer = MessageBox.Show(
+            $"Another server is already using port {port} ({who}). It may have been started from PowerShell " +
+            "or left over from before.\n\nStop it and start Popcorn Club here?",
+            "Popcorn Club", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (answer != DialogResult.Yes)
+        {
+            log.Add("Left the other server running.");
+            return false;
+        }
+        try
+        {
+            owner.Kill(entireProcessTree: true);
+            owner.WaitForExit(5000);
+        }
+        catch (Exception e)
+        {
+            log.Add($"Couldn't stop it: {e.Message}");
+        }
+        if (await PortCheck.WaitFree(port, 5000))
+        {
+            log.Add("Stopped the other server.");
+            return true;
+        }
+        Notify($"Port {port} is still in use, so the server can't start. See Show log.");
+        return false;
     }
 
     void OnCrash()
