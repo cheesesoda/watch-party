@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
 import { api } from "./api.ts";
+import { LogOutIcon, PencilIcon } from "./Icons.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 
@@ -97,11 +98,13 @@ export function Home(props: {
         <header className="topbar">
           <h1>Popcorn Club</h1>
           <span className="spacer" />
-          <span className="muted">
+          <button className="name-link" onClick={props.onRename} title="Change name">
             Hosting as <strong>{props.name}</strong>
-          </span>
-          <button onClick={props.onRename}>Change name</button>
-          <button onClick={props.onSignOut}>Sign out</button>
+            <PencilIcon size={15} />
+          </button>
+          <button className="icon-button" onClick={props.onSignOut} title="Sign out" aria-label="Sign out">
+            <LogOutIcon size={19} />
+          </button>
         </header>
 
         {error && <p className="error">{error}</p>}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.ts";
-import { ChevronLeftIcon, ChevronRightIcon, InfoIcon } from "./Icons.tsx";
+import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, MoreIcon } from "./Icons.tsx";
 
 function fmtSize(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -58,6 +58,12 @@ export function Library(props: {
   // TMDB details are on: posters, summaries and the Details window with Fix match.
   const [details, setDetails] = useState(false);
   const [shownInfo, setShownInfo] = useState<string | null>(null);
+  // The Details window opens straight on Fix match (from a show's ⋮ menu).
+  const [fixFirst, setFixFirst] = useState(false);
+  const showInfo = (id: string | null, fix = false) => {
+    setFixFirst(fix);
+    setShownInfo(id);
+  };
 
   const apply = (r: LibraryResponse) => {
     setItems(r.items);
@@ -203,7 +209,7 @@ export function Library(props: {
         <span className="meta">{meta(e)}</span>
         <span className="action">{props.actionLabel}</span>
       </button>
-      {details && <InfoButton onClick={() => setShownInfo(e.id)} />}
+      {details && <InfoButton onClick={() => showInfo(e.id)} />}
     </li>
   );
 
@@ -276,7 +282,7 @@ export function Library(props: {
                         <span className="meta">{meta(r.item)}</span>
                         <span className="action">{props.actionLabel}</span>
                       </button>
-                      {details && <InfoButton onClick={() => setShownInfo(r.item.id)} />}
+                      {details && <InfoButton onClick={() => showInfo(r.item.id)} />}
                       {!q && movieExtras.has(r.item.id) && (
                         <button
                           className="extras-toggle"
@@ -334,10 +340,8 @@ export function Library(props: {
                           {show.episodes[0].meta?.year && <span className="year"> {show.episodes[0].meta.year}</span>}
                         </h3>
                         {show.episodes[0].meta?.showOverview && <p className="overview">{show.episodes[0].meta.showOverview}</p>}
-                        <button className="link" onClick={() => setShownInfo(show.episodes[0].id)}>
-                          {show.episodes[0].meta ? "Wrong show? Fix match" : "Find show details"}
-                        </button>
                       </div>
+                      <MoreMenu label={`More for ${show.name}`} items={[[show.episodes[0].meta ? "Fix match" : "Find show details", () => showInfo(show.episodes[0].id, true)]]} />
                     </div>
                   ) : (
                     <h3 className="shelf-title">{show.name}</h3>
@@ -380,6 +384,7 @@ export function Library(props: {
       {shownInfo && byId.has(shownInfo) && (
         <Details
           item={byId.get(shownInfo)!}
+          startFixing={fixFirst}
           actionLabel={props.actionLabel}
           lengthLabel={meta(byId.get(shownInfo)!)}
           onPick={() => {
@@ -424,6 +429,8 @@ function InfoButton(props: { onClick: () => void }) {
 /** A movie's or episode's TMDB details, with Fix match for when the server picked the wrong one. */
 function Details(props: {
   item: MediaItem;
+  /** Open on the Fix match search. */
+  startFixing?: boolean;
   actionLabel: string;
   lengthLabel: ReactNode;
   onPick: () => void;
@@ -435,7 +442,7 @@ function Details(props: {
   const { item } = props;
   const m = item.meta;
   const kind = item.episode ? "tv" : "movie";
-  const [fixing, setFixing] = useState(!m);
+  const [fixing, setFixing] = useState(!m || !!props.startFixing);
   const [query, setQuery] = useState(item.episode?.show ?? item.title);
   const [results, setResults] = useState<MatchCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -493,6 +500,7 @@ function Details(props: {
       }}
     >
       <div className="details" role="dialog" aria-modal="true" aria-label={heading} onClick={(e) => e.stopPropagation()}>
+        {!fixing && <MoreMenu label="More" items={[[m ? "Fix match" : "Find details", () => setFixing(true)]]} />}
         <div className="details-main">
           <Poster path={m?.posterPath} size="w342" className="details-poster" />
           <div className="details-text">
@@ -513,7 +521,6 @@ function Details(props: {
                 {props.actionLabel}
               </button>
               {props.onBingeFrom && <button onClick={props.onBingeFrom}>Binge from here</button>}
-              {!fixing && <button onClick={() => setFixing(true)}>{m ? "Fix match" : "Find details"}</button>}
               <button onClick={props.onClose}>Close</button>
             </div>
           </div>
@@ -554,6 +561,50 @@ function Details(props: {
         )}
         <p className="credit">Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       </div>
+    </div>
+  );
+}
+
+/** A ⋮ button in the top-right corner with a small menu, for things that shouldn't take up room. */
+function MoreMenu(props: { label: string; items: [string, () => void][] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc, true);
+    };
+  }, [open]);
+  return (
+    <div className="more-menu" ref={ref}>
+      <button className="more-button" aria-label={props.label} title={props.label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <MoreIcon size={20} />
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          {props.items.map(([label, run]) => (
+            <button
+              key={label}
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                run();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

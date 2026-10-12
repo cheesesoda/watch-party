@@ -1,14 +1,16 @@
 :root {
-  --bg: #1a0933;
-  --panel: #2a1250;
-  --panel-2: #3d1d6e;
-  --text: #f3eefa;
-  --muted: #c4b3e0;
-  --accent: #ff8e44;
-  --accent-text: #1a0933;
-  --error: #ff5252;
-  /* The pink-to-purple sweep from cheesesoda.com. */
-  --brand: linear-gradient(120deg, #f91362 0%, #35126a 100%);
+  /* Muted versions of the cheesesoda.com colors: a dusky plum and a soft amber, easier on the eyes in a dark room. */
+  --bg: #18131f;
+  --panel: #231c2d;
+  --panel-2: #31283e;
+  --text: #eeeaf3;
+  --muted: #b0a6bf;
+  --accent: #e09a62;
+  --accent-text: #1c1520;
+  --error: #e06666;
+  --warn: #e0b48a;
+  /* The cheesesoda.com pink-to-purple sweep, toned down. */
+  --brand: linear-gradient(120deg, #8a3a5a 0%, #2b2140 100%);
   --radius: 10px;
   color-scheme: dark;
 }
@@ -230,7 +232,7 @@ input:focus {
 }
 .chip {
   background: transparent;
-  border: 1px solid rgba(196, 179, 224, 0.3);
+  border: 1px solid rgba(176, 166, 191, 0.3);
   border-radius: 999px;
   padding: 5px 13px;
   color: var(--muted);
@@ -283,7 +285,7 @@ input:focus {
 }
 .rail hr {
   border: 0;
-  border-top: 1px solid rgba(196, 179, 224, 0.18);
+  border-top: 1px solid rgba(176, 166, 191, 0.18);
   margin: 6px 0;
   width: 100%;
 }
@@ -498,7 +500,7 @@ input:focus {
   font-size: 13px;
 }
 .item .meta .warn {
-  color: #ffb37a;
+  color: var(--warn);
 }
 .item .progress {
   grid-column: 1 / -1;
@@ -591,7 +593,7 @@ input:focus {
   transition: opacity 0.3s;
 }
 .room-top button {
-  background: rgba(42, 18, 80, 0.85);
+  background: rgba(35, 28, 45, 0.85);
 }
 .room-top button.on {
   background: var(--accent);
@@ -617,7 +619,7 @@ input:focus {
   width: 1px;
   height: 22px;
   margin: 0 2px;
-  background: rgba(196, 179, 224, 0.3);
+  background: rgba(176, 166, 191, 0.3);
   flex: none;
 }
 .room-title {
@@ -694,7 +696,7 @@ input:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(26, 9, 51, 0.72);
+  background: rgba(24, 19, 31, 0.72);
   border: 2px solid transparent;
   border-radius: 999px;
   padding: 3px 10px;
@@ -736,7 +738,7 @@ input:focus {
 }
 .chat.expanded .chat-list {
   pointer-events: auto;
-  background: rgba(26, 9, 51, 0.7);
+  background: rgba(24, 19, 31, 0.7);
   border-radius: 16px;
   padding: 10px;
   max-height: 55vh;
@@ -745,7 +747,7 @@ input:focus {
 /* Pop-ups over the video: compact pills with the sender's name. */
 .chat-msg {
   align-self: flex-start;
-  background: rgba(26, 9, 51, 0.78);
+  background: rgba(24, 19, 31, 0.78);
   border-radius: 16px;
   padding: 6px 12px;
   max-width: 100%;
@@ -796,7 +798,7 @@ input:focus {
   pointer-events: auto;
 }
 .chat input {
-  background: rgba(26, 9, 51, 0.78);
+  background: rgba(24, 19, 31, 0.78);
   border-color: transparent;
   border-radius: 22px;
   padding-left: 14px;
@@ -989,6 +991,9 @@ input.code,
 }
 .tile.has-poster .meta {
   align-self: end;
+}
+.tile.has-poster .title {
+  overflow-wrap: anywhere;
 }
 /* An episode: number, still, then its name, summary and length. */
 .item.episode.has-still {
@@ -1192,7 +1197,7 @@ button.link:focus-visible {
   display: grid;
   gap: 6px;
   padding: 14px 16px;
-  background: rgba(26, 9, 51, 0.92);
+  background: rgba(24, 19, 31, 0.92);
   border: 1px solid var(--panel-2);
   border-radius: 12px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
@@ -1219,13 +1224,13 @@ button.link:focus-visible {
   color: var(--muted);
 }
 
-/* Cards with posters need more room: one fewer per row. */
+/* Cards with posters need more room, so a long title like "Severance" fits beside the poster. */
 .shelf:has(.tile.has-poster) {
-  grid-auto-columns: calc((100% - 4 * 10px) / 5);
+  grid-auto-columns: calc((100% - 3 * 10px) / 4);
 }
 @container (min-width: 1500px) {
   .shelf:has(.tile.has-poster) {
-    grid-auto-columns: calc((100% - 6 * 10px) / 7);
+    grid-auto-columns: calc((100% - 5 * 10px) / 6);
   }
 }
 @container (max-width: 1000px) {
@@ -1237,4 +1242,98 @@ button.link:focus-visible {
   .shelf:has(.tile.has-poster) {
     grid-auto-columns: calc((100% - 10px) / 2.3);
   }
+}
+
+/* Header: the host's name doubles as the rename button; sign out is an icon. */
+.topbar .name-link {
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.topbar .name-link strong {
+  color: var(--text);
+}
+.topbar .name-link:hover strong,
+.topbar .name-link:focus-visible strong {
+  text-decoration: underline;
+}
+.topbar .icon-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.topbar .icon-button:hover,
+.topbar .icon-button:focus-visible {
+  color: var(--text);
+}
+
+/* ⋮ menu in the top-right corner of the details window and a show's header. */
+.details {
+  position: relative;
+}
+.details > .more-menu {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.show-head {
+  position: relative;
+}
+.show-head > div:not(.more-menu) {
+  flex: 1;
+  min-width: 0;
+}
+.more-menu {
+  position: relative;
+  flex: none;
+}
+.more-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 50%;
+}
+.more-button:hover,
+.more-button:focus-visible,
+.more-button[aria-expanded="true"] {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.more-menu .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  min-width: 180px;
+  display: grid;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--panel-2);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.more-menu .menu button {
+  background: none;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 6px;
+}
+.more-menu .menu button:hover,
+.more-menu .menu button:focus-visible {
+  background: var(--panel-2);
+  border-color: transparent;
+}
+.details-text {
+  padding-right: 36px;
 }
