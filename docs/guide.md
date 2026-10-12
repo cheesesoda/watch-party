@@ -85,7 +85,7 @@ Run the server straight on Windows with Node. You don't need Docker or WSL: Dock
    ```
 
    Set `WATCH_PASSWORD=` to a long password and `MEDIA_PATH=` to your movie folder, like `MEDIA_PATH=D:/Movies`. Forward slashes are easiest; for several folders use `MEDIA_DIRS=D:/Movies;E:/Shows`.
-5. Start it: `npm start`. It prints how many videos it found. Leave that window open; closing it stops the server.
+5. Start it: `npm start`. It prints how many videos it found. Leave that window open; closing it stops the server. After a reboot, run `npm start` again.
 6. Open http://localhost:8080 and sign in. Then set up Tailscale as below.
 
 If Windows Firewall asks about Node, allow **Private networks** if friends on your Wi-Fi will use your local address. With `tailscale serve` alone it isn't needed.
@@ -120,20 +120,23 @@ To update later: `git pull`, `npm ci`, `npm run build`, then `npm start` again.
 Use Tailscale so friends can reach the server without opening ports, and so browsers get the HTTPS address they require before allowing the mic.
 
 1. Install [Tailscale](https://tailscale.com/download) on the server computer and sign in.
-2. Run:
+2. In the admin console's [DNS page](https://login.tailscale.com/admin/dns), check that **MagicDNS** is on and press **Enable HTTPS** under HTTPS Certificates. You only do this once.
+3. With the server running, run this in another terminal (8080 is the server's default `PORT`):
 
    ```sh
    tailscale serve --bg 8080
    ```
 
-   It prints an address like `https://your-pc.tail1234.ts.net`. If it asks you to turn on HTTPS certificates for your tailnet, follow the link it gives and run the command again.
-3. Open that address yourself and sign in to check it works.
-4. Let friends in. Pick one:
+   It prints an address like `https://your-pc.tail1234.ts.net`. If it asks you to turn on HTTPS certificates, follow the link it gives and run the command again. On Windows, if it says access denied, run PowerShell as Administrator.
+4. Open that address yourself and sign in to check it works. The first load can take a few seconds while the certificate is issued.
+5. Let friends in. Pick one:
    - **Share the machine (more private):** in the Tailscale admin console, share the server machine with each friend. They install Tailscale, accept the share, and then the `https://…ts.net` address works for them.
-   - **Funnel (no Tailscale for friends):** run `tailscale funnel --bg 8080` instead of `serve`. The same address becomes reachable from the whole internet, so only the password protects it. Use a long random one.
-5. Send friends the `https://…ts.net` address and the password, or an invite link from a party's **Invite** button.
+   - **Funnel (no Tailscale for friends):** run `tailscale funnel --bg 8080` instead of `serve`. The same address becomes reachable from the whole internet, so only the password protects it. Use a long random one: wrong guesses are blocked after 10 tries per visitor, which slows guessing but doesn't stop it.
+6. Send friends the `https://…ts.net` address and the password, or an invite link from a party's **Invite** button.
 
-`--bg` keeps it running after you close the terminal and across reboots. To turn it off: `tailscale serve --https=443 off` (or `tailscale funnel --https=443 off`).
+`--bg` keeps the HTTPS address set up after you close the terminal and across reboots, but the server itself still needs starting after a reboot. On Windows, turn on **Run unattended** in the Tailscale tray menu's preferences so it stays connected while you're signed out.
+
+To turn the HTTPS address off: `tailscale serve --https=443 off` (or `tailscale funnel --https=443 off`).
 
 The Android app doesn't need HTTPS for voice, so friends on the same Wi-Fi can also use your local address like `192.168.1.20:8080`. Web browsers do need HTTPS to send voice.
 
