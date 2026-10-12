@@ -170,6 +170,35 @@ test("a party code lets a viewer into that party only, until it ends", async () 
   viewer.ws.close();
 });
 
+test("a TV signs in by QR: the phone enters a party code or the password", async () => {
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(base + path, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "100.64.2.1", ...headers }, body: JSON.stringify(body) });
+  const { room } = await (await post("/api/rooms", {}, auth())).json();
+
+  const { id } = await (await post("/api/pair", {})).json();
+  assert.deepEqual(await (await fetch(`${base}/api/pair/${id}`)).json(), { status: "waiting" });
+  assert.equal((await post(`/api/pair/${id}`, { name: "Sam", code: "nope00" })).status, 404);
+  assert.equal((await post(`/api/pair/${id}`, { name: "Sam", code: room.id.toUpperCase() })).status, 200);
+  const done = await (await fetch(`${base}/api/pair/${id}`)).json();
+  assert.equal(done.status, "done");
+  assert.equal(done.role, "guest");
+  assert.equal(done.room, room.id);
+  assert.equal(done.name, "Sam");
+  assert.equal((await fetch(`${base}/api/rooms/${room.id}`, { headers: { Authorization: `Bearer ${done.token}` } })).status, 200);
+  assert.equal((await fetch(`${base}/api/pair/${id}`)).status, 404, "a pass is handed out once");
+
+  const host = (await (await post("/api/pair", {})).json()).id;
+  assert.equal((await post(`/api/pair/${host}`, { name: "Jake", password: "wrong" })).status, 401);
+  assert.equal((await post(`/api/pair/${host}`, { name: "Jake" }, auth())).status, 200);
+  const hostDone = await (await fetch(`${base}/api/pair/${host}`)).json();
+  assert.equal(hostDone.role, "host");
+  assert.equal(hostDone.token, token);
+
+  const page = await fetch(`${base}/pair/${host}`, { redirect: "manual" });
+  assert.equal(page.headers.get("location"), `/#/pair/${host}`);
+  assert.equal((await fetch(`${base}/.well-known/assetlinks.json`)).status, 404);
+});
+
 test("behind a local proxy, one visitor's wrong passwords don't lock out another", async () => {
   // The test client connects from 127.0.0.1, like `tailscale serve` does, and names the visitor.
   const attempt = (password: string, visitor: string) =>

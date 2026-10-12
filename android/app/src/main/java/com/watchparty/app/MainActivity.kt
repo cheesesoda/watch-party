@@ -1,6 +1,17 @@
 package com.watchparty.app
 
+import android.app.UiModeManager
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Bundle
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -57,9 +68,25 @@ private val Muted = Color(0xFF9097A6)
 private val ErrorColor = Color(0xFFFF7A6B)
 
 class MainActivity : ComponentActivity() {
+    /** A TV sign-in link (server, pairing id) this phone was opened with, from the TV's QR code. */
+    private val pairLink = mutableStateOf<Pair<String, String>?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        pairLinkFrom(intent)?.let { pairLink.value = it }
+    }
+
+    private fun pairLinkFrom(intent: Intent?): Pair<String, String>? {
+        val uri = intent?.data ?: return null
+        val id = uri.pathSegments.takeIf { it.size == 2 && it[0] == "pair" }?.get(1) ?: return null
+        val port = if (uri.port > 0) ":${uri.port}" else ""
+        return "${uri.scheme}://${uri.host}$port" to id
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(this)
+        pairLink.value = pairLinkFrom(intent)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = Accent, onPrimary = Bg, background = Bg, surface = Panel),
@@ -72,7 +99,10 @@ class MainActivity : ComponentActivity() {
                         .background(Bg)
                         .safeDrawingPadding(),
                 ) {
-                    if (setUp) {
+                    val link = pairLink.value
+                    if (link != null) {
+                        PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null })
+                    } else if (setUp) {
                         HomeScreen(
                             prefs = prefs,
                             onSignedOut = { message ->
@@ -93,14 +123,24 @@ class MainActivity : ComponentActivity() {
 /** First screen for anyone who isn't signed in as the host: join with a code, or start a party with the password. */
 @Composable
 private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTv = remember {
+        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
     var mode by remember { mutableStateOf<String?>(null) }
     when (mode) {
         "start" -> StartForm(prefs, notice, onDone, onBack = { mode = null })
         "join" -> JoinForm(prefs, onBack = { mode = null })
+        "phone" -> TvPairScreen(prefs, onDone, onBack = { mode = null })
         else -> FormCard {
             Text("Popcorn Club", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
             notice?.let { Text(it, color = ErrorColor) }
-            Button(onClick = { mode = "join" }, modifier = Modifier.fillMaxWidth()) { Text("Join a party") }
+            if (isTv) {
+                Button(onClick = { mode = "phone" }, modifier = Modifier.fillMaxWidth()) { Text("Sign in with your phone") }
+                OutlinedButton(onClick = { mode = "join" }, modifier = Modifier.fillMaxWidth()) { Text("Type a party code") }
+            } else {
+                Button(onClick = { mode = "join" }, modifier = Modifier.fillMaxWidth()) { Text("Join a party") }
+            }
             OutlinedButton(onClick = { mode = "start" }, modifier = Modifier.fillMaxWidth()) { Text("Start a party") }
             Text("Joining needs the party code from your host. Starting one needs the server password.", color = Muted, fontSize = 13.sp)
         }
@@ -119,6 +159,19 @@ private fun FormCard(content: @Composable () -> Unit) {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) { content() }
+    }
+}
+
+/** The built-in server, with an "Other server" escape hatch that shows the address field. */
+@Composable
+private fun ServerChoice(other: Boolean, defaultServer: String, server: String, onOther: () -> Unit, onChange: (String) -> Unit) {
+    if (other) {
+        ServerField(server, onChange)
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Server: ${defaultServer.substringAfter("://")}", color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = onOther) { Text("Other server") }
+        }
     }
 }
 
@@ -149,7 +202,9 @@ private fun NameField(value: String, onChange: (String) -> Unit) {
 
 @Composable
 private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack: () -> Unit) {
-    var server by remember { mutableStateOf(prefs.serverUrl.ifBlank { BuildConfig.DEFAULT_SERVER }) }
+    val defaultServer = BuildConfig.DEFAULT_SERVER
+    var otherServer by remember { mutableStateOf(defaultServer.isBlank()) }
+    var server by remember { mutableStateOf(prefs.serverUrl) }
     var name by remember { mutableStateOf(prefs.name) }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(notice) }
@@ -157,7 +212,7 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
     val scope = rememberCoroutineScope()
 
     val submit: () -> Unit = submit@{
-        val url = Prefs.normalizeUrl(server)
+        val url = Prefs.normalizeUrl(if (otherServer) server else defaultServer)
         if (url.isEmpty()) {
             error = "Enter your server address, like party.example.com."
             return@submit
@@ -187,7 +242,7 @@ private fun StartForm(prefs: Prefs, notice: String?, onDone: () -> Unit, onBack:
 
     FormCard {
         Text("Start a party", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        ServerField(server) { server = it }
+        ServerChoice(otherServer, defaultServer, server, onOther = { otherServer = true }) { server = it }
         NameField(name) { name = it }
         OutlinedTextField(
             value = password,
@@ -255,14 +310,7 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
 
     FormCard {
         Text("Join a party", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        if (otherServer) {
-            ServerField(server) { server = it }
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Server: ${defaultServer.substringAfter("://")}", color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { otherServer = true }) { Text("Other server") }
-            }
-        }
+        ServerChoice(otherServer, defaultServer, server, onOther = { otherServer = true }) { server = it }
         OutlinedTextField(
             value = code,
             onValueChange = { code = if (it.contains("/")) it else it.uppercase() },
@@ -278,6 +326,186 @@ private fun JoinForm(prefs: Prefs, onBack: () -> Unit) {
         }
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
+}
+
+/**
+ * On a TV: shows a QR code. A phone scans it, enters a party code (or the password), and this screen picks up
+ * the sign-in and joins the party (or opens the host's home).
+ */
+@Composable
+private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var qr by remember { mutableStateOf<ImageBitmap?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val server = try {
+            Api.resolveServer(Prefs.normalizeUrl(BuildConfig.DEFAULT_SERVER.ifBlank { prefs.serverUrl }))
+        } catch (e: Exception) {
+            error = e.message ?: "Couldn't reach the server."
+            return@LaunchedEffect
+        }
+        val api = Api(server, "")
+        while (true) {
+            val pairing = try {
+                api.createPairing()
+            } catch (e: Exception) {
+                error = e.message ?: "Couldn't reach the server."
+                delay(5000)
+                continue
+            }
+            qr = qrBitmap(api.pairUrl(pairing.id))
+            error = null
+            // Poll until the phone finishes or the code expires, then start over with a fresh code.
+            while (true) {
+                delay(2000)
+                val status = try {
+                    api.pairStatus(pairing.id)
+                } catch (e: ApiException) {
+                    break
+                } catch (e: Exception) {
+                    continue
+                }
+                if (status.status != "done" || status.token == null) continue
+                prefs.serverUrl = server
+                prefs.token = status.token
+                status.name?.let { prefs.name = it }
+                if (status.role == "host") {
+                    prefs.markSignedIn(true)
+                    onDone()
+                } else if (status.room != null) {
+                    RoomActivity.start(context, status.room, host = false)
+                    onBack()
+                }
+                return@LaunchedEffect
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Panel)
+                .padding(32.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(260.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center,
+            ) {
+                qr?.let { Image(it, contentDescription = "Sign-in QR code", modifier = Modifier.size(240.dp)) }
+                    ?: Text("Loading…", color = Bg)
+            }
+            Column(Modifier.widthIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Sign in with your phone", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Scan the code with your phone's camera, then enter the party code and a name. The TV joins on its own.", color = Muted)
+                error?.let { Text(it, color = ErrorColor) }
+                OutlinedButton(onClick = onBack) { Text("Back") }
+            }
+        }
+    }
+}
+
+/** Opened on a phone from a TV's QR code: choose what the TV signs in as. */
+@Composable
+private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: () -> Unit) {
+    val signedInHost = prefs.isSetUp && prefs.serverUrl == server
+    val api = remember { Api(server, if (signedInHost) prefs.token else "") }
+    val scope = rememberCoroutineScope()
+    var asHost by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(prefs.name) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf(false) }
+
+    val submit: () -> Unit = submit@{
+        if (!asHost && code.isBlank()) {
+            error = "Enter the party code from your host."
+            return@submit
+        }
+        if (name.isBlank()) {
+            error = "Pick a name for the TV so friends know who's watching."
+            return@submit
+        }
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                api.completePairing(
+                    id,
+                    name.trim().take(32),
+                    code = if (asHost) null else Prefs.roomCode(code),
+                    password = if (asHost && !signedInHost) password else null,
+                )
+                done = true
+            } catch (e: Exception) {
+                error = e.message ?: "Couldn't reach the server."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    if (done) {
+        FormCard {
+            Text("All set", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Your TV is signing in now.", color = Muted)
+            Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+        }
+        return
+    }
+
+    FormCard {
+        Text("Sign in your TV", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        if (!asHost) {
+            OutlinedTextField(
+                value = code,
+                onValueChange = { code = it.uppercase() },
+                label = { Text("Party code") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else if (!signedInHost) {
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Server password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it.take(32) },
+            label = { Text("Name on the TV") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        error?.let { Text(it, color = ErrorColor) }
+        Button(onClick = submit, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (busy) "Signing in…" else if (asHost) "Sign in TV as host" else "Join on the TV")
+        }
+        OutlinedButton(onClick = { asHost = !asHost }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (asHost) "Join a party instead" else "I'm the host")
+        }
+        TextButton(onClick = onClose) { Text("Cancel") }
+    }
+}
+
+private fun qrBitmap(text: String, size: Int = 480): ImageBitmap {
+    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 0))
+    val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
+    return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
 /** The host's home: start a party (shows its code and a Join button), see running parties, or join by code. */

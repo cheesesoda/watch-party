@@ -26,6 +26,15 @@ class Api(private val baseUrl: String, private val token: String) {
     @Serializable private data class RoomsResponse(val rooms: List<RoomSummary>)
     @Serializable private data class RoomResponse(val room: RoomSummary)
     @Serializable data class JoinResponse(val token: String? = null, val room: RoomSummary)
+    @Serializable data class Pairing(val id: String, val expiresIn: Int = 600)
+    /** A TV sign-in: "waiting" until the phone finishes, then "done" with the pass (role host or guest). */
+    @Serializable data class PairStatus(
+        val status: String,
+        val role: String? = null,
+        val token: String? = null,
+        val room: String? = null,
+        val name: String? = null,
+    )
     @Serializable private data class ErrorResponse(val error: String? = null)
 
     private val jsonType = "application/json".toMediaType()
@@ -36,7 +45,7 @@ class Api(private val baseUrl: String, private val token: String) {
         if (body != null) builder.post(body.toRequestBody(jsonType))
         client.newCall(builder.build()).execute().use { res ->
             val text = res.body?.string().orEmpty()
-            if (res.code == 401 && !path.endsWith("/login") && !path.endsWith("/join")) throw UnauthorizedException()
+            if (res.code == 401 && !path.endsWith("/login") && !path.endsWith("/join") && !path.startsWith("/api/pair")) throw UnauthorizedException()
             if (!res.isSuccessful) {
                 val msg = runCatching { Protocol.json.decodeFromString<ErrorResponse>(text).error }.getOrNull()
                 throw ApiException(msg ?: "Server returned ${res.code}")
@@ -54,6 +63,25 @@ class Api(private val baseUrl: String, private val token: String) {
     suspend fun join(code: String): JoinResponse {
         val body = buildJsonObject { put("code", code.trim()) }.toString()
         return Protocol.json.decodeFromString<JoinResponse>(request("/api/join", body))
+    }
+
+    /** Starts a TV sign-in; show `pairUrl(id)` as a QR code and poll `pairStatus(id)`. */
+    suspend fun createPairing(): Pairing =
+        Protocol.json.decodeFromString<Pairing>(request("/api/pair", "{}"))
+
+    suspend fun pairStatus(id: String): PairStatus =
+        Protocol.json.decodeFromString<PairStatus>(request("/api/pair/$id"))
+
+    fun pairUrl(id: String): String = "$baseUrl/pair/$id"
+
+    /** From the phone: sign the TV in with a party code, or as the host (this phone's sign-in or the password). */
+    suspend fun completePairing(id: String, name: String, code: String?, password: String?) {
+        val body = buildJsonObject {
+            put("name", name)
+            if (code != null) put("code", code)
+            if (password != null) put("password", password)
+        }.toString()
+        request("/api/pair/$id", body)
     }
 
     suspend fun me() {

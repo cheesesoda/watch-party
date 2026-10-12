@@ -24,6 +24,11 @@ export interface Config {
   trustProxy: string;
   /** ffmpeg settings for converting files browsers can't play; left out, converting is off. */
   transcode?: TranscodeConfig;
+  /**
+   * The Android app's signing certificate SHA-256 fingerprints, so a phone opens the TV sign-in link
+   * (/pair/…) in the app instead of the browser. Empty: the link always opens the web page.
+   */
+  androidApp?: { packageName: string; certFingerprints: string[] };
 }
 
 /** Parses ICE_SERVERS, a JSON array of RTCIceServer objects (urls may be a string or an array). */
@@ -63,6 +68,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDir: path.resolve(env.WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url))),
     iceServers: parseIceServers(env.ICE_SERVERS),
     trustProxy: env.TRUST_PROXY?.trim() || "loopback",
+    androidApp: {
+      packageName: env.ANDROID_PACKAGE?.trim() || "com.cheeseparty.app",
+      certFingerprints: (env.ANDROID_CERT_SHA256 ?? "").split(/[\s,]+/).filter(Boolean),
+    },
     transcode: {
       ffmpeg: env.FFMPEG_PATH?.trim() || "ffmpeg",
       ffprobe: env.FFPROBE_PATH?.trim() || "ffprobe",

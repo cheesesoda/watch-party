@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
@@ -11,7 +12,7 @@ import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
-import { RoomManager } from "./rooms.ts";
+import { cleanName, RoomManager } from "./rooms.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
@@ -96,6 +97,69 @@ export function createApp(config: Config): App {
     const token = guestToken(room.id, room.guestKey);
     res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: 7 * 24 * 3600 * 1000 });
     res.json({ token, room: room.summary() });
+  });
+
+  // Signing in a TV from a phone: the TV asks for a pairing and shows it as a QR code; the phone opens
+  // /pair/<id>, enters a party code (or the password), and the TV picks up the pass on its next poll.
+  const PAIR_MS = 10 * 60_000;
+  const pairings = new Map<string, { expires: number; result?: Record<string, unknown> }>();
+  const pairLimiter = new FailureLimiter(20);
+  const pending = (id: string) => {
+    const p = pairings.get(id);
+    if (p && p.expires > Date.now()) return p;
+    pairings.delete(id);
+    return undefined;
+  };
+
+  app.post("/api/pair", (req, res) => {
+    const client = req.ip ?? "unknown";
+    if (pairLimiter.blockedFor(client) > 0 || pairings.size >= 500) {
+      return void res.status(429).json({ error: "Too many sign-in codes. Try again in a few minutes." });
+    }
+    pairLimiter.fail(client);
+    const id = crypto.randomBytes(18).toString("base64url");
+    pairings.set(id, { expires: Date.now() + PAIR_MS });
+    res.status(201).json({ id, expiresIn: PAIR_MS / 1000 });
+  });
+
+  app.get("/api/pair/:id", (req, res) => {
+    const p = pending(req.params.id);
+    if (!p) return void res.status(404).json({ error: "This sign-in code expired. Show a new one." });
+    if (!p.result) return void res.json({ status: "waiting" });
+    pairings.delete(req.params.id);
+    res.json({ status: "done", ...p.result });
+  });
+
+  app.post("/api/pair/:id", (req, res) => {
+    const p = pending(req.params.id);
+    if (!p || p.result) return void res.status(404).json({ error: "This sign-in code expired. Show a new one on the TV." });
+    const client = req.ip ?? "unknown";
+    const name = cleanName(req.body?.name);
+    const code = req.body?.code;
+
+    if (typeof code === "string" && code.trim()) {
+      const wait = joinLimiter.blockedFor(client);
+      if (wait > 0) return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
+      const room = rooms.get(code.trim());
+      if (!room) {
+        joinLimiter.fail(client);
+        return void res.status(404).json({ error: "No party with that code. It may have ended." });
+      }
+      p.result = { role: "guest", token: guestToken(room.id, room.guestKey), room: room.id, name };
+      return void res.json({ ok: true });
+    }
+
+    // The host: already signed in on this phone, or types the password.
+    if (accessOf(req)?.kind !== "host") {
+      const wait = loginLimiter.blockedFor(client);
+      if (wait > 0) return void res.status(429).json({ error: `Too many wrong passwords. Try again in ${Math.ceil(wait / 60)} min.` });
+      if (!checkPassword(config.password, req.body?.password)) {
+        loginLimiter.fail(client);
+        return void res.status(401).json({ error: "Wrong password." });
+      }
+    }
+    p.result = { role: "host", token: hostToken, name };
+    res.json({ ok: true });
   });
 
   app.post("/api/logout", (_req, res) => {
@@ -245,6 +309,23 @@ export function createApp(config: Config): App {
     res.status(404).json({ error: "Not found." });
   });
 
+  // The TV's QR code points here: a real path, so Android can hand it to the app (see assetlinks below).
+  app.get("/pair/:id", (req, res) => {
+    res.redirect(302, `/#/pair/${encodeURIComponent(req.params.id)}`);
+  });
+
+  // Lets Android open /pair links in the app. Fingerprints come from Play Console (App signing).
+  app.get("/.well-known/assetlinks.json", (_req, res) => {
+    const android = config.androidApp;
+    if (!android?.certFingerprints.length) return void res.status(404).end();
+    res.json([
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: { namespace: "android_app", package_name: android.packageName, sha256_cert_fingerprints: android.certFingerprints },
+      },
+    ]);
+  });
+
   // Web client (single-page app with hash routing).
   if (fs.existsSync(path.join(config.webDir, "index.html"))) {
     app.use(express.static(config.webDir, { index: "index.html", maxAge: "1h" }));
@@ -309,7 +390,10 @@ export function createApp(config: Config): App {
     });
   }
 
-  const sweeper = setInterval(() => rooms.sweep(), 60_000);
+  const sweeper = setInterval(() => {
+    rooms.sweep();
+    for (const id of pairings.keys()) pending(id);
+  }, 60_000);
   sweeper.unref();
 
   return {
