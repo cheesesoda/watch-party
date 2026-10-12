@@ -23,6 +23,7 @@
   <ItemGroup>
     <EmbeddedResource Include="icon.ico" LogicalName="icon.ico" />
     <EmbeddedResource Include="icon-stopped.ico" LogicalName="icon-stopped.ico" />
+    <EmbeddedResource Include="notification.png" LogicalName="notification.png" />
   </ItemGroup>
 
 </Project>

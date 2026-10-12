@@ -17,6 +17,7 @@ static class Program
             return;
         }
 
+        AppIdentity.Register();
         ApplicationConfiguration.Initialize();
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
         Application.Run(new TrayApp(args));
