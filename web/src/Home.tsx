@@ -21,6 +21,8 @@ export function Home(props: {
   const [started, setStarted] = useState<RoomSummary | null>(null);
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
+  // The party whose code was just clicked, to say its invite link was copied.
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // When the list arrived, so playing parties' progress can move on between refreshes.
@@ -65,6 +67,15 @@ export function Home(props: {
       await navigator.clipboard.writeText(inviteLink(id));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      prompt("Copy this invite link", inviteLink(id));
+    }
+  };
+  const copyCode = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(inviteLink(id));
+      setCopiedCode(id);
+      setTimeout(() => setCopiedCode((c) => (c === id ? null : c)), 2000);
     } catch {
       prompt("Copy this invite link", inviteLink(id));
     }
@@ -177,7 +188,13 @@ export function Home(props: {
                     )}
                   </button>
                   <div className="party-actions">
-                    <span className="party-card-code">{r.id.toUpperCase()}</span>
+                    <button
+                      className={copiedCode === r.id ? "party-card-code copied" : "party-card-code"}
+                      onClick={() => copyCode(r.id)}
+                      title="Copy invite link"
+                    >
+                      {copiedCode === r.id ? "Link copied" : r.id.toUpperCase()}
+                    </button>
                     <button className="end" onClick={() => end(r)}>
                       End
                     </button>
