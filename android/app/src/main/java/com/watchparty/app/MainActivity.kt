@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -570,6 +571,28 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     }
 
     val listState = rememberLazyListState()
+    // The party waiting for "End it for everyone?" to be confirmed.
+    var ending by remember { mutableStateOf<RoomSummary?>(null) }
+    ending?.let { room ->
+        AlertDialog(
+            onDismissRequest = { ending = null },
+            title = { Text("End this party?") },
+            text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
+            confirmButton = {
+                Button(onClick = {
+                    ending = null
+                    scope.launch {
+                        guard { api.endRoom(room.id, prefs.name) }?.let {
+                            rooms = rooms.filter { it.id != room.id }
+                            if (started?.id == room.id) started = null
+                        }
+                    }
+                }, modifier = Modifier.focusRing()) { Text("End party") }
+            },
+            dismissButton = { OutlinedButton(onClick = { ending = null }, modifier = Modifier.focusRing()) { Text("Cancel") } },
+        )
+    }
+
     LazyColumn(
         Modifier
             .fillMaxSize()
@@ -600,7 +623,10 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                 ) {
                     Text("Party ready for ${room.media?.title ?: "your movie"}. Share the code, then join when you're ready to watch.", color = Muted)
                     Text(room.id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
-                    Button(onClick = { RoomActivity.start(context, room.id) }, modifier = Modifier.focusRing()) { Text("Join party") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { RoomActivity.start(context, room.id) }, modifier = Modifier.focusRing()) { Text("Join party") }
+                        OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End party") }
+                    }
                 }
             }
         }
@@ -610,12 +636,17 @@ private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             item { Text("No parties right now.", color = Muted) }
         }
         items(rooms, key = { "room-" + it.id }) { room ->
-            FocusRow(
-                title = room.media?.title ?: "Nothing picked yet",
-                subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
-                action = "Join",
-                onClick = { RoomActivity.start(context, room.id) },
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    FocusRow(
+                        title = room.media?.title ?: "Nothing picked yet",
+                        subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
+                        action = "Join",
+                        onClick = { RoomActivity.start(context, room.id) },
+                    )
+                }
+                OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End") }
+            }
         }
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -299,6 +299,16 @@ export function createApp(config: Config): App {
     res.status(201).json({ room: rooms.create(mediaId).summary() });
   });
 
+  // Ends a party from the host's home screen, without joining it. Everyone in it is sent home.
+  app.post("/api/rooms/:id/end", (req, res) => {
+    const access: Access = res.locals.access;
+    if (access.kind !== "host") return void res.status(403).json({ error: "Only the host can end a party." });
+    const room = rooms.get(req.params.id);
+    if (!room) return void res.status(404).json({ error: "No such room." });
+    room.end(typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim().slice(0, 32) : "the host");
+    res.status(204).end();
+  });
+
   app.get("/api/rooms/:id", (req, res) => {
     const room = rooms.get(req.params.id);
     if (!room) return void res.status(404).json({ error: "No such room." });

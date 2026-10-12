@@ -45,6 +45,18 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
     }
   };
 
+  const end = async (room: RoomSummary) => {
+    const title = room.media?.title ?? "this party";
+    if (!confirm(`End ${title} for everyone? Anyone watching goes back to the start screen.`)) return;
+    try {
+      await api.endRoom(room.id, props.name);
+      setRooms((rs) => rs.filter((r) => r.id !== room.id));
+      setStarted((s) => (s?.id === room.id ? null : s));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const join = (e: FormEvent) => {
     e.preventDefault();
     const id = code.trim().toLowerCase();
@@ -77,6 +89,7 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
                 Join party
               </button>
               <button onClick={() => copy(started.id)}>{copied ? "Link copied" : "Copy invite link"}</button>
+              <button onClick={() => end(started)}>End party</button>
             </div>
           </div>
         </section>
@@ -96,6 +109,9 @@ export function Home(props: { name: string; onRename: () => void; onSignOut: () 
                     {r.members.length === 0 ? "empty" : [...new Set(r.members.map((m) => m.name))].join(", ")} · code {r.id.toUpperCase()}
                   </span>
                   <span className="action">Join</span>
+                </button>
+                <button className="end" onClick={() => end(r)}>
+                  End
                 </button>
               </li>
             ))}

@@ -161,7 +161,7 @@ A party code only gets you into that one party. It stops working when the host e
 2. Find the movie under **Start a party** and press **Start party** next to it. You get a party code, a **Copy invite link** button and a **Join party** button. Nothing plays yet, and you stay on the home page.
 3. Send the link, then press **Join party** when you're ready to watch. **Change video** in the party picks something else. The **Invite** button in the party also shows the code.
 
-Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party.
+Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party. To end a party without joining it, press **End** next to it under **Watch parties** on the host's home page (web or app).
 
 To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone is sent out and the code stops working. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
 
