@@ -4,6 +4,7 @@ import { api } from "./api.ts";
 import { LogOutIcon, PencilIcon } from "./Icons.tsx";
 import { Library } from "./Library.tsx";
 import { navigate } from "./nav.ts";
+import { Logo } from "./Logo.tsx";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
 // A real path rather than #/join/, so Android can open it in the app; the server redirects browsers to #/join/.
@@ -96,7 +97,7 @@ export function Home(props: {
     <div className="page-wrap">
       <div className="page">
         <header className="topbar">
-          <h1>Popcorn Club</h1>
+          <Logo />
           <span className="spacer" />
           <button className="name-link" onClick={props.onRename} title="Change name">
             <span className="hosting-as">Hosting as</span> <strong>{props.name}</strong>
@@ -188,6 +189,7 @@ export function Home(props: {
         <section className="start-party">
           <h2>Start a party</h2>
           <Library
+            remember="home"
             actionLabel="Start party"
             onPick={(item) => start(item.id)}
             onBinge={(ids) => start(ids[0], ids)}

@@ -27,24 +27,46 @@ body,
   background: var(--bg);
   color: var(--text);
   font:
-    15px/1.45 system-ui,
+    15px/1.45 "Barlow",
+    system-ui,
     -apple-system,
     "Segoe UI",
     Roboto,
     sans-serif;
 }
 
+/* Headings in Barlow Condensed, like cheesesoda.com. */
 h1,
 h2,
 h3 {
   margin: 0 0 12px;
-  font-weight: 650;
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 h1 {
-  font-size: 22px;
+  font-size: 28px;
 }
 h2 {
-  font-size: 18px;
+  font-size: 23px;
+}
+h3 {
+  font-size: 19px;
+}
+
+/* The popcorn mark beside the name in page headers. */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1;
+}
+.logo .logo-mark {
+  flex: none;
+}
+.login .logo {
+  justify-content: center;
+  font-size: 34px;
 }
 
 button,
@@ -109,11 +131,13 @@ input:focus {
 .page-wrap {
   background: var(--bg);
 }
+/* Sign-in, join and pairing screens sit on the muted brand gradient. */
 .center {
   min-height: 100%;
   display: grid;
   place-items: center;
   padding: 16px;
+  background: var(--brand);
 }
 
 .card {
@@ -447,17 +471,18 @@ input:focus {
 .items li.row-line > .items.extras {
   flex-basis: 100%;
 }
-.row-tool {
+/* Start party beside each row: the row itself opens the details. */
+.row-start {
   flex: none;
-  width: 44px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
+  padding-inline: 16px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
 }
-.row-tool:hover,
-.row-tool:focus-visible {
-  color: var(--text);
+.row-start:hover,
+.row-start:focus-visible {
+  background: var(--panel-2);
 }
 .extras-toggle {
   padding-inline: 16px;
@@ -491,7 +516,7 @@ input:focus {
 }
 .item .title {
   grid-area: title;
-  font-weight: 550;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .item .meta {
