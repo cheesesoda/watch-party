@@ -180,9 +180,9 @@ A party code only gets you into that one party. It stops working when the host e
 
 Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party. To end a party without joining it, press **End** next to it under **Watch parties** on the host's home page (web or app).
 
-To end a party for everyone, press **End party** in the top bar (in the Android app it's under **Leave**). Everyone is sent out and the code stops working. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
+To end a party for everyone, press **End party** (the coral power icon in the top bar; in the Android app it's under **Leave**). Everyone is sent out and the code stops working. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
 
-Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) are converted by the server while you watch, like Plex does, if the host has FFmpeg installed. This happens on its own: the browser checks the file and asks for the converted copy when it needs it. A **Convert** button in the top bar shows when it's on and lets you switch by hand if the picture or sound is missing. Converted video is 1080p H.264 with stereo sound. Each viewer's browser decides for itself, and the Android app still plays the original file.
+Movies browsers can't play as-is (HEVC/H.265, AC3 or DTS audio, and some MKVs) are converted by the server while you watch, like Plex does, if the host has FFmpeg installed. This happens on its own: the browser checks the file and asks for the converted copy when it needs it. A **Convert** switch in Settings (the gear icon) shows when it's on and lets you switch by hand if the picture or sound is missing. Converted video is 1080p H.264 with stereo sound. Each viewer's browser decides for itself, and the Android app still plays the original file.
 
 ## Install the Android app (phone or TV)
 
