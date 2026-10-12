@@ -595,8 +595,9 @@ class RoomActivity : ComponentActivity() {
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(dp(12), 0, dp(12), dp(2))
                 setShadowLayer(3f, 0f, 1f, Color.BLACK)
-            })
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
         }
+        // WRAP_CONTENT: a vertical LinearLayout otherwise stretches each bubble to the full width.
         column.addView(text(15f, if (mine) Color.BLACK else Color.WHITE).apply {
             text = m.text
             maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt().coerceAtMost(dp(280))
@@ -606,7 +607,7 @@ class RoomActivity : ComponentActivity() {
             }
             setPadding(dp(12), dp(7), dp(12), dp(8))
             setLineSpacing(0f, 1.1f)
-        })
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
         return column
     }
 
