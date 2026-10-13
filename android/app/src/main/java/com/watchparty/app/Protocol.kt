@@ -59,6 +59,12 @@ data class MediaMeta(
     val show: String? = null,
     val showPosterPath: String? = null,
     val showOverview: String? = null,
+    /** Wide background art: the movie's, or the show's for an episode. */
+    val backdropPath: String? = null,
+    /** TMDB's average score out of 10 (the show's for an episode). */
+    val rating: Double? = null,
+    /** "Comedy", "Crime"… (the show's for an episode). */
+    val genres: List<String> = emptyList(),
 )
 
 @Serializable

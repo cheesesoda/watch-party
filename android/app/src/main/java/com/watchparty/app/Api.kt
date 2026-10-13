@@ -178,7 +178,8 @@ class Api(private val baseUrl: String, private val token: String) {
         }
 
         /** Posters already loaded, by URL, so scrolling back doesn't load them again. */
-        private val images = object : LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
+        // Backdrops are big (a 1280-wide one is about 3.5 MB decoded), so the cache grows with the app's memory.
+        private val images = object : LruCache<String, ImageBitmap>((Runtime.getRuntime().maxMemory() / 6).toInt().coerceIn(24 shl 20, 96 shl 20)) {
             override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
         }
 
