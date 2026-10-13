@@ -188,7 +188,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
         mutableStateListOf("home")
     }
     val route = stack.last()
-    val go = { r: Route ->
+    val go: (Route) -> Unit = { r ->
         // The menu's pages replace each other; movie and show pages stack on top so Back returns.
         if (r == "back") {
             if (stack.size > 1) stack.removeAt(stack.lastIndex) else stack[0] = "home"
