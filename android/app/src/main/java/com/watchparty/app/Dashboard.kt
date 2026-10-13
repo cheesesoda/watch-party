@@ -192,6 +192,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     var error by remember { mutableStateOf<String?>(null) }
     var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var ending by remember { mutableStateOf<RoomSummary?>(null) }
+    // Pick up where you left off, and the one whose options are open on a TV.
+    var spots by remember { mutableStateOf<List<Spot>>(emptyList()) }
+    var spotOptions by remember { mutableStateOf<Spot?>(null) }
     var askCode by remember { mutableStateOf(false) }
 
     // Pages opened so far; Back returns to the one before. Kept through rotation.
@@ -238,6 +241,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 fetchedAt = System.currentTimeMillis()
                 now = fetchedAt
             }
+            // Parties ended in the player, or that closed by themselves, may have saved a spot.
+            guard { api.spots() }?.let { spots = it }
             delay(5000)
         }
     }
@@ -296,6 +301,32 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         end = { ending = it },
     )
     val sinceFetch = (now - fetchedAt).coerceAtLeast(0)
+    val spotActions = SpotActions(
+        start = { spot ->
+            spotOptions = null
+            scope.launch {
+                val room = guard { api.startSpot(spot.id) }
+                spots = spots.filter { it.id != spot.id }
+                if (room != null) {
+                    started = room
+                    rooms = rooms.filter { it.id != room.id } + room
+                    listState.scrollToItem(0)
+                } else guard { api.spots() }?.let { spots = it }
+            }
+        },
+        open = { spot ->
+            spotOptions = null
+            val m = spot.media
+            val show = m.episode?.let { library?.shows?.firstOrNull { s -> s.episodes.any { it.id == m.id } } }
+            go(if (show != null) "show/${show.name}" else "movie/${m.id}")
+        },
+        remove = { spot ->
+            spotOptions = null
+            spots = spots.filter { it.id != spot.id }
+            scope.launch { guard { api.removeSpot(spot.id) } ?: guard { api.spots() }?.let { spots = it } }
+        },
+        options = { spotOptions = it },
+    )
 
     val page: @Composable () -> Unit = {
         val lib = library
@@ -311,7 +342,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             route == "shows" -> PosterGrid(lib, "TV shows", emptyList(), lib.shows, actions, gridState)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
-            else -> HomePage(lib, rooms, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
+            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
         }
     }
 
@@ -352,24 +383,40 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         }
     }
     ending?.let { room ->
-        AlertDialog(
+        val endIt = { save: Boolean ->
+            ending = null
+            scope.launch {
+                guard { api.endRoom(room.id, prefs.name, save) }?.let {
+                    rooms = rooms.filter { it.id != room.id }
+                    if (started?.id == room.id) started = null
+                    if (save) guard { api.spots() }?.let { spots = it }
+                }
+            }
+        }
+        // Partway through something, the choice is whether to save the spot; otherwise just a check.
+        val p = room.playback
+        val position = p?.let { it.position + if (it.paused) 0.0 else sinceFetch / 1000.0 } ?: 0.0
+        val duration = p?.duration ?: room.media?.duration
+        val upcoming = room.upNext?.count ?: 0
+        if (room.media != null && worthSaving(position, duration, upcoming)) {
+            SaveSpotDialog(
+                api,
+                spotPreview(room.media, position, duration, room.upNext?.item, upcoming),
+                onSave = { endIt(true) },
+                onDontSave = { endIt(false) },
+                onCancel = { ending = null },
+            )
+        } else AlertDialog(
             onDismissRequest = { ending = null },
             title = { Text("End this party?") },
             text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
-            confirmButton = {
-                DialogButton("End party", danger = true) {
-                    ending = null
-                    scope.launch {
-                        guard { api.endRoom(room.id, prefs.name) }?.let {
-                            rooms = rooms.filter { it.id != room.id }
-                            if (started?.id == room.id) started = null
-                        }
-                    }
-                }
-            },
+            confirmButton = { DialogButton("End party", danger = true) { endIt(false) } },
             dismissButton = { DialogButton("Cancel") { ending = null } },
             containerColor = DialogSurface,
         )
+    }
+    spotOptions?.let { s ->
+        SpotOptions(api, s, onStart = { spotActions.start(s) }, onOpen = { spotActions.open(s) }, onRemove = { spotActions.remove(s) }, onClose = { spotOptions = null })
     }
     val lib = library
     val shownMedia = shownInfo?.let { id -> lib?.byId?.get(id) }
@@ -390,6 +437,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         )
     }
 }
+
+/** What Home's "Pick up where you left off" cards do. [options] is a TV's OK. */
+private class SpotActions(val start: (Spot) -> Unit, val open: (Spot) -> Unit, val remove: (Spot) -> Unit, val options: (Spot) -> Unit)
 
 private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search")
 
@@ -535,6 +585,8 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
 private fun HomePage(
     lib: Library,
     rooms: List<RoomSummary>,
+    spots: List<Spot>,
+    sa: SpotActions,
     sinceFetch: Long,
     started: RoomSummary?,
     error: String?,
@@ -558,6 +610,17 @@ private fun HomePage(
             if (lib.featured.isNotEmpty() && lib.details) {
                 item(key = "banner") {
                     if (tv) TvBanner(lib.featured, a, firstFocus) { shown = it } else PhoneBanner(lib.featured, a)
+                }
+            }
+            // Under the banner, before Watch parties (see ui-redesign/resume).
+            if (spots.isNotEmpty()) {
+                item(key = "spots") {
+                    ShelfRow("Pick up where you left off", null, a) {
+                        items(spots, key = { it.id }) { s ->
+                            if (tv) TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) }
+                            else PhoneSpotCard(a.api, lib.details, s, 250.dp, onOpen = { sa.open(s) }, onStart = { sa.start(s) }, onRemove = { sa.remove(s) })
+                        }
+                    }
                 }
             }
             if (rooms.isNotEmpty()) {

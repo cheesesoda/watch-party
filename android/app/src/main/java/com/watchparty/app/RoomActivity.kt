@@ -1467,10 +1467,89 @@ class RoomActivity : ComponentActivity() {
                 .setTitle("Leave the watch party?")
                 .setMessage("Leave just takes you out. End party sends everyone back to the home screen.")
                 .setPositiveButton("Leave") { _, _ -> finish() }
-                .setNeutralButton("End party") { _, _ -> connection.send(Protocol.end()) }
+                .setNeutralButton("End party") { _, _ -> endParty() }
                 .setNegativeButton("Cancel", null),
             danger = AlertDialog.BUTTON_NEUTRAL,
         )
+    }
+
+    /** Seconds into the video: the party's, on a phone that's only for chat. */
+    private fun partyPosition(): Double =
+        if (companion) lastState?.expectedPosition(sync.clock.serverNow(System.currentTimeMillis())) ?: 0.0
+        else player.currentPosition / 1000.0
+
+    /**
+     * End party, from the Leave dialog. Partway through something, it asks "Save your spot?" (ui-redesign/resume) so
+     * the party shows on Home under Pick up where you left off; otherwise it just ends.
+     */
+    private fun endParty() {
+        val media = lastMedia
+        val duration = media?.duration ?: player.duration.takeIf { !companion && it > 0 }?.let { it / 1000.0 }
+        val position = partyPosition()
+        val upcoming = queue?.upcoming(media?.id).orEmpty()
+        if (media == null || !worthSaving(position, duration, upcoming.size)) {
+            connection.send(Protocol.end())
+            return
+        }
+        val spot = spotPreview(media, position, duration, upcoming.firstOrNull(), upcoming.size)
+        val message = SpannableStringBuilder("The party ends for everyone. Saving puts this on Home under ").apply {
+            val start = length
+            append("Pick up where you left off")
+            setSpan(StyleSpan(Typeface.BOLD), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(ON_SURFACE), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append(", so you can start a new party right here later.")
+        }
+        present(
+            dialog()
+                .setTitle("Save your spot?")
+                .setMessage(message)
+                .setView(spotView(spot))
+                .setPositiveButton("Save spot") { _, _ -> connection.send(Protocol.end(save = true)) }
+                .setNegativeButton("Don't save") { _, _ -> connection.send(Protocol.end()) }
+                .setNeutralButton("Cancel", null),
+        )
+    }
+
+    /** The video a saved spot would start: its picture with how far in, its name, and what's lined up after it. */
+    private fun spotView(spot: SpotPreview): View {
+        val m = spot.media
+        val picture = FrameLayout(this).apply {
+            background = GradientDrawable().apply { setColor(SURFACE); cornerRadius = dp(6).toFloat() }
+            clipToOutline = true
+        }
+        val image = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        picture.addView(image, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        m.duration?.takeIf { it > 0 }?.let { d ->
+            picture.addView(View(this).apply { setBackgroundColor(Color.argb(128, 0, 0, 0)) }, FrameLayout.LayoutParams(MATCH_PARENT, dp(3), Gravity.BOTTOM))
+            val width = (dp(96) * (spot.position / d).coerceIn(0.0, 1.0)).toInt()
+            picture.addView(View(this).apply { setBackgroundColor(ACCENT) }, FrameLayout.LayoutParams(width, dp(3), Gravity.BOTTOM or Gravity.START))
+        }
+        m.meta?.let { it.stillPath ?: it.backdropPath ?: it.posterPath }?.let { path ->
+            lifecycleScope.launch { api.image(path, "w300")?.let { image.setImageBitmap(it.asAndroidBitmap()) } }
+        }
+        val words = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(text(16f, ON_SURFACE).apply {
+                text = m.episode?.let { m.meta?.title ?: it.title } ?: m.meta?.title ?: m.title
+                typeface = MEDIUM
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            addView(text(13f, ON_SURFACE_VARIANT).apply {
+                text = listOfNotNull(m.episode?.let { "${m.meta?.show ?: it.show} · S${it.season} E${it.episode}" }, howFar(spot.position), linedUp(spot.more)).joinToString(" · ")
+            })
+        }
+        val card = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply { setColor(Color.argb(13, 255, 255, 255)); cornerRadius = dp(14).toFloat() }
+            addView(picture, LinearLayout.LayoutParams(dp(96), dp(54)))
+            addView(words, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = dp(14) })
+        }
+        return FrameLayout(this).apply {
+            setPadding(dp(24), dp(8), dp(24), 0)
+            addView(card)
+        }
     }
 
     // --- binge ---
@@ -1547,10 +1626,7 @@ class RoomActivity : ComponentActivity() {
             tv = isTv,
             code = roomCode,
             edit = if (host) ({ message: String -> connection.send(message) }) else null,
-            position = {
-                if (companion) lastState?.expectedPosition(sync.clock.serverNow(System.currentTimeMillis())) ?: 0.0
-                else player.currentPosition / 1000.0
-            },
+            position = ::partyPosition,
             onPlay = { item -> closeUpNext(); playForEveryone(item) },
             onAddVideos = { startActivity(Intent(this@RoomActivity, AddVideosActivity::class.java)) },
             onClose = ::closeUpNext,

@@ -29,6 +29,7 @@ class Api(private val baseUrl: String, private val token: String) {
     @Serializable private data class LibraryResponse(val items: List<MediaItem>)
     @Serializable private data class RoomsResponse(val rooms: List<RoomSummary>)
     @Serializable private data class RoomResponse(val room: RoomSummary)
+    @Serializable private data class SpotsResponse(val spots: List<Spot>)
     @Serializable data class JoinResponse(val token: String? = null, val room: RoomSummary)
     @Serializable data class Pairing(val id: String, val expiresIn: Int = 600)
     /** A TV sign-in: "waiting" until the phone finishes, then "done" with the pass (role host or guest). */
@@ -44,10 +45,10 @@ class Api(private val baseUrl: String, private val token: String) {
 
     private val jsonType = "application/json".toMediaType()
 
-    private suspend fun request(path: String, body: String? = null): String = withContext(Dispatchers.IO) {
+    private suspend fun request(path: String, body: String? = null, delete: Boolean = false): String = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(baseUrl + path)
         if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
-        if (body != null) builder.post(body.toRequestBody(jsonType))
+        if (delete) builder.delete() else if (body != null) builder.post(body.toRequestBody(jsonType))
         client.newCall(builder.build()).execute().use { res ->
             val text = res.body?.string().orEmpty()
             if (res.code == 401 && !path.endsWith("/login") && !path.endsWith("/join") && !path.startsWith("/api/pair")) throw UnauthorizedException()
@@ -102,10 +103,25 @@ class Api(private val baseUrl: String, private val token: String) {
     suspend fun room(id: String): RoomSummary =
         Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms/$id")).room
 
-    /** Ends a party for everyone in it, without joining. Host only. */
-    suspend fun endRoom(id: String, name: String) {
-        request("/api/rooms/$id/end", buildJsonObject { put("name", name) }.toString())
+    /** Ends a party for everyone in it, without joining. Host only. [save]: keep its spot under "Pick up where you left off". */
+    suspend fun endRoom(id: String, name: String, save: Boolean = false) {
+        request("/api/rooms/$id/end", buildJsonObject {
+            put("name", name)
+            put("save", save)
+        }.toString())
     }
+
+    /** "Pick up where you left off": where parties stopped, newest first. */
+    suspend fun spots(): List<Spot> =
+        Protocol.json.decodeFromString<SpotsResponse>(request("/api/spots")).spots
+
+    suspend fun removeSpot(id: String) {
+        request("/api/spots/$id", delete = true)
+    }
+
+    /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. */
+    suspend fun startSpot(id: String): RoomSummary =
+        Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", buildJsonObject { put("spot", id) }.toString())).room
 
     /** queue: a binge, the videos to play one after another from the first. */
     suspend fun createRoom(mediaId: String?, queue: List<String>? = null): RoomSummary {

@@ -156,4 +156,37 @@ class LogicTest {
         assertEquals(false, watch.stuck(-0.69, 19_000))
         assertEquals(true, watch.stuck(-0.69, 20_000))
     }
+
+    @Test
+    fun savesSpotsOnlyPartwayThrough() {
+        // Same rules as the server: past the first minute and not at the credits, or with more lined up.
+        assertEquals(false, worthSaving(30.0, 3000.0, 0))
+        assertEquals(true, worthSaving(600.0, 3000.0, 0))
+        assertEquals(false, worthSaving(2950.0, 3000.0, 0))
+        assertEquals(true, worthSaving(2950.0, 3000.0, 2))
+        assertEquals(true, worthSaving(0.0, null, 1))
+        assertEquals(true, worthSaving(90.0, null, 0))
+        // At the credits, the spot is the start of the next one.
+        fun ep(n: Int) = MediaItem(id = "e$n", title = "Ep $n", relPath = "e$n.mkv", duration = 3000.0, episode = EpisodeInfo("Severance", 2, n, "Ep $n"))
+        assertEquals(SpotPreview(ep(4), 0.0, 1), spotPreview(ep(3), 2990.0, 3000.0, ep(4), 2))
+        assertEquals(SpotPreview(ep(3), 1860.0, 2), spotPreview(ep(3), 1860.0, 3000.0, ep(4), 2))
+        assertEquals("Severance · S2 E3 Ep 3", spotTitle(ep(3)))
+        assertEquals("Severance S2 E3", spotShortTitle(ep(3)))
+        assertEquals("31 m in", howFar(1860.0))
+        assertEquals("From the start", howFar(0.0))
+        assertNull(linedUp(0))
+    }
+
+    @Test
+    fun saysWhenASpotWasSaved() {
+        val zone = java.time.ZoneId.of("UTC")
+        val now = java.time.ZonedDateTime.of(2026, 10, 14, 20, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val day = 86_400_000L
+        assertEquals("Today", savedWhen(now - 3_600_000, now, zone))
+        assertEquals("Yesterday", savedWhen(now - day, now, zone))
+        assertEquals("last week", savedWhen(now - 9 * day, now, zone))
+        assertEquals("3 weeks ago", savedWhen(now - 22 * day, now, zone))
+        assertTrue(Protocol.end(save = true).contains("\"save\":true"))
+        assertTrue(!Protocol.end().contains("save"))
+    }
 }
