@@ -28,6 +28,11 @@ class Prefs(context: Context) {
         get() = sp.getString("last_room", "") ?: ""
         set(v) = sp.edit().putString("last_room", v).apply()
 
+    /** How late this device starts playing after a jump (seconds), so the first jump of a party is already right. */
+    var startLag: Double
+        get() = sp.getFloat("start_lag", 0f).toDouble()
+        set(v) = sp.edit().putFloat("start_lag", v.toFloat()).apply()
+
     val isSetUp: Boolean
         get() = serverUrl.isNotBlank() && name.isNotBlank() && sp.getBoolean("signed_in", false)
 

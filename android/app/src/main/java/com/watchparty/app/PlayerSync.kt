@@ -293,20 +293,20 @@ class PlayerSync(
         if (player.playbackParameters.speed != speed) player.playbackParameters = PlaybackParameters(speed)
     }
 
-    private companion object {
+    companion object {
         /** After this long without an echo, stop waiting for it (the message was dropped or refused). */
-        const val ECHO_WAIT_MS = 5_000L
+        private const val ECHO_WAIT_MS = 5_000L
         /** Stop waiting for a seek to show a frame after this long (audio-only files never do). */
-        const val SEEK_LOAD_MS = 3_000L
-        const val MAX_LEAD = 6.0
+        private const val SEEK_LOAD_MS = 3_000L
+        private const val MAX_LEAD = 6.0
         /** Paused screens should show the same frame: about two frames at 24 fps. */
-        const val PAUSED_TOLERANCE = 0.08
+        private const val PAUSED_TOLERANCE = 0.08
         /** Long enough for a slow start to finish before measuring it. */
-        const val LAG_CHECK_MS = 3_000L
-        const val MAX_START_LAG = 4.0
-        const val READY_BUFFER_MS = 3_000L
+        private const val LAG_CHECK_MS = 3_000L
+        private const val MAX_START_LAG = 4.0
+        private const val READY_BUFFER_MS = 3_000L
 
-        /** How late this device starts playing after a jump, in seconds. Kept while the app runs. */
+        /** How late this device starts playing after a jump, in seconds. Saved between parties (see Prefs). */
         var startLag = 0.0
     }
 }
