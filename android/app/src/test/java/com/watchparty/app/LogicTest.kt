@@ -47,6 +47,9 @@ class LogicTest {
         assertEquals(DriftAction.Rate(1.05f), Drift.decide(current = 19.0, target = 20.0))
         assertEquals(DriftAction.Rate(0.95f), Drift.decide(current = 21.0, target = 20.0))
         assertEquals(DriftAction.Rate(1f), Drift.decide(current = 20.1, target = 20.0))
+        // Already nudging: keep going until nearly exact.
+        assertEquals(DriftAction.Rate(0.95f), Drift.decide(current = 20.1, target = 20.0, nudging = true))
+        assertEquals(DriftAction.Rate(1f), Drift.decide(current = 20.03, target = 20.0, nudging = true))
     }
 
     @Test
@@ -70,6 +73,7 @@ class LogicTest {
 
         assertNull(Protocol.parse("""{"type":"future-thing"}"""))
         assertEquals("""{"type":"seek","position":3.5}""", Protocol.position("seek", 3.5))
+        assertEquals("""{"type":"play","position":3.5,"at":1700000000000}""", Protocol.position("play", 3.5, 1700000000000))
     }
 
     @Test

@@ -3,7 +3,9 @@ import { expectedPosition, type ClientMessage, type PlaybackState } from "../../
 /** Seek when we are this far from where the room is (seconds). */
 const HARD_DRIFT = 1.5;
 /** Nudge playback rate when drift is between this and HARD_DRIFT. */
-const SOFT_DRIFT = 0.3;
+const SOFT_DRIFT = 0.15;
+/** Once nudging, keep at it until this close, so it doesn't settle just under SOFT_DRIFT. */
+const SETTLED = 0.04;
 /** A local seek this far from the room position counts as the user seeking. */
 const USER_SEEK = 1.0;
 
@@ -90,7 +92,8 @@ export class VideoSync {
     const position = this.video.currentTime;
     const paused = type === "seek" ? this.state.paused : type === "pause";
     this.state = { ...this.state, paused, position, updatedAt: this.serverNow() };
-    this.send({ type, position });
+    // Our estimate of the server's clock right now, once a ping has measured it.
+    this.send(this.offsets.length > 0 ? { type, position, at: Math.round(this.serverNow()) } : { type, position });
   }
 
   private reconcile(): void {
@@ -110,7 +113,7 @@ export class VideoSync {
     if (Math.abs(drift) > HARD_DRIFT) {
       video.playbackRate = 1;
       video.currentTime = target;
-    } else if (Math.abs(drift) > SOFT_DRIFT) {
+    } else if (Math.abs(drift) > (video.playbackRate !== 1 ? SETTLED : SOFT_DRIFT)) {
       video.playbackRate = drift < 0 ? 1.05 : 0.95;
     } else {
       video.playbackRate = 1;

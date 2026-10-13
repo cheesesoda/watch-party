@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MediaItem, ServerMessage } from "../../shared/protocol.ts";
-import { RoomManager } from "../src/rooms.ts";
+import { RoomManager, sentAt } from "../src/rooms.ts";
 
 const movie: MediaItem = { id: "m1", title: "Movie", relPath: "Movie.mp4", folder: "", size: 1, mime: "video/mp4", subtitles: [] };
 
@@ -197,4 +197,13 @@ test("a binge plays its videos in order, moving on after a countdown the host ca
   room.handle(host.id, { type: "ended", mediaId: "e2" });
   assert.equal(room.queueInfo()?.advance, null, "only the video playing now counts");
   mgr.rooms.clear();
+});
+
+test("sentAt trusts the sender's time only when it is believable", () => {
+  const now = 1_000_000;
+  assert.equal(sentAt(now - 150, now), now - 150);
+  assert.equal(sentAt(undefined, now), now);
+  assert.equal(sentAt(now + 50, now), now, "a clock ahead of the server");
+  assert.equal(sentAt(now - 60_000, now), now, "a clock far behind");
+  assert.equal(sentAt("soon", now), now);
 });

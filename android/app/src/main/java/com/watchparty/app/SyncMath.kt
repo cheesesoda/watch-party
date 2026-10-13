@@ -6,6 +6,9 @@ class ClockOffset {
     var offsetMs: Long = 0
         private set
 
+    /** True once a ping has measured the offset. */
+    val measured: Boolean get() = samples.isNotEmpty()
+
     fun onPong(clientTime: Long, serverTime: Long, now: Long) {
         val rtt = now - clientTime
         samples.addLast(rtt to (serverTime - (clientTime + rtt / 2)))
@@ -24,15 +27,17 @@ sealed interface DriftAction {
 
 object Drift {
     const val HARD = 1.5
-    const val SOFT = 0.3
+    const val SOFT = 0.15
+    /** Once nudging, keep at it until this close, so it doesn't settle just under [SOFT]. */
+    const val SETTLED = 0.04
     const val USER_SEEK = 1.0
 
-    /** What to do when playing and [current] is off from [target] (both in seconds). */
-    fun decide(current: Double, target: Double): DriftAction {
+    /** What to do when playing and [current] is off from [target] (both in seconds). [nudging]: the speed is already off 1x. */
+    fun decide(current: Double, target: Double, nudging: Boolean = false): DriftAction {
         val drift = current - target
         return when {
             kotlin.math.abs(drift) > HARD -> DriftAction.Seek(target)
-            kotlin.math.abs(drift) > SOFT -> DriftAction.Rate(if (drift < 0) 1.05f else 0.95f)
+            kotlin.math.abs(drift) > (if (nudging) SETTLED else SOFT) -> DriftAction.Rate(if (drift < 0) 1.05f else 0.95f)
             else -> DriftAction.Rate(1f)
         }
     }

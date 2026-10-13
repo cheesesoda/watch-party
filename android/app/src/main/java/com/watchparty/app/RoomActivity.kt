@@ -228,7 +228,7 @@ class RoomActivity : ComponentActivity() {
                 if (unplayable) switchToConverted()
             }
         })
-        sync = PlayerSync(player) { type, position -> connection.send(Protocol.position(type, position)) }
+        sync = PlayerSync(player) { type, position, at -> connection.send(Protocol.position(type, position, at)) }
         buildLayout()
         playerView.player = player
 
