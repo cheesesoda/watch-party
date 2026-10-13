@@ -251,9 +251,10 @@ object Protocol {
         }
     }
 
-    fun position(type: String, position: Double): String = buildJsonObject {
+    fun position(type: String, position: Double, at: Long? = null): String = buildJsonObject {
         put("type", type)
         put("position", position)
+        if (at != null) put("at", at)
     }.toString()
 
     fun chat(text: String): String = buildJsonObject {

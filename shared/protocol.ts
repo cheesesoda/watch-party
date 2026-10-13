@@ -167,9 +167,10 @@ export interface RoomPlayback {
 }
 
 export type ClientMessage =
-  | { type: "play"; position: number }
-  | { type: "pause"; position: number }
-  | { type: "seek"; position: number }
+  /** `at`: the server's clock when it happened on the sender, so friends don't fall behind by the sender's lag. */
+  | { type: "play"; position: number; at?: number }
+  | { type: "pause"; position: number; at?: number }
+  | { type: "seek"; position: number; at?: number }
   | { type: "select"; mediaId: string }
   /** Host: play these one after another, starting with the first. */
   | { type: "binge"; mediaIds: string[] }

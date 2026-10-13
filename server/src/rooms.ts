@@ -46,6 +46,17 @@ function fmtTime(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
+/** How far back a sender's own timestamp is believed; anything older or in the future is a clock that's off. */
+const MAX_SEND_LAG_MS = 2000;
+
+/**
+ * When a play, pause or seek happened, on the server's clock: the sender's own time for it when that's
+ * believable, since it was already playing from there while the message was on its way.
+ */
+export function sentAt(at: unknown, now: number): number {
+  return typeof at === "number" && Number.isFinite(at) && at <= now && at >= now - MAX_SEND_LAG_MS ? at : now;
+}
+
 function validPosition(p: unknown): p is number {
   return typeof p === "number" && Number.isFinite(p) && p >= 0;
 }
@@ -263,7 +274,7 @@ export class Room {
         }
         const wasPaused = this.state.paused;
         const paused = msg.type === "seek" ? this.state.paused : msg.type === "pause";
-        this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: now };
+        this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
         this.broadcastState(member.name);
         if (msg.type === "seek") this.notice(`${member.name} jumped to ${fmtTime(msg.position)}`);
         else if (wasPaused !== paused) this.notice(`${member.name} ${paused ? "paused" : "resumed"} at ${fmtTime(msg.position)}`);

@@ -14,7 +14,8 @@ import kotlin.math.abs
  */
 class PlayerSync(
     private val player: Player,
-    private val send: (type: String, position: Double) -> Unit,
+    /** [at]: the server's clock when it happened here, or null before a ping has measured it. */
+    private val send: (type: String, position: Double, at: Long?) -> Unit,
 ) {
     val clock = ClockOffset()
     private var state: PlaybackState? = null
@@ -81,7 +82,7 @@ class PlayerSync(
     private fun sent(type: String, position: Double) {
         unechoed++
         lastSentAt = SystemClock.uptimeMillis()
-        sent(type, position)
+        send(type, position, sentAt())
     }
 
     /**
@@ -97,6 +98,8 @@ class PlayerSync(
         }
         player.seekTo(to)
     }
+
+    private fun sentAt(): Long? = if (clock.measured) clock.serverNow() else null
 
     private fun target(): Double = state?.expectedPosition(clock.serverNow()) ?: 0.0
 
@@ -130,7 +133,7 @@ class PlayerSync(
             return
         }
 
-        when (val action = Drift.decide(current, target)) {
+        when (val action = Drift.decide(current, target, nudging = player.playbackParameters.speed != 1f)) {
             is DriftAction.Seek -> {
                 setSpeed(1f)
                 player.seekTo((action.toSeconds * 1000).toLong())
