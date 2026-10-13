@@ -109,14 +109,28 @@ export class Room {
       media: this.media,
       members: this.memberList(),
       binge: this.queue.length > 1 && index >= 0 ? { index: index + 1, length: this.queue.length } : null,
+      upNext: this.upNextInfo(),
     };
+  }
+
+  /** The videos after the one playing now. */
+  private upcoming(): string[] {
+    const index = this.media ? this.queue.indexOf(this.media.id) : -1;
+    return index >= 0 ? this.queue.slice(index + 1) : [];
+  }
+
+  private upNextInfo(): RoomSummary["upNext"] {
+    const ids = this.upcoming();
+    const item = ids.length > 0 ? this.lookup(ids[0]) : undefined;
+    return item ? { item, count: ids.length } : null;
   }
 
   /** The binge as clients see it, with each video's current details; null for a single video. */
   queueInfo(): Queue | null {
     if (this.queue.length < 2) return null;
     const items = this.queue.map((id) => this.lookup(id)).filter((m): m is MediaItem => !!m);
-    return { items, advance: this.advance && { mediaId: this.advance.mediaId, at: this.advance.at } };
+    const at = this.media ? items.findIndex((m) => m.id === this.media!.id) : -1;
+    return { items, at, advance: this.advance && { mediaId: this.advance.mediaId, at: this.advance.at } };
   }
 
   /** Sets up a binge and points the room at its first video. Unknown ids are skipped. */
@@ -126,6 +140,53 @@ export class Room {
     this.cancelAdvance();
     this.queue = ids.length > 1 ? ids : [];
     return this.select(ids[0]);
+  }
+
+  /** Adds videos to the end of Up next. One already there moves to the end; one played earlier comes back. */
+  addToQueue(mediaIds: string[]): string[] {
+    const ids = [...new Set(mediaIds)].filter((id) => id !== this.media?.id && this.lookup(id));
+    if (ids.length === 0) return [];
+    if (!this.media) {
+      this.setQueue(ids);
+      return ids;
+    }
+    const base = this.queue.length > 0 ? this.queue : [this.media.id];
+    this.queue = [...base.filter((id) => !ids.includes(id)), ...ids].slice(-MAX_QUEUE);
+    if (!this.queue.includes(this.media.id)) this.queue.unshift(this.media.id);
+    this.queueChanged();
+    return ids;
+  }
+
+  /** Takes a video out of Up next. False if it isn't coming up. */
+  removeFromQueue(mediaId: string): boolean {
+    if (!this.upcoming().includes(mediaId)) return false;
+    this.queue = this.queue.filter((id) => id !== mediaId);
+    this.queueChanged();
+    return true;
+  }
+
+  /** Moves a video to place [to] in Up next (0 = next). False if it isn't coming up. */
+  moveInQueue(mediaId: string, to: number): boolean {
+    const upcoming = this.upcoming();
+    if (!upcoming.includes(mediaId) || !Number.isInteger(to)) return false;
+    const rest = upcoming.filter((id) => id !== mediaId);
+    rest.splice(Math.max(0, Math.min(to, rest.length)), 0, mediaId);
+    this.queue = [...this.queue.slice(0, this.queue.length - upcoming.length), ...rest];
+    this.queueChanged();
+    return true;
+  }
+
+  /** Empties Up next; the video playing now (and the ones before it, for Previous) stay. */
+  clearQueue(): void {
+    const upcoming = this.upcoming().length;
+    if (upcoming > 0) this.queue = this.queue.slice(0, this.queue.length - upcoming);
+    this.queueChanged();
+  }
+
+  /** After an edit: a single video isn't a queue, and a countdown to a video that's no longer next stops. */
+  private queueChanged(): void {
+    if (this.queue.length < 2) this.queue = [];
+    if (this.advance && this.advance.mediaId !== this.upcoming()[0]) this.cancelAdvance();
   }
 
   memberList(): Member[] {
@@ -287,6 +348,28 @@ export class Room {
         this.cancelAdvance();
         this.broadcastQueue();
         this.notice(`${member.name} stopped the binge from moving on`);
+        return;
+      }
+
+      case "queue-add": {
+        if (guest) return send({ type: "error", message: "Only the host can change Up next." });
+        const hadMedia = !!this.media;
+        const ids = this.addToQueue(Array.isArray(msg.mediaIds) ? msg.mediaIds.filter((id): id is string => typeof id === "string").slice(0, MAX_QUEUE) : []);
+        if (ids.length === 0) return;
+        if (!hadMedia) this.broadcastState(member.name);
+        this.broadcastQueue();
+        const first = this.lookup(ids[0])!;
+        this.notice(`${member.name} added ${ids.length > 1 ? `${ids.length} videos` : first.title} to Up next`);
+        return;
+      }
+
+      case "queue-remove":
+      case "queue-move":
+      case "queue-clear": {
+        if (guest) return send({ type: "error", message: "Only the host can change Up next." });
+        if (msg.type === "queue-clear") this.clearQueue();
+        else if (msg.type === "queue-remove" ? !this.removeFromQueue(String(msg.mediaId)) : !this.moveInQueue(String(msg.mediaId), Number(msg.to))) return;
+        this.broadcastQueue();
         return;
       }
 
