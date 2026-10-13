@@ -5,7 +5,7 @@ import { ChatOverlay } from "./ChatOverlay.tsx";
 import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Library } from "./Library.tsx";
-import { navigate } from "./nav.ts";
+import { navigate, usePageTitle } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
@@ -130,6 +130,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   };
 
   const mediaId = view.media?.id;
+  usePageTitle(view.media ? `${view.media.title} · Watch party` : "Watch party");
 
   // Find out what is in the file, and convert it up front if this browser can't play it.
   useEffect(() => {

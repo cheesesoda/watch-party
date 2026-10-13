@@ -5,7 +5,7 @@ import { Banner, HomeRows, MoviePage, MoviesPage, SearchResults, ShowPage, Shows
 import { buildCatalog } from "./catalog.ts";
 import { CaptionsIcon, FilmIcon, HomeIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
 import { Details, fmtSize } from "./Library.tsx";
-import { navigate } from "./nav.ts";
+import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
@@ -177,6 +177,9 @@ export function Home(props: {
   const show = showKey ? cat.shows.find((s) => s.key === decodeURIComponent(showKey)) : undefined;
   const section = movie ? "/movies" : show ? "/shows" : route;
   const hero = !query.trim() && (movie || show || (route === "/" && browse.details));
+  usePageTitle(
+    query.trim() ? `Search: ${query.trim()}` : movie ? movie.title : show ? show.name : route === "/" ? null : NAV.find(([path]) => path === route)?.[1],
+  );
 
   let page: ReactNode;
   if (libraryError) page = <p className="error">{libraryError}</p>;
