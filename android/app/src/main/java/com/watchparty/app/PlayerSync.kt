@@ -209,7 +209,7 @@ class PlayerSync(
             setSpeed(1f)
             if (player.playWhenReady) player.playWhenReady = false
             val spot = minOf(target + holdLead(s), duration)
-            if (abs(current - spot) > 0.25) {
+            if (abs(current - spot) > PAUSED_TOLERANCE) {
                 seek((spot * 1000).toLong())
             } else if (s.hold && player.playbackState == Player.STATE_READY && !seekPending) {
                 if (!bufferedEnough()) {
@@ -299,6 +299,8 @@ class PlayerSync(
         /** Stop waiting for a seek to show a frame after this long (audio-only files never do). */
         const val SEEK_LOAD_MS = 3_000L
         const val MAX_LEAD = 6.0
+        /** Paused screens should show the same frame: about two frames at 24 fps. */
+        const val PAUSED_TOLERANCE = 0.08
         const val LAG_CHECK_MS = 1_500L
         const val MAX_START_LAG = 4.0
         const val READY_BUFFER_MS = 3_000L
