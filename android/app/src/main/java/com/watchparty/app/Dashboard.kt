@@ -1,0 +1,1158 @@
+package com.watchparty.app
+
+import android.app.UiModeManager
+import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/*
+ * The host's dashboard, laid out like Plex or Jellyfin, matching the web app: Home (the newest titles on a big
+ * backdrop, running parties, rows of posters), Movies, TV shows and Watch parties, plus a page for each movie and show.
+ * Phones get a Material 3 bottom bar; TVs get a slim icon menu on the left that opens when the remote moves onto it.
+ */
+
+/** Where the dashboard is: "home", "movies", "shows", "parties", "search", "movie/<id>" or "show/<name>". */
+private typealias Route = String
+
+private const val TMDB_CREDIT = "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."
+/** See-through white for tonal buttons and the selected menu item. */
+private val Tonal = Color.White.copy(alpha = 0.14f)
+
+/** Everything the pages need: the library grouped into movies and shows, and what each button does. */
+private class Library(val items: List<MediaItem>) {
+    val byId = items.associateBy { it.id }
+    val movies = items.filter { it.episode == null && !it.ownedExtra && !it.laterPart }
+    val shows = shows(items)
+    val extras = extrasByOwner(items)
+    /** The server found TMDB details for something, so posters and backdrops are worth drawing. */
+    val details = items.any { it.meta != null }
+
+    fun show(name: String) = shows.firstOrNull { it.name == name }
+
+    /** The newest movies and shows that have background art, for the banner. */
+    val featured: List<Featured> = (
+        movies.filter { it.extra == null && it.meta?.backdropPath != null }.map { Featured(it.meta!!.title, movieFacts(it), it.meta.backdropPath!!, "movie/${it.id}", it, it.addedAt) } +
+            shows.filter { it.meta?.backdropPath != null }.map { Featured(it.name, showFacts(it), it.meta!!.backdropPath!!, "show/${it.name}", null, it.addedAt) }
+        ).sortedByDescending { it.addedAt }.take(5)
+
+    /** Movies and shows together, newest first. */
+    val recent: List<Any> = (movies.filter { it.extra == null }.map { it to it.addedAt } + shows.map { it to it.addedAt })
+        .sortedByDescending { it.second }.take(16).map { it.first }
+
+    /** "2015 · 2 h 0 m · ★ 7.6 · Action, Adventure · Subtitles" */
+    fun movieFacts(m: MediaItem): String {
+        val parts = m.part?.ids?.map { byId[it] }
+        val length = if (parts != null) parts.takeIf { p -> p.all { it?.duration != null } }?.sumOf { it!!.duration!! } else m.duration
+        return listOfNotNull(
+            (m.meta?.year ?: m.year)?.toString(),
+            if (m.part != null) "${m.part.ids.size} parts" + (length?.let { ", " + runtime(it) } ?: "") else length?.let(::runtime) ?: formatSize(m.size),
+            m.meta?.rating?.let { "★ %.1f".format(it) },
+            m.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
+            "Subtitles".takeIf { m.subtitles.isNotEmpty() },
+        ).joinToString(" · ")
+    }
+
+    fun showFacts(s: Show): String = listOfNotNull(
+        s.meta?.year?.toString(),
+        plural(s.seasons.size, "season"),
+        s.meta?.rating?.let { "★ %.1f".format(it) },
+        s.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
+    ).joinToString(" · ")
+}
+
+private data class Featured(val title: String, val facts: String, val backdrop: String, val route: Route, val movie: MediaItem?, val addedAt: Long)
+
+/** 7260.0 -> "2 h 1 m", 3000.0 -> "50 m" */
+private fun runtime(seconds: Double): String {
+    val m = Math.round(seconds / 60).toInt()
+    return if (m >= 60) "${m / 60} h ${m % 60} m" else "${maxOf(1, m)} m"
+}
+
+/** What the pages call: start a party, open a page or a video's details. */
+private class Actions(
+    val api: Api,
+    val tv: Boolean,
+    val go: (Route) -> Unit,
+    val start: (MediaItem, List<String>?) -> Unit,
+    val info: (MediaItem) -> Unit,
+    val join: (RoomSummary) -> Unit,
+    val end: (RoomSummary) -> Unit,
+)
+
+/** The host's home. Replaces the old single list; [onSignedOut] goes back to the sign-in screen (Settings). */
+@Composable
+fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
+    val api = remember { Api(prefs.serverUrl, prefs.token) }
+    val context = LocalContext.current
+    val tv = remember {
+        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
+    val scope = rememberCoroutineScope()
+    var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
+    var started by remember { mutableStateOf<RoomSummary?>(null) }
+    var items by remember { mutableStateOf<List<MediaItem>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
+    var ending by remember { mutableStateOf<RoomSummary?>(null) }
+    var askCode by remember { mutableStateOf(false) }
+
+    // Pages opened so far; Back returns to the one before. Kept through rotation.
+    val stack: SnapshotStateList<Route> = rememberSaveable(saver = listSaver(save = { it.toList() }, restore = { mutableStateListOf(*it.toTypedArray()) })) {
+        mutableStateListOf("home")
+    }
+    val route = stack.last()
+    val go = { r: Route ->
+        // The menu's pages replace each other; movie and show pages stack on top so Back returns.
+        if (r == "back") {
+            if (stack.size > 1) stack.removeAt(stack.lastIndex) else stack[0] = "home"
+        } else if (r in TOP_PAGES) {
+            stack.clear()
+            stack.add(r)
+        } else if (r != route) stack.add(r)
+    }
+    BackHandler(enabled = stack.size > 1 || route != "home") {
+        if (stack.size > 1) stack.removeAt(stack.lastIndex) else stack[0] = "home"
+    }
+    // Each page keeps its scroll position, so Back from a movie lands where you were.
+    val listStates = remember { mutableMapOf<Route, LazyListState>() }
+    val gridStates = remember { mutableMapOf<Route, LazyGridState>() }
+    val listState = listStates.getOrPut(route) { LazyListState() }
+    val gridState = gridStates.getOrPut(route) { LazyGridState() }
+
+    suspend fun <T> guard(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: UnauthorizedException) {
+        onSignedOut("Signed out. Check the server password.")
+        null
+    } catch (e: Exception) {
+        error = e.message ?: "Couldn't reach the server."
+        null
+    }
+    val reload = { scope.launch { guard { api.library() }?.let { items = it; error = null } } }
+    LaunchedEffect(Unit) { reload() }
+    var fetchedAt by remember { mutableStateOf(0L) }
+    var now by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            guard { api.rooms() }?.let {
+                rooms = it
+                fetchedAt = System.currentTimeMillis()
+                now = fetchedAt
+            }
+            delay(5000)
+        }
+    }
+    // Between refreshes, move playing parties' progress along once a second.
+    val anyPlaying = rooms.any { it.playback?.paused == false }
+    LaunchedEffect(anyPlaying) {
+        while (anyPlaying) {
+            delay(1000)
+            now = System.currentTimeMillis()
+        }
+    }
+
+    val library = remember(items) { items?.let(::Library) }
+    val actions = Actions(
+        api = api,
+        tv = tv,
+        go = go,
+        start = { media, queue ->
+            scope.launch {
+                guard { api.createRoom(media.id, queue) }?.let { room ->
+                    started = room
+                    rooms = rooms.filter { it.id != room.id } + room
+                    listState.scrollToItem(0)
+                }
+            }
+        },
+        info = { shownInfo = it.id },
+        join = { RoomActivity.start(context, it.id) },
+        end = { ending = it },
+    )
+    val sinceFetch = (now - fetchedAt).coerceAtLeast(0)
+
+    val page: @Composable () -> Unit = {
+        val lib = library
+        val movie = route.removePrefix("movie/").takeIf { route.startsWith("movie/") }?.let { lib?.byId?.get(it) }
+        val show = route.removePrefix("show/").takeIf { route.startsWith("show/") }?.let { lib?.show(it) }
+        when {
+            route == "parties" -> PartiesPage(rooms, sinceFetch, lib?.details == true, actions, gridState)
+            lib == null -> Message(error ?: "Loading library…", error != null)
+            lib.items.isEmpty() -> Message("No videos found. Put files in the server's media folder.", false)
+            movie != null -> MoviePage(lib, movie, actions, listState)
+            show != null -> ShowPage(lib, show, actions, listState)
+            route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
+            route == "shows" -> PosterGrid(lib, "TV shows", emptyList(), lib.shows, actions, gridState)
+            route == "search" -> SearchPage(lib, actions, gridState)
+            route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
+            else -> HomePage(lib, rooms, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
+        }
+    }
+
+    if (tv) {
+        TvShell(route, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go, content = page)
+    } else {
+        PhoneShell(route, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go, content = page)
+    }
+
+    if (askCode) {
+        JoinCodeDialog(onDismiss = { askCode = false }) { code ->
+            val id = Prefs.roomCode(code)
+            if (id.isNotEmpty()) {
+                askCode = false
+                scope.launch { guard { api.room(id) }?.let { RoomActivity.start(context, it.id) } }
+            }
+        }
+    }
+    ending?.let { room ->
+        AlertDialog(
+            onDismissRequest = { ending = null },
+            title = { Text("End this party?") },
+            text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
+            confirmButton = {
+                Button(onClick = {
+                    ending = null
+                    scope.launch {
+                        guard { api.endRoom(room.id, prefs.name) }?.let {
+                            rooms = rooms.filter { it.id != room.id }
+                            if (started?.id == room.id) started = null
+                        }
+                    }
+                }, modifier = Modifier.focusRing()) { Text("End party") }
+            },
+            dismissButton = { OutlinedButton(onClick = { ending = null }, modifier = Modifier.focusRing()) { Text("Cancel") } },
+        )
+    }
+    val lib = library
+    val shownMedia = shownInfo?.let { id -> lib?.byId?.get(id) }
+    if (lib != null && shownMedia != null) {
+        val media: MediaItem = shownMedia
+        val show = media.episode?.let { lib.shows.firstOrNull { s -> media in s.episodes } }
+        DetailsDialog(
+            api = api,
+            media = media,
+            length = listOfNotNull(media.extra?.kind, media.duration?.let(::clock) ?: formatSize(media.size), "Subtitles".takeIf { media.subtitles.isNotEmpty() }).joinToString(" · "),
+            credit = lib.details,
+            onStart = { shownInfo = null; actions.start(media, media.part?.ids) },
+            onBingeFrom = show?.let { s -> { shownInfo = null; actions.start(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
+            onClose = { shownInfo = null },
+        )
+    }
+}
+
+private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search")
+
+// ---------- Shells: the phone's bottom bar and the TV's side menu ----------
+
+private data class NavItem(val route: Route, val label: String, val icon: Int)
+
+private val NAV = listOf(
+    NavItem("home", "Home", R.drawable.ic_nav_home),
+    NavItem("movies", "Movies", R.drawable.ic_nav_movies),
+    NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
+    NavItem("parties", "Parties", R.drawable.ic_nav_parties),
+)
+
+/** Which menu item a page belongs to: a movie's page sits under Movies, a show's under TV shows. */
+private fun section(route: Route) = when {
+    route.startsWith("movie/") -> "movies"
+    route.startsWith("show/") -> "shows"
+    else -> route
+}
+
+@Composable
+private fun PhoneShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxSize()) {
+        // Movie and show pages draw their own header over the backdrop.
+        if (route in TOP_PAGES) {
+            Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
+                IconAction(R.drawable.ic_keypad, "Join with a party code", onCode)
+                IconAction(R.drawable.ic_search, "Search") { go("search") }
+                var menu by remember { mutableStateOf(false) }
+                Box {
+                    IconAction(R.drawable.ic_more_vert, "More") { menu = true }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Panel) {
+                        DropdownMenuItem(text = { Text("Scan TV code") }, leadingIcon = { Icon(painterResource(R.drawable.ic_scan), null) }, onClick = {
+                            menu = false
+                            (context as? MainActivity)?.scanCode()
+                        })
+                        DropdownMenuItem(text = { Text("Refresh library") }, leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), null) }, onClick = { menu = false; onRefresh() })
+                        DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(painterResource(R.drawable.ic_gear), null) }, onClick = { menu = false; onSettings() })
+                    }
+                }
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+        NavigationBar(containerColor = Color(0xFF211A2A)) {
+            NAV.forEach { item ->
+                NavigationBarItem(
+                    selected = section(route) == item.route,
+                    onClick = { go(item.route) },
+                    icon = { Icon(painterResource(item.icon), contentDescription = null) },
+                    label = { Text(item.label, fontSize = 12.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFFF3C49F),
+                        selectedTextColor = Color.White,
+                        indicatorColor = Accent.copy(alpha = 0.24f),
+                        unselectedIconColor = Muted,
+                        unselectedTextColor = Muted,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
+    Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(painterResource(icon), contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
+@Composable
+private fun TvShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) { content() }
+        Column(
+            Modifier
+                .fillMaxHeight()
+                .width(width)
+                .background(
+                    if (open) Brush.horizontalGradient(listOf(Color(0xFA100C15), Color(0xEB100C15)))
+                    else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
+                )
+                .onFocusChanged { open = it.hasFocus }
+                .padding(horizontal = 12.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(Modifier.padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (open) LogoTitle(fontSize = 20.sp, markSize = 26.dp) else LogoMark(26.dp)
+            }
+            TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open) { go("search") }
+            listOf(
+                NavItem("home", "Home", R.drawable.ic_nav_home),
+                NavItem("movies", "Movies", R.drawable.ic_nav_movies),
+                NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
+                NavItem("parties", "Watch parties", R.drawable.ic_nav_parties),
+            ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open) { go(item.route) } }
+            TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
+            Spacer(Modifier.weight(1f))
+            TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, onRefresh)
+            TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
+        }
+    }
+}
+
+@Composable
+private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(painterResource(icon), contentDescription = label, tint = if (focused) OnFocus else if (selected) Color.White else Muted, modifier = Modifier.size(20.dp))
+        if (open) Text(label, color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+// ---------- Home ----------
+
+@Composable
+private fun HomePage(
+    lib: Library,
+    rooms: List<RoomSummary>,
+    sinceFetch: Long,
+    started: RoomSummary?,
+    error: String?,
+    a: Actions,
+    state: LazyListState,
+    onDismissStarted: () -> Unit,
+) {
+    val tv = a.tv
+    val side = if (tv) 64.dp else 16.dp
+    val firstFocus = remember { FocusRequester() }
+    Box(Modifier.fillMaxSize()) {
+        // On a TV the newest title's backdrop fills the top of the screen behind the banner, fading as you scroll.
+        var shown by remember { mutableStateOf(0) }
+        if (tv) {
+            val alpha by animateFloatAsState(if (state.firstVisibleItemIndex == 0) 1f else 0f, label = "backdrop")
+            lib.featured.getOrNull(shown)?.let { BackdropBehind(a.api, it.backdrop, Modifier.graphicsLayer { this.alpha = alpha }) }
+        }
+        LazyColumn(state = state, contentPadding = PaddingValues(start = side + if (tv) 32.dp else 0.dp, end = side, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(if (tv) 28.dp else 22.dp)) {
+            error?.let { item { Text(it, color = ErrorColor) } }
+            started?.let { room -> item(key = "started") { StartedCard(room, a, onDismissStarted) } }
+            if (lib.featured.isNotEmpty() && lib.details) {
+                item(key = "banner") {
+                    if (tv) TvBanner(lib.featured, a, firstFocus) { shown = it } else PhoneBanner(lib.featured, a)
+                }
+            }
+            if (rooms.isNotEmpty()) {
+                item(key = "parties") {
+                    ShelfRow("Watch parties", null, a) {
+                        items(rooms, key = { it.id }) { PartyCard(it, sinceFetch, lib.details, a, width = if (tv) 300.dp else 290.dp) }
+                    }
+                }
+            }
+            if (lib.recent.isNotEmpty()) {
+                item(key = "recent") {
+                    ShelfRow("Recently added", null, a) {
+                        items(lib.recent, key = { if (it is MediaItem) it.id else (it as Show).name }) { x ->
+                            if (x is MediaItem) MovieCard(x, lib, a) else ShowCard(x as Show, lib, a)
+                        }
+                    }
+                }
+            }
+            if (lib.movies.isNotEmpty()) {
+                item(key = "movies") {
+                    ShelfRow("Movies", "movies", a) {
+                        items(lib.movies.filter { it.extra == null }.sortedWith { x, y -> naturalCompare(x.title, y.title) }.take(24), key = { it.id }) { MovieCard(it, lib, a) }
+                    }
+                }
+            }
+            if (lib.shows.isNotEmpty()) {
+                item(key = "shows") {
+                    ShelfRow("TV shows", "shows", a) { items(lib.shows.take(24), key = { it.name }) { ShowCard(it, lib, a) } }
+                }
+            }
+            if (lib.details) item(key = "credit") { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp) }
+        }
+    }
+    // A TV remote starts on the banner's Start party.
+    if (tv) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+}
+
+/** The page's backdrop across the top of the screen, fading into the page at the bottom and left. */
+@Composable
+private fun BackdropBehind(api: Api, path: String, modifier: Modifier = Modifier, height: Float = 0.78f) {
+    val image = rememberImage(api, path, "w1280")
+    Box(modifier.fillMaxWidth().fillMaxHeight(height)) {
+        image?.let { Image(it, null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize()) }
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Bg, 0.3f to Bg.copy(alpha = 0.9f), 0.65f to Bg.copy(alpha = 0.3f), 0.85f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Bg)))
+    }
+}
+
+@Composable
+private fun TvBanner(featured: List<Featured>, a: Actions, firstFocus: FocusRequester, onShown: (Int) -> Unit) {
+    var index by remember { mutableStateOf(0) }
+    var holding by remember { mutableStateOf(false) }
+    // Takes turns every 8 seconds, except while the remote is on its buttons.
+    LaunchedEffect(index, holding, featured.size) {
+        if (holding || featured.size < 2) return@LaunchedEffect
+        delay(8000)
+        index = (index + 1) % featured.size
+    }
+    LaunchedEffect(index) { onShown(index) }
+    val f = featured[index.coerceAtMost(featured.lastIndex)]
+    Column(Modifier.padding(top = 56.dp).heightIn(min = 270.dp).width(560.dp).onFocusChanged { holding = it.hasFocus }) {
+        Eyebrow("New in your library")
+        Text(f.title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 48.sp, lineHeight = 50.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(f.facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        val overview = f.movie?.meta?.overview
+        overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
+        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val movie = f.movie
+            if (movie != null) Pill("Start party", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(firstFocus)) { a.start(movie, movie.part?.ids) }
+            Pill(if (movie != null) "Details" else "Episodes", R.drawable.ic_info, modifier = if (movie == null) Modifier.focusRequester(firstFocus) else Modifier) { a.go(f.route) }
+            if (featured.size > 1) Dots(featured.size, index)
+        }
+    }
+}
+
+@Composable
+private fun PhoneBanner(featured: List<Featured>, a: Actions) {
+    val pager = rememberPagerState { featured.size }
+    LaunchedEffect(pager.currentPage, pager.isScrollInProgress) {
+        if (featured.size < 2 || pager.isScrollInProgress) return@LaunchedEffect
+        delay(8000)
+        pager.animateScrollToPage((pager.currentPage + 1) % featured.size)
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HorizontalPager(pager, pageSpacing = 12.dp) { i ->
+            val f = featured[i]
+            Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(24.dp)).background(Panel).clickable { a.go(f.route) }) {
+                Art(a.api, f.backdrop, "w780", Modifier.fillMaxSize())
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color(0xF2100C15))))
+                Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
+                    Eyebrow("New in your library", small = true)
+                    Text(f.title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 32.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(f.facts.split(" · ").take(3).joinToString(" · "), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val movie = f.movie
+                        if (movie != null) Pill("Start party", R.drawable.ic_play_filled, primary = true, small = true) { a.start(movie, movie.part?.ids) }
+                        Pill(if (movie != null) "Details" else "Episodes", null, small = true) { a.go(f.route) }
+                    }
+                }
+            }
+        }
+        if (featured.size > 1) Dots(featured.size, pager.currentPage, small = true)
+    }
+}
+
+@Composable
+private fun Eyebrow(text: String, small: Boolean = false) {
+    Text(text.uppercase(), color = Accent, fontSize = if (small) 11.sp else 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp, modifier = Modifier.padding(bottom = 4.dp))
+}
+
+@Composable
+private fun Dots(count: Int, current: Int, small: Boolean = false) {
+    Row(Modifier.padding(start = if (small) 0.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        repeat(count) { i ->
+            Box(Modifier.width(if (i == current) 18.dp else 6.dp).height(6.dp).clip(CircleShape).background(if (i == current) Accent else Color.White.copy(alpha = 0.3f)))
+        }
+    }
+}
+
+/** "Party ready" after Start party: the code, Join party and End party. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StartedCard(room: RoomSummary, a: Actions, onDismiss: () -> Unit) {
+    Column(
+        Modifier
+            .padding(top = if (a.tv) 40.dp else 0.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Panel)
+            .border(1.dp, Accent.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Party ready for ${room.media?.title ?: "your movie"}" +
+                (room.binge?.let { ", the first of ${it.length} in this binge" } ?: "") +
+                ". Share the code, then join when you're ready to watch.",
+            color = Muted,
+        )
+        Text(room.id.uppercase(), fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill("Join party", null, primary = true, small = true) { a.join(room) }
+            Pill("End party", null, small = true) { a.end(room) }
+            Pill("Dismiss", null, small = true, text = true, onClick = onDismiss)
+        }
+    }
+}
+
+/** A titled sideways row of cards, with See all when it has a page of its own. */
+@Composable
+private fun ShelfRow(title: String, seeAll: Route?, a: Actions, content: LazyListScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = if (a.tv) 24.sp else 22.sp, color = Color.White, modifier = Modifier.weight(1f))
+            // On a TV, See all is the menu item; on a phone it's a tap here.
+            if (seeAll != null && !a.tv) Text("See all", color = Muted, fontSize = 13.sp, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { a.go(seeAll) }.padding(8.dp))
+        }
+        // Room for a focused card to grow without being clipped.
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(if (a.tv) 18.dp else 12.dp), contentPadding = PaddingValues(vertical = if (a.tv) 8.dp else 0.dp), content = content)
+    }
+}
+
+// ---------- Cards ----------
+
+/** A 2:3 poster with the title under it; the remote's card grows and gets a white edge. */
+@Composable
+private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, sub: String?, poster: String?, badge: String?, width: Dp?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(if (tv) 10.dp else 12.dp)
+    Column(modifier.then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .scale(if (focused) 1.07f else 1f)
+                .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+                .clip(shape)
+                .background(Brush.linearGradient(listOf(Color(0xFF3A2F4A), Color(0xFF211A2A))))
+                .clickable(interactionSource = interaction, indication = if (tv) null else androidx.compose.material3.ripple(), onClick = onClick),
+        ) {
+            val art = if (details && poster != null) rememberImage(api, poster, "w342") else null
+            if (art != null) Image(art, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 19.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
+            badge?.let {
+                Text(it, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(CircleShape).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp))
+            }
+        }
+        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 10.dp else 6.dp))
+        sub?.let { Text(it, color = Muted, fontSize = 12.sp, maxLines = 1) }
+    }
+}
+
+@Composable
+private fun MovieCard(m: MediaItem, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
+    PosterCard(a.api, lib.details, a.tv, m.meta?.title ?: m.title, (m.meta?.year ?: m.year)?.toString(), m.meta?.posterPath, null, width, { a.go("movie/${m.id}") })
+}
+
+@Composable
+private fun ShowCard(s: Show, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
+    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, plural(s.seasons.size, "season"), width, { a.go("show/${s.name}") })
+}
+
+/** A running party: its art with Watching/Paused and the code, then who's there and how far in. */
+@Composable
+private fun PartyCard(room: RoomSummary, sinceFetch: Long, details: Boolean, a: Actions, width: Dp?) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val m = room.media?.meta
+    val ep = room.media?.episode
+    val title = (if (ep != null) m?.show ?: ep.show else m?.title ?: room.media?.title ?: "Nothing picked yet") +
+        (ep?.let { " · S${it.season} E${it.episode}" } ?: "") + (room.binge?.let { " · ${it.index} of ${it.length}" } ?: "")
+    val state = when {
+        room.playback == null || room.members.isEmpty() -> "WAITING"
+        room.playback.paused -> "PAUSED"
+        else -> "● WATCHING"
+    }
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        (if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
+            .scale(if (focused) 1.04f else 1f)
+            .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+            .clip(shape)
+            .background(Panel)
+            .clickable(interactionSource = interaction, indication = if (a.tv) null else androidx.compose.material3.ripple()) { a.join(room) },
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2.6f).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
+            val art = if (details) m?.backdropPath ?: m?.stillPath else null
+            if (art != null) Art(a.api, art, "w780", Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Panel)))
+            Text(
+                state,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp,
+                color = if (state == "● WATCHING") OnFocus else Color.White,
+                modifier = Modifier.padding(8.dp).clip(CircleShape).background(if (state == "● WATCHING") Accent else Color(0xBF0A070E)).padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+            Text(
+                room.id.uppercase(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd).padding(7.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = if (focused) Color.White else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text("Join", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(if (room.members.isEmpty()) "Nobody here yet" else room.members.map { it.name }.distinct().joinToString(", "), color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            room.playback?.let { p ->
+                val position = (p.position + if (p.paused) 0.0 else sinceFetch / 1000.0).let { pos -> p.duration?.let { pos.coerceAtMost(it) } ?: pos }
+                p.duration?.takeIf { it > 0 }?.let { d ->
+                    Box(Modifier.padding(top = 8.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f))) {
+                        Box(Modifier.fillMaxWidth((position / d).toFloat().coerceIn(0f, 1f)).fillMaxHeight().background(if (p.paused) Muted else Accent))
+                    }
+                }
+                Text(clock(position) + (p.duration?.let { " / " + clock(it) } ?: ""), color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
+// ---------- Grids: Movies, TV shows, Watch parties, Search ----------
+
+private enum class Sort(val label: String) { AZ("A–Z"), Recent("Recently added"), Length("Length"), Size("Size") }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, shows: List<Show>, a: Actions, state: LazyGridState, sortable: Boolean = false, header: (@Composable () -> Unit)? = null) {
+    var sort by rememberSaveable { mutableStateOf(Sort.AZ) }
+    var subsOnly by rememberSaveable { mutableStateOf(false) }
+    val sorted = remember(movies, sort, subsOnly) {
+        val list = movies.filter { !subsOnly || it.subtitles.isNotEmpty() }
+        when (sort) {
+            Sort.AZ -> list.sortedWith { x, y -> naturalCompare(x.title, y.title) }
+            Sort.Recent -> list.sortedByDescending { it.addedAt }
+            Sort.Length -> list.sortedByDescending { it.duration ?: -1.0 }
+            Sort.Size -> list.sortedByDescending { it.size }
+        }
+    }
+    val side = if (a.tv) 96.dp else 16.dp
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(if (a.tv) 118.dp else 104.dp),
+        state = state,
+        contentPadding = PaddingValues(start = side, end = if (a.tv) 48.dp else 16.dp, top = if (a.tv) 32.dp else 4.dp, bottom = 32.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (a.tv) 22.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (a.tv) 24.dp else 18.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PageTitle(title, (sorted.size + shows.size).toString())
+                if (sortable) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Sort.entries.forEach { s -> Chip(s.label, sort == s, a.tv) { sort = s } }
+                        Chip("Has subtitles", subsOnly, a.tv) { subsOnly = !subsOnly }
+                    }
+                }
+                header?.invoke()
+                if (sorted.isEmpty() && shows.isEmpty()) Text(if (subsOnly) "Nothing has subtitles yet." else "Nothing here yet.", color = Muted)
+            }
+        }
+        items(sorted, key = { it.id }) { MovieCard(it, lib, a, width = null) }
+        items(shows, key = { "show-" + it.name }) { ShowCard(it, lib, a, width = null) }
+        if (lib.details) item(span = { GridItemSpan(maxLineSpan) }) { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp)) }
+    }
+}
+
+@Composable
+private fun PageTitle(title: String, count: String?) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 32.sp, color = Color.White)
+        count?.let { Text(it, color = Muted, fontSize = 16.sp, modifier = Modifier.padding(bottom = 5.dp)) }
+    }
+}
+
+@Composable
+private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boolean, a: Actions, state: LazyGridState) {
+    val side = if (a.tv) 96.dp else 16.dp
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(if (a.tv) 280.dp else 300.dp),
+        state = state,
+        contentPadding = PaddingValues(start = side, end = if (a.tv) 48.dp else 16.dp, top = if (a.tv) 32.dp else 4.dp, bottom = 32.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch parties", rooms.size.toString()) }
+        if (rooms.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No parties right now. Start one from any movie or episode.", color = Muted) }
+        items(rooms, key = { it.id }) { room ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PartyCard(room, sinceFetch, details, a, width = null)
+                Pill("End party", null, small = true, text = true) { a.end(room) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchPage(lib: Library, a: Actions, state: LazyGridState) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val field = remember { FocusRequester() }
+    val q = query.trim()
+    val movies = if (q.isEmpty()) emptyList() else lib.movies.filter { matches(it, q) || it.meta?.title?.contains(q, ignoreCase = true) == true }
+    val shows = if (q.isEmpty()) emptyList() else lib.shows.filter { s -> s.name.contains(q, ignoreCase = true) || s.aliases.any { it.contains(q, ignoreCase = true) } }
+    PosterGrid(lib, if (q.isEmpty()) "Search" else "Results", movies, shows, a, state, header = {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Movies and TV shows") },
+            singleLine = true,
+            leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            modifier = Modifier.fillMaxWidth().focusRequester(field),
+        )
+    })
+    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+}
+
+// ---------- Movie and show pages ----------
+
+/** A movie's or show's page: backdrop, poster, title, facts, summary and buttons, then [below]. */
+@Composable
+private fun DetailPage(
+    lib: Library,
+    a: Actions,
+    state: LazyListState,
+    title: String,
+    facts: String,
+    overview: String?,
+    poster: String?,
+    backdrop: String?,
+    buttons: @Composable (FocusRequester) -> Unit,
+    below: LazyListScope.() -> Unit,
+) {
+    val primary = remember { FocusRequester() }
+    val tv = a.tv
+    Box(Modifier.fillMaxSize()) {
+        if (lib.details && backdrop != null) {
+            if (tv) BackdropBehind(a.api, backdrop, height = 0.9f)
+        }
+        LazyColumn(state = state, contentPadding = PaddingValues(bottom = 32.dp)) {
+            item(key = "head") {
+                if (tv) {
+                    Column(Modifier.padding(start = 128.dp, end = 48.dp, top = 56.dp).width(560.dp)) {
+                        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 52.sp, lineHeight = 54.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+                        overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
+                        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) { buttons(primary) }
+                    }
+                } else {
+                    PhoneHeader(lib, a, title, facts, overview, poster, backdrop) {
+                        Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { buttons(primary) }
+                    }
+                }
+            }
+            below()
+            if (lib.details) item(key = "credit") { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = if (tv) 128.dp else 16.dp, end = 16.dp, top = 20.dp)) }
+        }
+        if (!tv) {
+            // Back over the backdrop, like a collapsing app bar.
+            Box(Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x730A070E)).clickable { a.go("back") }, contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+    if (tv) LaunchedEffect(title) { runCatching { primary.requestFocus() } }
+}
+
+@Composable
+private fun PhoneHeader(lib: Library, a: Actions, title: String, facts: String, overview: String?, poster: String?, backdrop: String?, buttons: @Composable ColumnScope.() -> Unit) {
+    Box {
+        Box(Modifier.fillMaxWidth().height(250.dp)) {
+            if (lib.details && backdrop != null) Art(a.api, backdrop, "w780", Modifier.fillMaxSize())
+            else Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0x595A4B78), Color.Transparent))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Bg)))
+        }
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 150.dp)) {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (lib.details && poster != null) Art(a.api, poster, "w342", Modifier.width(92.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)))
+                Column {
+                    Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 36.sp, color = Color.White)
+                    Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                }
+            }
+            overview?.let { Text(it, color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
+            buttons()
+        }
+    }
+}
+
+@Composable
+private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListState) {
+    val extras = lib.extras[m.id].orEmpty()
+    DetailPage(
+        lib, a, state,
+        title = m.meta?.title ?: m.title,
+        facts = lib.movieFacts(m),
+        overview = m.meta?.overview,
+        poster = m.meta?.posterPath,
+        backdrop = m.meta?.backdropPath,
+        buttons = { primary ->
+            Pill("Start party", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) { a.start(m, m.part?.ids) }
+        },
+    ) {
+        if (extras.isNotEmpty()) {
+            item(key = "extras-title") { SectionTitle("Extras", a) }
+            items(extras, key = { it.id }) { EpisodeRow(it, lib, a) }
+        }
+    }
+}
+
+@Composable
+private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState) {
+    val extras = extrasOfShow(show, lib.extras)
+    // -1 is the Extras chip after the seasons.
+    var season by rememberSaveable(show.name) { mutableStateOf(show.seasons.first()) }
+    val shown = season.takeIf { it in show.seasons || (it == -1 && extras != null) } ?: show.seasons.first()
+    val binge = if (shown == -1) show.seasons.first() else shown
+    val inSeason = { n: Int -> show.episodes.filter { it.episode!!.season == n } }
+    DetailPage(
+        lib, a, state,
+        title = show.name,
+        facts = lib.showFacts(show),
+        overview = show.meta?.showOverview,
+        poster = show.meta?.showPosterPath,
+        backdrop = show.meta?.backdropPath,
+        buttons = { primary ->
+            Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) {
+                inSeason(binge).let { eps -> a.start(eps.first(), eps.map { it.id }) }
+            }
+            if (show.seasons.size > 1) {
+                Pill("Binge all ${show.seasons.size} seasons", R.drawable.ic_list_video, wide = !a.tv) { a.start(show.episodes.first(), show.episodes.map { it.id }) }
+            }
+        },
+    ) {
+        if (show.seasons.size > 1 || extras != null) {
+            item(key = "seasons") {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(start = if (a.tv) 128.dp else 16.dp, end = 16.dp, top = if (a.tv) 28.dp else 16.dp, bottom = 8.dp),
+                ) {
+                    items(show.seasons) { n -> Chip("Season $n", n == shown, a.tv) { season = n } }
+                    if (extras != null) item { Chip("Extras", shown == -1, a.tv) { season = -1 } }
+                }
+            }
+        }
+        val list = if (shown == -1) extras.orEmpty() else inSeason(shown)
+        if (a.tv) {
+            // On a TV the episodes are a sideways row of stills, like Google TV.
+            item(key = "episodes-$shown") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
+                    items(list, key = { it.id }) { EpisodeCard(it, lib, a) }
+                }
+            }
+        } else {
+            items(list, key = { it.id }) { EpisodeRow(it, lib, a) }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String, a: Actions) {
+    Text(text, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White, modifier = Modifier.padding(start = if (a.tv) 128.dp else 16.dp, top = 24.dp, bottom = 8.dp))
+}
+
+private fun episodeTitle(m: MediaItem) = m.episode?.let { "${it.episode}. ${it.title ?: "Episode ${it.episode}"}" } ?: m.title
+private fun episodeLength(m: MediaItem) = m.duration?.let(::runtime) ?: formatSize(m.size)
+
+/** A TV episode: its still with the length, the title under it, and the summary while the remote is on it. */
+@Composable
+private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(10.dp)
+    Column(Modifier.width(200.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .scale(if (focused) 1.07f else 1f)
+                .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+                .clip(shape)
+                .background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))
+                .clickable(interactionSource = interaction, indication = null) { a.info(m) },
+        ) {
+            val still = m.meta?.stillPath
+            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
+            else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center))
+            Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+        }
+        Text(episodeTitle(m), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
+        if (focused) (m.meta?.overview ?: m.extra?.kind)?.let { Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+    }
+}
+
+/** A phone episode or extra: still, title, summary, and a round play button that starts a party with it. */
+@Composable
+private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions) {
+    Row(
+        Modifier.fillMaxWidth().clickable { a.info(m) }.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
+            val still = m.meta?.stillPath
+            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
+            else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
+            Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(episodeTitle(m), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val sub = m.meta?.overview?.takeIf { m.episode != null } ?: listOfNotNull(m.extra?.kind, "Subtitles".takeIf { m.subtitles.isNotEmpty() }).joinToString(" · ")
+            if (sub.isNotEmpty()) Text(sub, color = Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(Tonal).clickable { a.start(m, m.part?.ids) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_play_filled), contentDescription = "Start party", tint = Color.White, modifier = Modifier.size(18.dp).offset(x = 1.dp))
+        }
+    }
+}
+
+// ---------- Small parts ----------
+
+/**
+ * A rounded button: filled orange ([primary]), see-through white (tonal), or plain [text]. The one a TV remote is on
+ * turns white with dark text and grows a little.
+ */
+@Composable
+private fun Pill(
+    label: String,
+    icon: Int?,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    small: Boolean = false,
+    text: Boolean = false,
+    wide: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val bg = when {
+        focused -> FocusFill
+        primary -> Accent
+        text -> Color.Transparent
+        else -> Tonal
+    }
+    val fg = if (focused || primary) OnFocus else if (text) Muted else Color.White
+    Row(
+        modifier
+            .then(if (wide) Modifier.fillMaxWidth() else Modifier)
+            .scale(if (focused) 1.06f else 1f)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClick = onClick)
+            .heightIn(min = if (small) 38.dp else 46.dp)
+            .padding(horizontal = if (small) 16.dp else 22.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        icon?.let { Icon(painterResource(it), contentDescription = null, tint = fg, modifier = Modifier.size(if (small) 16.dp else 18.dp)) }
+        Text(label, color = fg, fontSize = if (small) 14.sp else 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** A filter or season chip: light when selected (as on the web app), white and larger when the remote is on it. */
+@Composable
+private fun Chip(label: String, selected: Boolean, tv: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = CircleShape
+    Box(
+        Modifier
+            .scale(if (focused) 1.08f else 1f)
+            .clip(shape)
+            .background(if (focused) FocusFill else if (selected) Color(0xFFEEEAF3) else Color.Transparent)
+            .border(1.dp, if (focused || selected) Color.Transparent else Muted.copy(alpha = 0.35f), shape)
+            .clickable(interactionSource = interaction, indication = if (tv) null else androidx.compose.material3.ripple(), onClick = onClick)
+            .heightIn(min = 34.dp)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (selected || focused) OnFocus else Muted, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun Message(text: String, isError: Boolean) {
+    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = if (isError) ErrorColor else Muted)
+    }
+}
+
+@Composable
+private fun JoinCodeDialog(onDismiss: () -> Unit, onJoin: (String) -> Unit) {
+    var code by remember { mutableStateOf("") }
+    val field = remember { FocusRequester() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Join a party") },
+        text = {
+            OutlinedTextField(
+                value = code,
+                onValueChange = { code = it },
+                label = { Text("Party code or invite link") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { onJoin(code) }),
+                modifier = Modifier.focusRequester(field),
+            )
+        },
+        confirmButton = { Button(onClick = { onJoin(code) }, modifier = Modifier.focusRing()) { Text("Join") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss, modifier = Modifier.focusRing()) { Text("Cancel") } },
+    )
+    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+}
+
+@Composable
+private fun rememberImage(api: Api, path: String, size: String): ImageBitmap? =
+    produceState<ImageBitmap?>(null, path, size) { value = api.image(path, size) }.value
+
+/** A TMDB image loaded through the server, cropped to fill [modifier]; nothing while it loads or if there's none. */
+@Composable
+private fun Art(api: Api, path: String, size: String, modifier: Modifier) {
+    val image = rememberImage(api, path, size)
+    Box(modifier) { image?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } }
+}

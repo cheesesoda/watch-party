@@ -92,18 +92,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 // Muted versions of the cheesesoda.com colors, the same as the web app: a dusky plum and a soft amber.
-private val Bg = Color(0xFF18131F)
-private val Panel = Color(0xFF231C2D)
-private val PanelFocused = Color(0xFF31283E)
-private val Accent = Color(0xFFE09A62)
-private val Muted = Color(0xFFB0A6BF)
-private val ErrorColor = Color(0xFFE06666)
+internal val Bg = Color(0xFF18131F)
+internal val Panel = Color(0xFF231C2D)
+internal val PanelFocused = Color(0xFF31283E)
+internal val Accent = Color(0xFFE09A62)
+internal val Muted = Color(0xFFB0A6BF)
+internal val ErrorColor = Color(0xFFE06666)
 /** The muted pink-to-purple sweep from cheesesoda.com, behind the sign-in screens. The home screen is plain plum. */
 private val BrandGradient = Brush.linearGradient(listOf(Color(0xFF8A3A5A), Color(0xFF2B2140)))
 // What a TV remote is on turns white with dark text and grows a little, as on Google TV. No colored outlines.
-private val FocusFill = Color(0xFFF2EEF7)
-private val OnFocus = Color(0xFF18131F)
-private val OnFocusMuted = Color(0xFF5B5068)
+internal val FocusFill = Color(0xFFF2EEF7)
+internal val OnFocus = Color(0xFF18131F)
+internal val OnFocusMuted = Color(0xFF5B5068)
 
 class MainActivity : ComponentActivity() {
     /** A TV sign-in link (server, pairing id) this phone was opened with, from the TV's QR code. */
@@ -183,7 +183,7 @@ class MainActivity : ComponentActivity() {
                     } else if (invite != null) {
                         JoinForm(prefs, invite = invite, onBack = { joinLink.value = null })
                     } else if (setUp) {
-                        HomeScreen(
+                        Dashboard(
                             prefs = prefs,
                             onSignedOut = { message ->
                                 prefs.markSignedIn(false)
@@ -654,491 +654,6 @@ private fun qrBitmap(text: String, size: Int = 480): ImageBitmap {
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
-/** The host's home: start a party (shows its code and a Join button), see running parties, or join by code. */
-@Composable
-private fun HomeScreen(prefs: Prefs, onSignedOut: (String?) -> Unit) {
-    val api = remember { Api(prefs.serverUrl, prefs.token) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val isTv = remember {
-        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-    }
-    val scope = rememberCoroutineScope()
-    var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
-    var started by remember { mutableStateOf<RoomSummary?>(null) }
-    var library by remember { mutableStateOf<List<MediaItem>?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var view by rememberSaveable { mutableStateOf(LibraryView.All) }
-    var sort by rememberSaveable { mutableStateOf(LibrarySort.AZ) }
-    var subsOnly by rememberSaveable { mutableStateOf(false) }
-    var showName by rememberSaveable { mutableStateOf<String?>(null) }
-    var season by rememberSaveable { mutableStateOf<Int?>(null) }
-    var openExtras by remember { mutableStateOf<String?>(null) }
-    // The video whose details window is open (tapping a video opens it; Start party is its own button).
-    var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
-    var code by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    suspend fun <T> guard(block: suspend () -> T): T? = try {
-        block()
-    } catch (e: UnauthorizedException) {
-        onSignedOut("Signed out. Check the server password.")
-        null
-    } catch (e: Exception) {
-        error = e.message ?: "Couldn't reach the server."
-        null
-    }
-
-    LaunchedEffect(Unit) {
-        guard { api.library() }?.let { library = it }
-    }
-    var fetchedAt by remember { mutableStateOf(0L) }
-    var now by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            guard { api.rooms() }?.let {
-                rooms = it
-                fetchedAt = System.currentTimeMillis()
-                now = fetchedAt
-            }
-            delay(5000)
-        }
-    }
-    // Between refreshes, move playing parties' progress along once a second.
-    val anyPlaying = rooms.any { it.playback?.paused == false }
-    LaunchedEffect(anyPlaying) {
-        while (anyPlaying) {
-            delay(1000)
-            now = System.currentTimeMillis()
-        }
-    }
-
-    val joinCode: () -> Unit = {
-        val id = Prefs.roomCode(code)
-        if (id.isNotEmpty()) {
-            scope.launch {
-                guard { api.room(id) }?.let { RoomActivity.start(context, it.id) }
-            }
-        }
-    }
-
-    val listState = rememberLazyListState()
-    // The party waiting for "End it for everyone?" to be confirmed.
-    var ending by remember { mutableStateOf<RoomSummary?>(null) }
-    ending?.let { room ->
-        AlertDialog(
-            onDismissRequest = { ending = null },
-            title = { Text("End this party?") },
-            text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
-            confirmButton = {
-                Button(onClick = {
-                    ending = null
-                    scope.launch {
-                        guard { api.endRoom(room.id, prefs.name) }?.let {
-                            rooms = rooms.filter { it.id != room.id }
-                            if (started?.id == room.id) started = null
-                        }
-                    }
-                }, modifier = Modifier.focusRing()) { Text("End party") }
-            },
-            dismissButton = { OutlinedButton(onClick = { ending = null }, modifier = Modifier.focusRing()) { Text("Cancel") } },
-        )
-    }
-
-    val lib = library
-    // queue: a binge, played in order from its first video.
-    val startParty = { media: MediaItem, queue: List<String>? ->
-        scope.launch {
-            guard { api.createRoom(media.id, queue) }?.let { room ->
-                started = room
-                rooms = rooms.filter { it.id != room.id } + room
-                listState.animateScrollToItem(0)
-            }
-        }
-        Unit
-    }
-    val extras = lib?.let { extrasByOwner(it) } ?: emptyMap()
-    // The server found TMDB details for something, so show posters (with empty frames where there are none).
-    val details = lib?.any { it.meta != null } == true
-    val mediaMeta = { media: MediaItem ->
-        (media.extra?.let { x ->
-            x.kind + (if (query.isNotBlank()) (x.of?.let { id -> lib?.firstOrNull { it.id == id }?.title } ?: x.show)?.let { " · $it" } ?: "" else "") + " · "
-        } ?: "") + (media.part?.let { "${it.ids.size} parts" } ?: media.duration?.let { formatLength(it) } ?: formatSize(media.size)) + if (media.subtitles.isNotEmpty()) " · CC" else ""
-    }
-    LazyColumn(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        state = listState,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            Row(Modifier.padding(top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LogoTitle()
-                    Text("Hosting as ${prefs.name} on ${prefs.serverUrl}", color = Muted, fontSize = 13.sp)
-                }
-                OutlinedButton(onClick = { onSignedOut(null) }, modifier = Modifier.focusRing()) { Text("Settings") }
-            }
-        }
-        if (!isTv) {
-            item {
-                OutlinedButton(onClick = { (context as? MainActivity)?.scanCode() }, modifier = Modifier.focusRing().fillMaxWidth()) {
-                    Text("Scan TV code")
-                }
-            }
-        }
-        error?.let { item { Text(it, color = ErrorColor) } }
-
-        started?.let { room ->
-            item(key = "started") {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Panel)
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        "Party ready for ${room.media?.title ?: "your movie"}" +
-                            (room.binge?.let { ", the first of ${it.length} in this binge" } ?: "") +
-                            ". Share the code, then join when you're ready to watch.",
-                        color = Muted,
-                    )
-                    Text(room.id.uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { RoomActivity.start(context, room.id) }, modifier = Modifier.focusRing()) { Text("Join party") }
-                        OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End party") }
-                    }
-                }
-            }
-        }
-
-        item { SectionTitle("Watch parties") }
-        if (rooms.isEmpty()) {
-            item { Text("No parties right now.", color = Muted) }
-        }
-        items(rooms, key = { "room-" + it.id }) { room ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) {
-                    FocusRow(
-                        title = (room.media?.title ?: "Nothing picked yet") + (room.binge?.let { " · ${it.index} of ${it.length}" } ?: ""),
-                        subtitle = (if (room.members.isEmpty()) "empty" else room.members.map { it.name }.distinct().joinToString(", ")) + " · code ${room.id.uppercase()}",
-                        action = "Join",
-                        onClick = { RoomActivity.start(context, room.id) },
-                        progress = if (room.playback == null) null else { inline ->
-                            PartyProgress(room.playback, (now - fetchedAt).coerceAtLeast(0), inline)
-                        },
-                    )
-                }
-                OutlinedButton(onClick = { ending = room }, modifier = Modifier.focusRing()) { Text("End") }
-            }
-        }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = code,
-                    onValueChange = { code = it },
-                    label = { Text("Party code or invite link") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    modifier = Modifier.weight(1f),
-                )
-                Button(onClick = joinCode, modifier = Modifier.focusRing()) { Text("Join") }
-            }
-        }
-        item { SectionTitle("Start a party") }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = {
-                    scope.launch { guard { api.library() }?.let { library = it } }
-                }, modifier = Modifier.focusRing()) { Text("Refresh") }
-            }
-        }
-        if (lib == null) {
-            item { Text("Loading library…", color = Muted) }
-        } else if (lib.isEmpty()) {
-            item { Text("No videos found.", color = Muted) }
-        } else {
-            val allShows = shows(lib)
-            // One menu: All videos, Movies and TV shows (when there are any), plus the subtitles filter.
-            val counts = mapOf(
-                LibraryView.All to lib.count { !it.ownedExtra && !it.laterPart },
-                LibraryView.Movies to lib.count { it.episode == null && !it.ownedExtra && !it.laterPart },
-                LibraryView.Shows to allShows.size,
-            )
-            item(key = "views") {
-                ChipRow {
-                    LibraryView.entries.filter { it != LibraryView.Shows || allShows.isNotEmpty() }
-                        .forEach { v -> Chip("${v.label} · ${counts[v]}", view == v) { view = v } }
-                    if (view != LibraryView.Shows) Chip("Has subtitles", subsOnly) { subsOnly = !subsOnly }
-                }
-            }
-            if (view != LibraryView.Shows) {
-                val recent = recentlyAdded(lib, null)
-                if (query.isBlank() && sort != LibrarySort.Recent && recent.size > 2) {
-                    item(key = "recent-title") { SectionTitle("Recently added", small = true) }
-                    item(key = "recent") {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-                            items(recent, key = { "recent-" + it.id }) { media ->
-                                FocusTile(
-                                    title = media.title,
-                                    subtitle = (media.year?.let { "$it · " } ?: "") + mediaMeta(media),
-                                    onClick = { shownInfo = media.id },
-                                    poster = if (details) ({ Poster(api, media.meta?.posterPath, "w185", 50.dp, 75.dp) }) else null,
-                                )
-                            }
-                        }
-                    }
-                }
-                item(key = "sort") {
-                    ChipRow(label = "Sort") { LibrarySort.entries.forEach { s -> Chip(s.label, sort == s) { sort = s } } }
-                }
-                val rows = libraryRows(lib, view, null, subsOnly, query, sort)
-                if (rows.isEmpty()) item { Text("No videos match.", color = Muted) }
-                items(rows, key = { if (it is LibraryRow.Video) "media-" + it.item.id else "show-" + (it as LibraryRow.ShowRow).show.name }) { row ->
-                    when (row) {
-                        is LibraryRow.Video -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val own = extras[row.item.id].takeIf { query.isBlank() }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(Modifier.weight(1f)) {
-                                    FocusRow(
-                                        title = row.item.title + (row.item.year?.let { "  $it" } ?: ""),
-                                        subtitle = mediaMeta(row.item),
-                                        onClick = { shownInfo = row.item.id },
-                                        leading = if (details) ({ Poster(api, row.item.meta?.posterPath, "w92", 36.dp, 54.dp) }) else null,
-                                    )
-                                }
-                                StartButton { startParty(row.item, row.item.part?.ids) }
-                                if (own != null) {
-                                    OutlinedButton(
-                                        onClick = { openExtras = if (openExtras == row.item.id) null else row.item.id },
-                                        modifier = Modifier.focusRing(),
-                                    ) { Text(plural(own.size, "extra")) }
-                                }
-                            }
-                            if (own != null && openExtras == row.item.id) {
-                                own.forEach { x ->
-                                    Box(Modifier.padding(start = 24.dp)) { MediaRow(x.title, mediaMeta(x), { shownInfo = x.id }, { startParty(x, null) }) }
-                                }
-                            }
-                        }
-                        is LibraryRow.ShowRow -> FocusRow(
-                            title = row.show.name,
-                            subtitle = "TV show · " + row.show.summary + (extrasOfShow(row.show, extras)?.let { " · " + plural(it.size, "extra") } ?: ""),
-                            action = "Episodes",
-                            leading = if (details) ({ Poster(api, row.show.meta?.showPosterPath, "w92", 36.dp, 54.dp) }) else null,
-                            onClick = {
-                                view = LibraryView.Shows
-                                showName = row.show.name
-                                season = null
-                            },
-                        )
-                    }
-                }
-            } else {
-                val visible = allShows.filter { show -> query.isBlank() || show.name.contains(query.trim(), ignoreCase = true) || show.episodes.any { matches(it, query) } }
-                val show = visible.firstOrNull { it.name == showName } ?: visible.firstOrNull()
-                if (show == null) item { Text("No shows match.", color = Muted) }
-                item(key = "shows") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-                        items(visible, key = { "showtile-" + it.name }) { s ->
-                            FocusTile(title = s.name, subtitle = s.summary, selected = s == show, large = true, onClick = {
-                                showName = s.name
-                                season = null
-                            }, poster = if (details) ({ Poster(api, s.meta?.showPosterPath, "w185", 50.dp, 75.dp) }) else null)
-                        }
-                    }
-                }
-                if (show != null) {
-                    // -1 is the Extras chip after the seasons.
-                    val showExtras = extrasOfShow(show, extras)
-                    val shownSeason = season?.takeIf { it in show.seasons || (it == -1 && showExtras != null) } ?: show.seasons.first()
-                    val showMeta = show.meta
-                    if (showMeta != null) {
-                        item(key = "show-head") {
-                            Row(Modifier.padding(top = 10.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Poster(api, showMeta.showPosterPath, "w185", 80.dp, 120.dp)
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        show.name + (showMeta.year?.let { "  $it" } ?: ""),
-                                        color = Color.White,
-                                        fontSize = 24.sp,
-                                        fontFamily = BarlowCondensed,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    showMeta.showOverview?.let { Text(it, color = Muted, fontSize = 14.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-                                }
-                            }
-                        }
-                    } else {
-                        item(key = "show-title") { SectionTitle(show.name, small = true) }
-                    }
-                    // Season chips, then the binge links: small, so they don't outweigh the seasons.
-                    item(key = "seasons") {
-                        ChipRow {
-                            if (show.seasons.size > 1 || showExtras != null) {
-                                show.seasons.forEach { n -> Chip("Season $n", n == shownSeason) { season = n } }
-                                if (showExtras != null) Chip("Extras", shownSeason == -1) { season = -1 }
-                            }
-                            if (shownSeason != -1) {
-                                val inSeason = show.episodes.filter { it.episode!!.season == shownSeason }
-                                LinkButton("Binge season $shownSeason") { startParty(inSeason.first(), inSeason.map { it.id }) }
-                                if (show.seasons.size > 1) {
-                                    LinkButton("Binge all ${show.seasons.size} seasons") { startParty(show.episodes.first(), show.episodes.map { it.id }) }
-                                }
-                            }
-                        }
-                    }
-                    if (shownSeason == -1 && showExtras != null) {
-                        items(showExtras, key = { "extra-" + it.id }) { x ->
-                            MediaRow(x.title, mediaMeta(x), { shownInfo = x.id }, { startParty(x, null) })
-                        }
-                    }
-                    items(show.episodes.filter { it.episode!!.season == shownSeason }, key = { "ep-" + it.id }) { media ->
-                        val ep = media.episode!!
-                        MediaRow(
-                            title = "E${ep.episode}   " + (ep.title ?: "Episode ${ep.episode}"),
-                            subtitle = mediaMeta(media),
-                            onClick = { shownInfo = media.id },
-                            onStart = { startParty(media, media.part?.ids) },
-                            leading = if (details) ({ Poster(api, media.meta?.stillPath, "w300", 112.dp, 63.dp) }) else null,
-                            detail = media.meta?.overview,
-                        )
-                    }
-                }
-            }
-        }
-        if (details) {
-            item(key = "tmdb-credit") {
-                Text(
-                    "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.",
-                    color = Muted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-            }
-        }
-        item { Spacer(Modifier.padding(bottom = 24.dp)) }
-    }
-    // Outside the list, so it stays open however far the list scrolls.
-    val shownMedia = shownInfo?.let { id -> lib?.firstOrNull { it.id == id } }
-    if (lib != null && shownMedia != null) {
-        val media: MediaItem = shownMedia
-        val show = media.episode?.let { shows(lib).firstOrNull { s -> media in s.episodes } }
-        DetailsDialog(
-            api = api,
-            media = media,
-            length = mediaMeta(media),
-            credit = details,
-            onStart = { shownInfo = null; startParty(media, media.part?.ids) },
-            onBingeFrom = show?.let { s -> { shownInfo = null; startParty(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
-            onClose = { shownInfo = null },
-        )
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String, small: Boolean = false) {
-    Text(
-        text,
-        fontSize = if (small) 19.sp else 24.sp,
-        fontFamily = BarlowCondensed,
-        fontWeight = FontWeight.Bold,
-        color = Color.White,
-        modifier = Modifier.padding(top = if (small) 10.dp else 16.dp, bottom = 4.dp),
-    )
-}
-
-/** A wrapping row of chips, with an optional label in front. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ChipRow(label: String? = null, content: @Composable () -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(vertical = 4.dp),
-    ) {
-        if (label != null) Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterVertically))
-        content()
-    }
-}
-
-/** A pill-shaped choice: orange when selected, white when a TV remote is on it. */
-@Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(50)
-    Box(
-        Modifier
-            .scale(if (focused) 1.06f else 1f)
-            .clip(shape)
-            .background(if (focused) FocusFill else if (selected) Accent else Color.Transparent, shape)
-            .border(1.dp, if (focused || selected) Color.Transparent else Muted.copy(alpha = 0.35f), shape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .heightIn(min = 36.dp)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = if (selected || focused) OnFocus else Muted,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-        )
-    }
-}
-
-/** A card in a sideways row: Recently added films, or the shows. */
-@Composable
-private fun FocusTile(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    selected: Boolean = false,
-    large: Boolean = false,
-    // A TMDB poster to the left of the title.
-    poster: (@Composable () -> Unit)? = null,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(12.dp)
-    Row(
-        Modifier
-            .width((if (large) 220.dp else 176.dp) + if (poster != null) 76.dp else 0.dp)
-            .heightIn(min = 96.dp)
-            .scale(if (focused) 1.04f else 1f)
-            .clip(shape)
-            .background(if (focused) FocusFill else if (selected) PanelFocused else Panel)
-            .border(2.dp, if (selected && !focused) Accent.copy(alpha = 0.6f) else Color.Transparent, shape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = if (poster != null) 10.dp else 14.dp, vertical = if (poster != null) 10.dp else 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-    if (poster != null) poster()
-    Column(Modifier.weight(1f).heightIn(min = 72.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Text(
-            title,
-            color = if (focused) OnFocus else Color.White,
-            fontWeight = if (large) FontWeight.Bold else FontWeight.SemiBold,
-            fontSize = if (large) 18.sp else 15.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(subtitle, color = if (focused) OnFocusMuted else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    }
-}
-
 /** A TMDB poster or still loaded through the server, or an empty frame the same size while it loads or if there's none. */
 @Composable
 private fun Poster(api: Api, path: String?, size: String, width: Dp, height: Dp) {
@@ -1148,117 +663,9 @@ private fun Poster(api: Api, path: String?, size: String, width: Dp, height: Dp)
     image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = frame) } ?: Box(frame)
 }
 
-/** A list row that shows a clear highlight when focused with a TV remote. */
-@Composable
-private fun FocusRow(
-    title: String,
-    subtitle: String,
-    // Orange text at the end saying what a click does; none when the row has its own button beside it.
-    action: String? = null,
-    onClick: () -> Unit,
-    // Called with true when it sits in its own middle column (wide screens), false when it goes under the subtitle.
-    progress: (@Composable (inline: Boolean) -> Unit)? = null,
-    // A poster or episode still before the title, and a summary under it.
-    leading: (@Composable () -> Unit)? = null,
-    detail: String? = null,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(10.dp)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-    val width = maxWidth
-    val wide = width >= 560.dp
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .scale(if (focused) 1.02f else 1f)
-            .clip(shape)
-            .background(if (focused) FocusFill else Panel)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = if (leading != null) 12.dp else 16.dp, vertical = if (leading != null) 8.dp else 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (leading != null) {
-            leading()
-            Spacer(Modifier.width(14.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, color = if (focused) OnFocus else Color.White, fontWeight = FontWeight.Medium)
-            if (detail != null && wide) Text(detail, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp)
-            if (!wide) progress?.invoke(false)
-        }
-        if (wide && progress != null) {
-            Spacer(Modifier.width(16.dp))
-            Box(Modifier.width((width * 0.32f).coerceAtMost(360.dp))) { progress(true) }
-        }
-        if (action != null) {
-            Spacer(Modifier.width(12.dp))
-            Text(action, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        }
-    }
-    }
-}
-
-/** A video's row: tapping it opens its details, and Start party sits beside it. */
-@Composable
-private fun MediaRow(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    onStart: () -> Unit,
-    leading: (@Composable () -> Unit)? = null,
-    detail: String? = null,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.weight(1f)) { FocusRow(title = title, subtitle = subtitle, onClick = onClick, leading = leading, detail = detail) }
-        StartButton(onClick = onStart)
-    }
-}
-
-/** The orange Start party button beside a video's row, styled like the rows so the pair reads as one. */
-@Composable
-private fun StartButton(label: String = "Start party", onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(10.dp)
-    Box(
-        Modifier
-            .scale(if (focused) 1.06f else 1f)
-            .clip(shape)
-            .background(if (focused) FocusFill else Panel)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .heightIn(min = 52.dp)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-/** A small orange text button, for the binge links after a show's season chips. */
-@Composable
-private fun LinkButton(label: String, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(50)
-    Box(
-        Modifier
-            .scale(if (focused) 1.06f else 1f)
-            .clip(shape)
-            .background(if (focused) FocusFill else Color.Transparent)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .heightIn(min = 36.dp)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = if (focused) OnFocus else Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
 /** A video's details: poster, title, summary, and Start party (plus Binge from here for an episode). */
 @Composable
-private fun DetailsDialog(
+internal fun DetailsDialog(
     api: Api,
     media: MediaItem,
     length: String,
@@ -1340,7 +747,7 @@ private fun FlowRowButtons(content: @Composable () -> Unit) {
 
 /** Material's buttons, except the one a TV remote is on turns white with dark text (with [focusRing]'s zoom). */
 @Composable
-private fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+internal fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     androidx.compose.material3.Button(
@@ -1354,7 +761,7 @@ private fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: 
 }
 
 @Composable
-private fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
+internal fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable RowScope.() -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     androidx.compose.material3.OutlinedButton(
@@ -1385,7 +792,7 @@ private fun TextButton(onClick: () -> Unit, modifier: Modifier = Modifier, conte
  * A slight zoom on the button a TV remote has selected (the buttons above also turn white). Material's own focus tint is too faint
  * to see from the couch. Touch doesn't focus buttons, so phones never show it.
  */
-private fun Modifier.focusRing(): Modifier = composed {
+internal fun Modifier.focusRing(): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     this
         .onFocusChanged { focused = it.isFocused }
@@ -1395,36 +802,7 @@ private fun Modifier.focusRing(): Modifier = composed {
         .heightIn(min = 48.dp)
 }
 
-/** How far along a running party is: a bar when the length is known, and the time with Playing or Paused. */
-@Composable
-private fun PartyProgress(playback: RoomPlayback, sinceFetchMs: Long, inline: Boolean = false) {
-    val duration = playback.duration
-    var position = playback.position + if (playback.paused) 0.0 else sinceFetchMs / 1000.0
-    if (duration != null) position = position.coerceAtMost(duration)
-    val color = if (playback.paused) Muted else Accent
-    Column(Modifier.padding(top = if (inline) 0.dp else 8.dp), verticalArrangement = Arrangement.spacedBy(if (inline) 6.dp else 4.dp)) {
-        if (duration != null && duration > 0) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(PanelFocused),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth((position / duration).toFloat().coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .background(color),
-                )
-            }
-        }
-        val time = clock(position) + (if (duration != null && duration > 0) " / " + clock(duration) else "")
-        Text(time + if (playback.paused) " · Paused" else " · Playing", color = Muted, fontSize = 12.sp)
-    }
-}
-
-private fun clock(seconds: Double): String {
+internal fun clock(seconds: Double): String {
     val s = seconds.toLong().coerceAtLeast(0)
     val h = s / 3600
     val m = (s % 3600) / 60
@@ -1432,7 +810,7 @@ private fun clock(seconds: Double): String {
     return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
 }
 
-private fun formatSize(bytes: Long): String {
+internal fun formatSize(bytes: Long): String {
     val gb = bytes / (1024.0 * 1024 * 1024)
     return if (gb >= 1) String.format("%.1f GB", gb) else "${maxOf(1, bytes / (1024 * 1024))} MB"
 }
