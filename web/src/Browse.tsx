@@ -17,7 +17,14 @@ export interface Browse {
   start: (ids: string[]) => void;
   /** The Details window, for episodes and extras, or straight on Fix match. */
   openInfo: (id: string, fix?: boolean) => void;
+  /** Goes to a movie or show page; the dashboard changes the address, the in-party picker its own view. */
+  open?: (path: string) => void;
+  /** The play buttons' name: "Start party" on the dashboard, "Play for everyone" in a party. */
+  startLabel?: string;
 }
+
+const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
+const startLabel = (b: Browse) => b.startLabel ?? "Start party";
 
 export const movieLink = (item: MediaItem) => `/movie/${item.id}`;
 export const showLink = (show: Show) => `/show/${encodeURIComponent(show.key)}`;
@@ -46,7 +53,7 @@ function showFacts(show: Show): string[] {
 }
 
 /** A 2:3 poster with the title under it. Without a poster, the title sits on a plain card. The play button starts a party. */
-export function PosterCard(props: { title: string; sub?: string; poster?: string | null; badge?: string; details: boolean; onOpen: () => void; onStart?: () => void }) {
+export function PosterCard(props: { title: string; sub?: string; poster?: string | null; badge?: string; details: boolean; onOpen: () => void; onStart?: () => void; startLabel?: string }) {
   const [failed, setFailed] = useState(false);
   const art = props.details && props.poster && !failed;
   return (
@@ -64,7 +71,7 @@ export function PosterCard(props: { title: string; sub?: string; poster?: string
         {props.sub && <span className="pcard-sub">{props.sub}</span>}
       </button>
       {props.onStart && (
-        <button className="pcard-start" onClick={props.onStart} title="Start party" aria-label={`Start party: ${props.title}`}>
+        <button className="pcard-start" onClick={props.onStart} title={props.startLabel ?? "Start party"} aria-label={`${props.startLabel ?? "Start party"}: ${props.title}`}>
           <PlayIcon size={18} />
         </button>
       )}
@@ -80,8 +87,9 @@ export function MovieCard(props: { item: MediaItem; b: Browse }) {
       sub={String(item.meta?.year ?? item.year ?? "") || undefined}
       poster={item.meta?.posterPath}
       details={b.details}
-      onOpen={() => navigate(movieLink(item))}
+      onOpen={() => go(b, movieLink(item))}
       onStart={() => b.start(playIds(item))}
+      startLabel={startLabel(b)}
     />
   );
 }
@@ -95,7 +103,7 @@ export function ShowCard(props: { show: Show; b: Browse }) {
       poster={show.meta?.showPosterPath}
       badge={plural(show.seasons.length, "season")}
       details={props.b.details}
-      onOpen={() => navigate(showLink(show))}
+      onOpen={() => go(props.b, showLink(show))}
     />
   );
 }
@@ -311,7 +319,7 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
           {m?.overview && <p className="overview">{m.overview}</p>}
           <div className="hero-actions">
             <button className="pill primary" onClick={() => b.start(playIds(item))}>
-              <PlayIcon size={18} /> Start party
+              <PlayIcon size={18} /> {startLabel(b)}
             </button>
             {b.details && <MoreMenu label={`More for ${item.title}`} items={[[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)]]} />}
           </div>
@@ -388,7 +396,7 @@ export function ShowPage(props: { b: Browse; show: Show }) {
 }
 
 /** An episode or extra: its still, "3. Title", length, summary and its own Start party. Clicking the row opens its details. */
-export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string }) {
+export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string; playing?: boolean }) {
   const { item, b } = props;
   const ep = item.episode;
   const title = ep ? `${ep.episode}. ${ep.title ?? `Episode ${ep.episode}`}` : item.title;
@@ -409,9 +417,13 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
           {b.details && ep && item.meta?.overview && <span className="ep-overview">{item.meta.overview}</span>}
         </span>
       </button>
-      <button className="pill tonal small" onClick={() => b.start([item.id])}>
-        <PlayIcon size={15} /> Start party
-      </button>
+      {props.playing ? (
+        <span className="ep-playing">Playing now</span>
+      ) : (
+        <button className="pill tonal small" onClick={() => b.start([item.id])}>
+          <PlayIcon size={15} /> {startLabel(b)}
+        </button>
+      )}
     </li>
   );
 }

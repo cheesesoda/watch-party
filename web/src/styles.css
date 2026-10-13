@@ -2210,3 +2210,62 @@ button.link:focus-visible {
     gap: 12px;
   }
 }
+
+/* Change video in a party: the dashboard's posters and pages in one large window. */
+.modal.picker .modal-body {
+  width: min(1100px, 100%);
+  height: min(860px, 90vh);
+  max-height: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px 20px;
+}
+.picker-head h2 {
+  margin: 0;
+  font-size: 20px;
+  white-space: nowrap;
+}
+.picker-search {
+  flex: 1 1 auto;
+  margin-left: auto;
+  max-width: 420px;
+}
+.picker-tabs {
+  padding: 0 20px 8px;
+}
+.picker-body {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 24px 24px;
+}
+.picker-body .hero-art {
+  inset: -12px -24px auto;
+  width: calc(100% + 48px);
+  height: 420px;
+}
+.picker-body .page-head h1,
+.picker-body .hero h1 {
+  font-size: 28px;
+}
+@media (max-width: 600px) {
+  .picker-head h2 {
+    display: none;
+  }
+}
+.ep-playing {
+  flex: none;
+  padding: 0 14px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}

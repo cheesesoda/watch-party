@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { MediaInfo, MediaItem } from "../../shared/protocol.ts";
 import { api, hlsUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
-import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, HeadphonesIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
+import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
-import { Library } from "./Library.tsx";
+import { Picker } from "./Picker.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
@@ -366,7 +366,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           aria-label={voiceStatus === "off" ? "Join voice" : voiceStatus === "starting" ? "Joining voice" : "Leave voice"}
           aria-pressed={voiceStatus === "on"}
         >
-          <HeadphonesIcon />
+          <MicIcon />
         </button>
         {voiceStatus === "on" && hasMic && (
           <button className="icon" onClick={toggleMute} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}>
@@ -496,50 +496,15 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       )}
 
       {picking && props.host && (
-        <div className="modal" onClick={() => setPicking(false)}>
-          <div className="modal-body" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>Choose a video</h2>
-              <button onClick={() => setPicking(false)}>Close</button>
-            </div>
-            {queue && (
-              <section className="binge-list">
-                <h3>This binge</h3>
-                <ul className="items">
-                  {queue.items.map((item, i) => (
-                    <li key={item.id}>
-                      <button
-                        className="item"
-                        aria-current={i === at}
-                        onClick={() => {
-                          play(item);
-                          setPicking(false);
-                        }}
-                      >
-                        <span className="title">
-                          <span className="year">{i + 1}.</span> {item.title}
-                          {item.part && ` · Part ${item.part.index}`}
-                        </span>
-                        <span className="action">{i === at ? "Playing" : "Play for everyone"}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            <Library
-              actionLabel="Play for everyone"
-              onPick={(item) => {
-                send({ type: "select", mediaId: item.id });
-                setPicking(false);
-              }}
-              onBinge={(ids) => {
-                send({ type: "binge", mediaIds: ids });
-                setPicking(false);
-              }}
-            />
-          </div>
-        </div>
+        <Picker
+          queue={queue}
+          at={at}
+          onPlay={(ids) => {
+            send(ids.length > 1 ? { type: "binge", mediaIds: ids } : { type: "select", mediaId: ids[0] });
+            setPicking(false);
+          }}
+          onClose={() => setPicking(false)}
+        />
       )}
     </div>
   );
