@@ -261,3 +261,24 @@ test("the party list shows where each party is in its video", async () => {
   assert.equal(one.room.playback.position, 95);
   host.ws.close();
 });
+
+test("saved spots are listed, start a party where they stopped, and can be removed", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const spot = app.rooms.spots.add({ mediaId: items[0].id, position: 42, next: ["gone"], key: "test" });
+  const gone = app.rooms.spots.add({ mediaId: "gone", position: 5, next: [], key: "gone" });
+  const { spots } = await (await fetch(`${base}/api/spots`, { headers: auth() })).json();
+  assert.deepEqual(spots.map((s: { id: string; position: number; next: unknown[] }) => [s.id, s.position, s.next.length]), [[spot.id, 42, 0]], "a spot whose video left the library isn't shown");
+
+  const post = (body: unknown) => fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify(body) });
+  const res = await post({ spot: spot.id });
+  assert.equal(res.status, 201);
+  const { room } = await res.json();
+  assert.equal(room.media.id, items[0].id);
+  assert.equal(app.rooms.get(room.id)!.state.position, 42);
+  assert.equal((await post({ spot: spot.id })).status, 404, "a spot is used up once a party starts from it");
+  assert.equal((await post({ spot: gone.id })).status, 400);
+
+  const third = app.rooms.spots.add({ mediaId: items[0].id, position: 7, next: [], key: "third" });
+  assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 204);
+  assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 404);
+});

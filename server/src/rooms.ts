@@ -12,12 +12,15 @@ import type {
   ServerMessage,
   SignalData,
 } from "../../shared/protocol.ts";
-import { expectedPosition } from "../../shared/protocol.ts";
+import { expectedPosition, nearEnd, worthSaving } from "../../shared/protocol.ts";
+import { Spots } from "./spots.ts";
 
 export type Send = (msg: ServerMessage) => void;
 export type Close = () => void;
 export type LookupMedia = (id: string) => MediaItem | undefined;
 export type Clock = () => number;
+/** Where a party stopped: the video to pick up, how far in (seconds), and what was lined up after it. */
+export type RoomSpot = { mediaId: string; position: number; next: string[] };
 
 const CHAT_HISTORY = 100;
 const MAX_CHAT_LENGTH = 500;
@@ -74,9 +77,13 @@ export class Room {
   readonly guestKey = crypto.randomBytes(18).toString("base64url");
   /** Set by the RoomManager so ending a party also removes it from the list. */
   onEnded: () => void = () => {};
+  /** Set by the RoomManager: keeps where the party stopped, for "Pick up where you left off". */
+  onSave: (spot: RoomSpot) => void = () => {};
   ended = false;
   readonly chat: ChatMessage[] = [];
   emptySince: number;
+  /** Where the video was when the last person left; a "playing" party keeps counting with nobody watching. */
+  private emptyAt: number | null = null;
   /** A binge: media ids played one after another. Empty for a single video. */
   queue: string[] = [];
   /** Counting down to the next video in the binge. */
@@ -198,6 +205,7 @@ export class Room {
     const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
+    this.emptyAt = null;
     this.members.set(member.id, { member, send, close, guest });
     send({
       type: "welcome",
@@ -221,7 +229,10 @@ export class Room {
     if (!entry) return;
     this.members.delete(memberId);
     this.players.delete(memberId);
-    if (this.members.size === 0) this.emptySince = this.now();
+    if (this.members.size === 0) {
+      this.emptySince = this.now();
+      this.emptyAt = this.position();
+    }
     this.resumeIfAllReady();
     if (this.ended) return;
     this.broadcast({ type: "members", members: this.memberList() });
@@ -305,7 +316,7 @@ export class Room {
 
       case "end":
         if (guest) return send({ type: "error", message: "Only the host can end the party." });
-        this.end(member.name);
+        this.end(member.name, msg.save === true);
         return;
 
       case "select": {
@@ -410,14 +421,30 @@ export class Room {
   }
 
   /** Tells everyone the party is over, disconnects them, and removes the room. */
-  end(by: string): void {
+  /** `save`: keep where the party is (see [spot]) so a new party can pick up there. */
+  end(by: string, save = false): void {
     if (this.ended) return;
+    const spot = save ? this.spot() : null;
+    if (spot) this.onSave(spot);
     this.ended = true;
     this.cancelAdvance();
     this.cancelHold();
     this.broadcast({ type: "ended", by });
     for (const { close } of [...this.members.values()]) close();
     this.onEnded();
+  }
+
+  /**
+   * Where a new party would pick up: this video and spot, or the next one if this one is at its credits, with
+   * the rest of Up next. Null when there's nothing worth coming back to (see worthSaving).
+   */
+  spot(): RoomSpot | null {
+    if (!this.media) return null;
+    const next = this.upcoming();
+    const position = this.members.size === 0 && this.emptyAt !== null ? this.emptyAt : this.position();
+    if (!worthSaving(position, this.media.duration, next.length)) return null;
+    if (nearEnd(position, this.media.duration)) return { mediaId: next[0], position: 0, next: next.slice(1) };
+    return { mediaId: this.media.id, position, next };
   }
 
   /** Current position, for display and for late joiners. */
@@ -499,18 +526,24 @@ export class RoomManager {
     private now: Clock = Date.now,
     private idleMs = 30 * 60_000,
     private iceServers: IceServer[] = DEFAULT_ICE_SERVERS,
+    readonly spots: Spots = new Spots(undefined, now),
   ) {}
 
-  /** queue: a binge, played in order from its first video (mediaId is then ignored). */
-  create(mediaId?: string, queue?: string[]): Room {
+  /**
+   * queue: a binge, played in order from its first video (mediaId is then ignored). position: where in the first
+   * video to start (picking up a saved spot).
+   */
+  create(mediaId?: string, queue?: string[], position = 0): Room {
     let id: string;
     do {
       id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
     } while (this.rooms.has(id));
     const room = new Room(id, this.lookup, this.now, this.iceServers);
     room.onEnded = () => this.rooms.delete(id);
+    room.onSave = (spot) => this.save(spot);
     if (queue && queue.length > 0) room.setQueue(queue);
     else if (mediaId) room.select(mediaId);
+    if (room.media && position > 0) room.state = { ...room.state, position };
     this.rooms.set(id, room);
     return room;
   }
@@ -519,12 +552,27 @@ export class RoomManager {
     return this.rooms.get(id.toLowerCase());
   }
 
-  /** Drops rooms that have been empty longer than the idle timeout. */
+  /**
+   * Drops rooms that have been empty longer than the idle timeout. Nobody is there to ask, so where they stopped
+   * is kept, the same as Save spot.
+   */
   sweep(): void {
     const now = this.now();
     for (const [id, room] of this.rooms) {
-      if (room.members.size === 0 && now - room.emptySince > this.idleMs) this.rooms.delete(id);
+      if (room.members.size === 0 && now - room.emptySince > this.idleMs) {
+        const spot = room.spot();
+        if (spot) this.save(spot);
+        this.rooms.delete(id);
+      }
     }
+  }
+
+  /** One spot per show (or movie): a later one replaces it. */
+  private save(spot: RoomSpot): void {
+    const media = this.lookup(spot.mediaId);
+    if (!media) return;
+    const show = media.episode && (media.meta?.show ?? media.episode.show);
+    this.spots.add({ ...spot, key: show ? `show:${show.toLowerCase()}` : `media:${media.id}` });
   }
 
   list(): RoomSummary[] {

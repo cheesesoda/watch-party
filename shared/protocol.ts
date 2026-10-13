@@ -170,6 +170,18 @@ export interface RoomSummary {
   playback?: RoomPlayback;
 }
 
+/** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
+export interface Spot {
+  id: string;
+  /** The video to start, and how far into it (seconds). */
+  media: MediaItem;
+  position: number;
+  /** What was still lined up after it, in order. */
+  next: MediaItem[];
+  /** When it was saved (ms since epoch). */
+  savedAt: number;
+}
+
 export interface RoomPlayback {
   /** Seconds into the video when the server answered. */
   position: number;
@@ -207,8 +219,8 @@ export type ClientMessage =
   /** Join or leave voice, or change mute while in it. */
   | { type: "voice"; on: boolean; muted: boolean }
   | { type: "signal"; to: string; data: SignalData }
-  /** Ends the party for everyone. */
-  | { type: "end" };
+  /** Ends the party for everyone. `save`: keep its spot on Home under "Pick up where you left off". */
+  | { type: "end"; save?: boolean };
 
 export type ServerMessage =
   | {
@@ -241,4 +253,18 @@ export type ServerMessage =
 export function expectedPosition(state: PlaybackState, serverNow: number): number {
   if (state.paused) return state.position;
   return state.position + Math.max(0, serverNow - state.updatedAt) / 1000;
+}
+
+/** Close enough to the end that the video counts as watched: the last minute, or the last 5% for long ones. */
+export function nearEnd(position: number, duration: number | null | undefined): boolean {
+  return !!duration && position >= duration - Math.max(60, duration * 0.05);
+}
+
+/**
+ * Whether a party stopping here is worth picking up later: partway through a video (past the first minute and
+ * not at the credits), or with more lined up after it.
+ */
+export function worthSaving(position: number, duration: number | null | undefined, upcoming: number): boolean {
+  if (nearEnd(position, duration)) return upcoming > 0;
+  return position >= 60 || upcoming > 0;
 }

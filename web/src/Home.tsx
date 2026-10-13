@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
+import { worthSaving, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
-import { Banner, HomeRows, MoviePage, MoviesPage, SearchResults, ShowPage, ShowsPage, type Browse } from "./Browse.tsx";
+import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, SearchResults, ShowPage, showLink, ShowsPage, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
 import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
 import { Details, fmtSize } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
+import { SaveSpotDialog, spotPreview, SpotRow } from "./Spots.tsx";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
 // A real path rather than #/join/, so Android can open it in the app; the server redirects browsers to #/join/.
@@ -39,6 +40,11 @@ export function Home(props: {
   // The party whose code was just clicked, to say its invite link was copied.
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Pick up where you left off, and the party being ended while "Save your spot?" is up.
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [ending, setEnding] = useState<RoomSummary | null>(null);
+  const loadSpots = () => api.spots().then(setSpots, () => {});
+  useEffect(() => void loadSpots(), []);
   const [query, setQuery] = useState(() => session("query") ?? "");
   useEffect(() => saveSession("query", query), [query]);
 
@@ -76,15 +82,17 @@ export function Home(props: {
     return () => clearInterval(t);
   }, [anyPlaying]);
 
-  const start = async (ids: string[]) => {
+  const start = async (ids: string[], spot?: Spot) => {
     setError(null);
     try {
-      const room = await api.createRoom(ids[0], ids.length > 1 ? ids : undefined);
+      const room = spot ? await api.startSpot(spot.id) : await api.createRoom(ids[0], ids.length > 1 ? ids : undefined);
+      if (spot) setSpots((ss) => ss.filter((x) => x.id !== spot.id));
       setStarted(room);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
     } catch (err) {
       setError((err as Error).message);
+      if (spot) void loadSpots();
     }
   };
 
@@ -107,21 +115,35 @@ export function Home(props: {
     }
   };
 
-  const end = async (room: RoomSummary) => {
+  // A party partway through something asks "Save your spot?"; otherwise it just checks.
+  const end = (room: RoomSummary) => {
+    const p = room.playback;
+    const position = p ? (p.paused ? p.position : p.position + Math.max(0, (Date.now() - fetchedAt) / 1000)) : 0;
+    if (room.media && worthSaving(position, p?.duration ?? room.media.duration, room.upNext?.count ?? 0)) return setEnding(room);
     const title = room.media?.title ?? "this party";
-    if (
-      !confirm(
-        `End ${title} for everyone? Anyone watching goes back to the start screen.`,
-      )
-    )
-      return;
+    if (confirm(`End ${title} for everyone? Anyone watching goes back to the start screen.`)) void finish(room, false);
+  };
+  const finish = async (room: RoomSummary, save: boolean) => {
+    setEnding(null);
     try {
-      await api.endRoom(room.id, props.name);
+      await api.endRoom(room.id, props.name, save);
       setRooms((rs) => rs.filter((r) => r.id !== room.id));
       setStarted((s) => (s?.id === room.id ? null : s));
+      if (save) void loadSpots();
     } catch (err) {
       setError((err as Error).message);
     }
+  };
+
+  const removeSpot = (spot: Spot) => {
+    setSpots((ss) => ss.filter((x) => x.id !== spot.id));
+    api.removeSpot(spot.id).catch(() => void loadSpots());
+  };
+  // Clicking a spot opens its show or movie page.
+  const openSpot = (spot: Spot) => {
+    const m = cat.byId.get(spot.media.id) ?? spot.media;
+    const show = m.episode && cat.shows.find((s) => s.episodes.some((e) => e.id === m.id));
+    go(show ? showLink(show) : movieLink(m));
   };
 
   const join = (e: FormEvent) => {
@@ -302,6 +324,10 @@ export function Home(props: {
 
         {route === "/" && !query.trim() && library && <Banner b={browse} />}
 
+        {route === "/" && !query.trim() && spots.length > 0 && (
+          <SpotRow spots={spots} details={browse.details} onStart={(sp) => void start([], sp)} onRemove={removeSpot} onOpen={openSpot} />
+        )}
+
         {route === "/" && !query.trim() && rooms.length > 0 && (
           <section className="dash-section">
             <div className="dash-section-head">
@@ -323,6 +349,23 @@ export function Home(props: {
           page
         )}
       </main>
+
+      {ending?.media &&
+        (() => {
+          const r = ending;
+          const p = r.playback;
+          const position = p ? (p.paused ? p.position : p.position + Math.max(0, (now - fetchedAt) / 1000)) : 0;
+          const preview = spotPreview(r.media!, position, p?.duration ?? r.media!.duration, r.upNext?.item ?? null, r.upNext?.count ?? 0);
+          return (
+            <SaveSpotDialog
+              {...preview}
+              details={browse.details}
+              onSave={() => void finish(r, true)}
+              onDontSave={() => void finish(r, false)}
+              onCancel={() => setEnding(null)}
+            />
+          );
+        })()}
 
       {info && cat.byId.has(info.id) && (
         <Details
