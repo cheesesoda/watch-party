@@ -51,7 +51,7 @@ test("movies get TMDB details on the next load, and the answer is saved", async 
   assert.equal(again.enrich(movie).meta?.tmdbId, 4944);
 });
 
-test("episodes without a title in the file name get TMDB's episode name", async () => {
+test("episodes get TMDB's episode name, whatever the file calls them", async () => {
   const tmdb = fakeTmdb({
     "/3/search/tv": { results: [{ id: 1399, name: "Game of Thrones", first_air_date: "2011-04-17", overview: "Seven noble families…", poster_path: "/got.jpg" }] },
     "/3/tv/1399/season/1": { poster_path: "/s1.jpg", episodes: [{ episode_number: 1, name: "Winter Is Coming", overview: "Ned Stark…", still_path: "/e1.jpg" }] },
@@ -64,9 +64,10 @@ test("episodes without a title in the file name get TMDB's episode name", async 
   assert.equal(got.episode?.title, "Winter Is Coming");
   assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…", backdropPath: null, rating: null, genres: [] });
 
-  // A title from the file name is kept.
-  const named = item({ title: "Game of Thrones S1 E1 · Pilot", episode: { show: "Game of Thrones", season: 1, episode: 1, title: "Pilot" } });
-  assert.equal(meta.enrich(named).title, "Game of Thrones S1 E1 · Pilot");
+  // A dubbed or tagged title from the file name gives way to TMDB's.
+  const named = item({ title: "Game of Thrones S1 E1 · L Inverno Sta Arrivando ITA", episode: { show: "Game of Thrones", season: 1, episode: 1, title: "L Inverno Sta Arrivando ITA" } });
+  assert.equal(meta.enrich(named).title, "Game of Thrones S1 E1 · Winter Is Coming");
+  assert.equal(meta.enrich(named).episode?.title, "Winter Is Coming");
 });
 
 test("no match is remembered for a week, extras are skipped, and a refused key turns lookups off", async () => {

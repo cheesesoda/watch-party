@@ -172,9 +172,11 @@ export class Metadata {
       rating: show.rating ?? null,
       genres: show.genres ?? [],
     };
-    // Most rips are named "Show.S01E02.mkv" with no episode title; fill it in so every client shows it.
-    if (!ep.title && details?.name) {
-      return { ...item, title: `${item.title} · ${details.name}`, episode: { ...ep, title: details.name }, meta };
+    // TMDB's episode name wins: most rips have none ("Show.S01E02.mkv"), and others carry a dubbed or tagged one
+    // ("La Citta Dell Amore Fraterno ITA ENG AMZN"). Every client shows it.
+    if (details?.name) {
+      const title = `${ep.show} S${ep.season} E${ep.episode} · ${details.name}`;
+      return { ...item, title, episode: { ...ep, title: details.name }, meta };
     }
     return { ...item, meta };
   }
