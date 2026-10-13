@@ -25,7 +25,15 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+      # Compile errors also become annotations, so they show on the PR without opening the log.
+      - run: |
+          set -o pipefail
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease 2>&1 | tee build.log || {
+            # One annotation holding them all: a step shows at most 10.
+            errors=$(grep -E '^e: ' build.log | head -60 | sed -E 's#^e: file://[^ ]*/app/src/main/java/com/watchparty/app/##' | awk '{printf "%s%%0A", $0}')
+            [ -n "$errors" ] && echo "::error title=Compile errors::$errors"
+            exit 1
+          }
       # Android TV has no camera or touchscreen: a library that marks either as required would hide
       # the app from TVs on Play. Lists the merged manifest's features and fails if any is required.
       - name: Check the app still installs on TVs
