@@ -44,7 +44,6 @@ export function Home(props: {
   const [spots, setSpots] = useState<Spot[]>([]);
   const [ending, setEnding] = useState<RoomSummary | null>(null);
   const loadSpots = () => api.spots().then(setSpots, () => {});
-  useEffect(() => void loadSpots(), []);
   const [query, setQuery] = useState(() => session("query") ?? "");
   useEffect(() => saveSession("query", query), [query]);
 
@@ -70,6 +69,8 @@ export function Home(props: {
         },
         () => {},
       );
+      // Parties that closed by themselves, or ended elsewhere, may have saved a spot.
+      void loadSpots();
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -160,8 +161,12 @@ export function Home(props: {
       convert: library?.convert ?? true,
       start: (ids) => void start(ids),
       openInfo: (id, fix = false) => setInfo({ id, fix }),
+      spot: {
+        of: (show) => spots.find((sp) => show.episodes.some((e) => e.id === sp.media.id)),
+        start: (sp) => void start([], sp),
+      },
     }),
-    [cat, library],
+    [cat, library, spots],
   );
 
   // Going to another page clears the search, the way a search box in an app does.

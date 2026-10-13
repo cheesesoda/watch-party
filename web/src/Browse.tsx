@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { MediaItem } from "../../shared/protocol.ts";
+import type { MediaItem, Spot } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { byName, fmtRuntime, partsLength, plural, type Catalog, type Show } from "./catalog.ts";
 import { CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
 import { BROWSER_SAFE, fmtSize, MoreMenu, Poster, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
+import { SpotLine } from "./Spots.tsx";
 
 /** What every page needs: the grouped library, and how to start a party or open the Details window. */
 export interface Browse {
@@ -25,6 +26,8 @@ export interface Browse {
   compact?: boolean;
   /** In a party, for the host: what's coming up, and adding videos to the end of Up next ([label] names them). */
   queue?: { has: (id: string) => boolean; add: (ids: string[], label: string) => void };
+  /** On the dashboard: the show's saved spot (Pick up where you left off), and starting a party there. */
+  spot?: { of: (show: Show) => Spot | undefined; start: (s: Spot) => void };
 }
 
 const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
@@ -390,6 +393,7 @@ export function ShowPage(props: { b: Browse; show: Show }) {
   useEffect(() => writePref(`season:${show.key}`, String(season)), [show.key, season]);
   const inSeason = (n: number) => show.episodes.filter((e) => e.episode!.season === n);
   const binge = season === EXTRAS ? show.seasons[0] : season;
+  const spot = b.spot?.of(show);
 
   return (
     <div className="hero-page">
@@ -400,8 +404,14 @@ export function ShowPage(props: { b: Browse; show: Show }) {
           <h1>{show.name}</h1>
           <p className="facts">{showFacts(show).join(" · ")}</p>
           {m?.showOverview && <p className="overview">{m.showOverview}</p>}
+          {spot && <SpotLine spot={spot} details={b.details} />}
           <div className="hero-actions">
-            <button className="pill primary" onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
+            {spot && (
+              <button className="pill primary" onClick={() => b.spot!.start(spot)}>
+                <PlayIcon size={18} /> Continue binge
+              </button>
+            )}
+            <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
               <PlayIcon size={18} /> Binge season {binge}
             </button>
             {b.queue && (

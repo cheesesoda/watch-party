@@ -83,6 +83,23 @@ export function SpotRow(props: { spots: Spot[]; details: boolean; onStart: (s: S
   );
 }
 
+/** On a show page with a saved spot: the episode's picture with how far in, and "S2 E3 Who Is Alive? · 31 m in · 4 more lined up · saved Tue". */
+export function SpotLine(props: { spot: Spot; details: boolean }) {
+  const { spot } = props;
+  const m = spot.media;
+  const ep = m.episode ? `S${m.episode.season} E${m.episode.episode}` + ((m.meta?.title ?? m.episode.title) ? ` ${m.meta?.title ?? m.episode.title}` : "") : (m.meta?.title ?? m.title);
+  const saved = when(spot.savedAt);
+  return (
+    <div className="spot-line">
+      <Thumb media={m} position={spot.position} details={props.details} size="w300" />
+      <span>
+        <b>Pick up where you left off</b>
+        <small>{[ep, howFar(spot.position), lined(spot.next.length), `saved ${saved === "Today" || saved === "Yesterday" ? saved.toLowerCase() : saved}`].filter(Boolean).join(" · ")}</small>
+      </span>
+    </div>
+  );
+}
+
 /** What ending now would save: the video and how far in, or the next one when this one is at its credits. */
 export function spotPreview(media: MediaItem, position: number, duration: number | null | undefined, next: MediaItem | null, upcoming: number) {
   if (nearEnd(position, duration) && next) return { media: next, position: 0, more: upcoming - 1 };
