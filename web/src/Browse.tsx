@@ -52,7 +52,7 @@ function showFacts(show: Show): string[] {
   ].filter(Boolean);
 }
 
-/** A 2:3 poster with the title under it. Without a poster, the title sits on a plain card. The play button starts a party. */
+/** A 2:3 poster with the title under it. Without a poster, the title sits on a plain card instead (not repeated below). The play button starts a party. */
 export function PosterCard(props: { title: string; sub?: string; poster?: string | null; badge?: string; details: boolean; onOpen: () => void; onStart?: () => void; startLabel?: string }) {
   const [failed, setFailed] = useState(false);
   const art = props.details && props.poster && !failed;
@@ -67,7 +67,7 @@ export function PosterCard(props: { title: string; sub?: string; poster?: string
           )}
           {props.badge && <span className="pcard-badge">{props.badge}</span>}
         </span>
-        <span className="pcard-title">{props.title}</span>
+        {art && <span className="pcard-title">{props.title}</span>}
         {props.sub && <span className="pcard-sub">{props.sub}</span>}
       </button>
       {props.onStart && (
