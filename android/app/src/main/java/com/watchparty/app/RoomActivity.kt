@@ -284,12 +284,12 @@ class RoomActivity : ComponentActivity() {
     /**
      * Any arrow or OK press on the remote brings the controls up while they're hidden, as on YouTube for TV.
      * Left to the views, only right and down did: with nothing focused, Android looks for something to the right
-     * of or below the top-left corner, and up or left find nothing.
+     * of or below the top-left corner, and up or left find nothing. Where focus sits doesn't matter: when the
+     * controls hide, Android hands focus to whatever it finds first, which can be outside the player.
      */
     private fun showsControlsFirst(event: KeyEvent): Boolean =
         !companion && event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS &&
-            !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE &&
-            currentFocus.let { it == null || it === playerView || isInside(it, playerView) }
+            !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE
 
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
@@ -1631,7 +1631,10 @@ class RoomActivity : ComponentActivity() {
         private const val DUCK_VOLUME = 0.3f
         private val DPAD_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_DPAD_UP_LEFT, KeyEvent.KEYCODE_DPAD_UP_RIGHT,
+            KeyEvent.KEYCODE_DPAD_DOWN_LEFT, KeyEvent.KEYCODE_DPAD_DOWN_RIGHT,
         )
         private const val CHAT_PANEL_DP = 320
         /** The app's muted orange, as on the home screen. */
