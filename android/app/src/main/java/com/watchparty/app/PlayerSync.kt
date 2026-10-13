@@ -2,6 +2,7 @@ package com.watchparty.app
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import kotlin.math.abs
@@ -17,6 +18,9 @@ class PlayerSync(
 ) {
     val clock = ClockOffset()
     private var state: PlaybackState? = null
+    /** Our own play/pause/seeks the server hasn't echoed back yet, and when the last one went out. */
+    private var unechoed = 0
+    private var lastSentAt = 0L
     private val main = Handler(Looper.getMainLooper())
 
     private val ticker = object : Runnable {
@@ -57,9 +61,27 @@ class PlayerSync(
         main.removeCallbacks(ticker)
     }
 
-    fun setState(newState: PlaybackState) {
+    /**
+     * [mine] is true when the room changed because of something this device sent. The server echoes every change
+     * back, and an echo can arrive after the next one has already gone out (double-tapping to jump several times),
+     * so an echo is skipped while newer changes of ours are still on the way. Otherwise the player would jump
+     * back to the earlier spot and the next jump would start from there.
+     */
+    fun setState(newState: PlaybackState, mine: Boolean = false) {
+        if (mine && unechoed > 0 && SystemClock.uptimeMillis() - lastSentAt < ECHO_WAIT_MS) {
+            unechoed--
+            if (unechoed > 0) return
+        } else {
+            unechoed = 0
+        }
         state = newState
         reconcile()
+    }
+
+    private fun sent(type: String, position: Double) {
+        unechoed++
+        lastSentAt = SystemClock.uptimeMillis()
+        sent(type, position)
     }
 
     /**
@@ -71,7 +93,7 @@ class PlayerSync(
         val to = positionMs.coerceIn(0L, duration)
         state?.let { s ->
             state = s.copy(position = to / 1000.0, updatedAt = clock.serverNow())
-            send("seek", to / 1000.0)
+            sent("seek", to / 1000.0)
         }
         player.seekTo(to)
     }
@@ -83,7 +105,7 @@ class PlayerSync(
         val position = player.currentPosition / 1000.0
         val paused = if (type == "seek") s.paused else type == "pause"
         state = s.copy(paused = paused, position = position, updatedAt = clock.serverNow())
-        send(type, position)
+        sent(type, position)
     }
 
     private fun reconcile() {
@@ -121,5 +143,10 @@ class PlayerSync(
 
     private fun setSpeed(speed: Float) {
         if (player.playbackParameters.speed != speed) player.playbackParameters = PlaybackParameters(speed)
+    }
+
+    private companion object {
+        /** After this long without an echo, stop waiting for it (the message was dropped or refused). */
+        const val ECHO_WAIT_MS = 5_000L
     }
 }
