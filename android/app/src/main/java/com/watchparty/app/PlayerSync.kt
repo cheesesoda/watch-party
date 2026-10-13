@@ -165,6 +165,14 @@ class PlayerSync(
      */
     private fun holdLead(s: PlaybackState): Double = if (s.hold) startLag else 0.0
 
+    /**
+     * Enough loaded past the spot to keep playing once everyone starts. Showing the first frame isn't enough: the
+     * TV said it was ready, everyone started, and it fell behind while it loaded the rest.
+     */
+    private fun bufferedEnough(): Boolean =
+        player.totalBufferedDuration >= READY_BUFFER_MS ||
+            (player.duration > 0 && player.bufferedPosition >= player.duration)
+
     private fun sentAt(): Long? = if (clock.measured) clock.serverNow() else null
 
     private fun target(): Double = state?.expectedPosition(clock.serverNow()) ?: 0.0
@@ -204,6 +212,11 @@ class PlayerSync(
             if (abs(current - spot) > 0.25) {
                 seek((spot * 1000).toLong())
             } else if (s.hold && player.playbackState == Player.STATE_READY && !seekPending) {
+                if (!bufferedEnough()) {
+                    main.removeCallbacks(check)
+                    main.postDelayed(check, 250)
+                    return
+                }
                 // Loaded the spot everyone is waiting at. Not counted as a change of ours: the server doesn't echo it.
                 val key = "${s.updatedAt}:${s.position}"
                 if (readyFor != key) {
@@ -287,7 +300,8 @@ class PlayerSync(
         const val SEEK_LOAD_MS = 3_000L
         const val MAX_LEAD = 6.0
         const val LAG_CHECK_MS = 1_500L
-        const val MAX_START_LAG = 2.5
+        const val MAX_START_LAG = 4.0
+        const val READY_BUFFER_MS = 3_000L
 
         /** How late this device starts playing after a jump, in seconds. Kept while the app runs. */
         var startLag = 0.0
