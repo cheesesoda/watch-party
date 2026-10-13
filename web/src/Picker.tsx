@@ -51,6 +51,7 @@ export function Picker(props: {
         setPage(path);
       },
       startLabel: "Play for everyone",
+      compact: true,
     }),
     [cat, library],
   );

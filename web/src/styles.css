@@ -1758,31 +1758,36 @@ button.link:focus-visible {
   font-weight: 600;
   backdrop-filter: blur(8px);
 }
-/* A long title is cut short with an ellipsis so the year after it stays visible. */
 .pcard-title {
-  display: flex;
   margin-top: 8px;
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
-}
-.pcard-title .pcard-name {
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.pcard-title .year {
-  flex: none;
-  white-space: pre;
 }
 .pcard-sub {
   color: var(--muted);
   font-size: 13px;
 }
-.pcard-title .year,
-.pcard-fallback .year {
+/* The in-party picker: the title and year over the bottom of every poster. */
+.pcard-over {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 36px 12px 10px;
+  background: linear-gradient(180deg, rgba(10, 7, 14, 0), rgba(10, 7, 14, 0.92));
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+}
+.pcard-over .year {
   color: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
+}
+.pcard-poster.overlay .pcard-start {
+  top: 8px;
+  bottom: auto;
 }
 /* The play button shows on hover or keyboard focus, in the poster's corner. */
 .pcard-start {
