@@ -36,13 +36,13 @@ const noPause = async () => {};
 
 test("movies get TMDB details on the next load, and the answer is saved", async () => {
   const tmdb = fakeTmdb({
-    "/3/search/movie": { results: [{ id: 4944, title: "Burn After Reading", release_date: "2008-09-05", overview: "A disk falls…", poster_path: "/bar.jpg" }] },
+    "/3/search/movie": { results: [{ id: 4944, title: "Burn After Reading", release_date: "2008-09-05", overview: "A disk falls…", poster_path: "/bar.jpg", backdrop_path: "/bar-wide.jpg", vote_average: 6.96, vote_count: 900, genre_ids: [35, 80] }] },
   });
   const movie = item({ title: "Burn After Reading", year: 2008 });
   const meta = new Metadata(config("movies"), tmdb.fetchImpl, Date.now, noPause);
   assert.equal(meta.enrich(movie).meta, undefined);
   await meta.idle();
-  assert.deepEqual(meta.enrich(movie).meta, { tmdbId: 4944, title: "Burn After Reading", year: 2008, overview: "A disk falls…", posterPath: "/bar.jpg" });
+  assert.deepEqual(meta.enrich(movie).meta, { tmdbId: 4944, title: "Burn After Reading", year: 2008, overview: "A disk falls…", posterPath: "/bar.jpg", backdropPath: "/bar-wide.jpg", rating: 7, genres: ["Comedy", "Crime"] });
   assert.deepEqual(tmdb.calls, ["/3/search/movie?Burn After Reading|2008"]);
 
   // A restarted server reads the file instead of asking again.
@@ -62,7 +62,7 @@ test("episodes without a title in the file name get TMDB's episode name", async 
   const got = meta.enrich(ep);
   assert.equal(got.title, "Game of Thrones S1 E1 · Winter Is Coming");
   assert.equal(got.episode?.title, "Winter Is Coming");
-  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…" });
+  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…", backdropPath: null, rating: null, genres: [] });
 
   // A title from the file name is kept.
   const named = item({ title: "Game of Thrones S1 E1 · Pilot", episode: { show: "Game of Thrones", season: 1, episode: 1, title: "Pilot" } });
@@ -178,4 +178,22 @@ test("a show is found whether the folder says \"and\" or \"&\", and older misses
   assert.equal(meta.enrich(ep("Franklin and Bash")).meta?.tmdbId, 7);
   assert.equal(meta.enrich(ep("Franklin And Bash")).meta?.tmdbId, 7);
   assert.equal(meta.enrich(ep("Franklin & Bash")).meta?.tmdbId, 7);
+});
+
+test("movies and shows saved before backdrops were kept are asked for again by id, keeping Fix match", async () => {
+  const tmdb = fakeTmdb({
+    "/3/movie/5": { id: 5, title: "Old", release_date: "1999-01-01", backdrop_path: "/old-wide.jpg", genres: [{ id: 18, name: "Drama" }] },
+  });
+  const file = config("refresh").file;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const value = { id: 5, title: "Old", year: 1999, overview: null, posterPath: "/old.jpg" };
+  await fs.writeFile(file, JSON.stringify({ version: 2, movies: { "old|1999": { at: 1, value, pinned: true } } }));
+  const movie = item({ title: "Old", year: 1999 });
+  const meta = new Metadata(config("refresh"), tmdb.fetchImpl, Date.now, noPause);
+  await meta.warm([movie]);
+  assert.deepEqual(tmdb.calls, ["/3/movie/5?|"]);
+  assert.equal(meta.enrich(movie).meta?.backdropPath, "/old-wide.jpg");
+  assert.deepEqual(meta.enrich(movie).meta?.genres, ["Drama"]);
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.equal(saved.movies["old|1999"].pinned, true);
 });

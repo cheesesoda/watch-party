@@ -19,6 +19,11 @@ interface MovieHit {
   year: number | null;
   overview: string | null;
   posterPath: string | null;
+  /** Wide background art. Missing (not null) in answers saved before backdrops were kept. */
+  backdropPath?: string | null;
+  /** TMDB's average score out of 10, or null with no votes. */
+  rating?: number | null;
+  genres?: string[];
 }
 
 interface ShowHit extends MovieHit {}
@@ -59,7 +64,7 @@ const OFFLINE = Symbol("offline");
 
 const IMAGE = "https://image.tmdb.org/t/p";
 /** Poster and still sizes the server passes along; TMDB has others, but these cover every screen. */
-export const IMAGE_SIZES = new Set(["w92", "w185", "w342", "w500", "w300"]);
+export const IMAGE_SIZES = new Set(["w92", "w185", "w342", "w500", "w300", "w780", "w1280"]);
 const IMAGE_FILE = /^[A-Za-z0-9_-]+\.(jpg|png)$/;
 
 const key = (s: string) =>
@@ -81,6 +86,22 @@ const movieKey = (item: MediaItem) => `${key(item.title)}|${item.year ?? ""}`;
 const showKey = (name: string) => key(name);
 const yearOf = (date: unknown) => (typeof date === "string" && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
 const text = (s: unknown) => (typeof s === "string" && s.trim() ? s.trim() : null);
+
+/** TMDB's genre ids, which search results give instead of names. They haven't changed in years. */
+const GENRES: Record<number, string> = {
+  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary", 18: "Drama",
+  10751: "Family", 14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance",
+  878: "Science Fiction", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western", 10759: "Action & Adventure",
+  10762: "Kids", 10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk",
+  10768: "War & Politics",
+};
+function genresOf(hit: any): string[] {
+  const named = Array.isArray(hit.genres) ? hit.genres.map((g: any) => text(g?.name)) : [];
+  const ids = Array.isArray(hit.genre_ids) ? hit.genre_ids.map((id: any) => GENRES[id] ?? null) : [];
+  return [...named, ...ids].filter((g): g is string => g !== null);
+}
+const ratingOf = (hit: any) =>
+  typeof hit.vote_average === "number" && hit.vote_count > 0 ? Math.round(hit.vote_average * 10) / 10 : null;
 
 /**
  * Movie and TV episode details from TMDB (themoviedb.org). Lookups run one at a time in the background
@@ -114,14 +135,26 @@ export class Metadata {
   enrich(item: MediaItem): MediaItem {
     if (!this.enabled || item.extra) return item;
     if (item.episode) return this.enrichEpisode(item);
-    const movie = this.lookup("movies", movieKey(item), () => this.findMovie(item.title, item.year ?? null));
+    const movie = this.lookup("movies", movieKey(item), () => this.findMovie(item.title, item.year ?? null), (m) => this.refresh("movie", m));
     if (!movie) return item;
-    return { ...item, meta: { tmdbId: movie.id, title: movie.title, year: movie.year, overview: movie.overview, posterPath: movie.posterPath } };
+    return {
+      ...item,
+      meta: {
+        tmdbId: movie.id,
+        title: movie.title,
+        year: movie.year,
+        overview: movie.overview,
+        posterPath: movie.posterPath,
+        backdropPath: movie.backdropPath ?? null,
+        rating: movie.rating ?? null,
+        genres: movie.genres ?? [],
+      },
+    };
   }
 
   private enrichEpisode(item: MediaItem): MediaItem {
     const ep = item.episode!;
-    const show = this.lookup("shows", showKey(ep.show), () => this.findShow(ep.show));
+    const show = this.lookup("shows", showKey(ep.show), () => this.findShow(ep.show), (s) => this.refresh("tv", s));
     if (!show) return item;
     const season = this.lookup("seasons", `${show.id}|${ep.season}`, () => this.findSeason(show.id, ep.season));
     const details = season?.episodes[ep.episode];
@@ -135,6 +168,9 @@ export class Metadata {
       show: show.title,
       showPosterPath: show.posterPath,
       showOverview: show.overview,
+      backdropPath: show.backdropPath ?? null,
+      rating: show.rating ?? null,
+      genres: show.genres ?? [],
     };
     // Most rips are named "Show.S01E02.mkv" with no episode title; fill it in so every client shows it.
     if (!ep.title && details?.name) {
@@ -162,7 +198,7 @@ export class Metadata {
     const results = await this.search_(kind, query, {});
     return results.slice(0, 12).map((hit) => {
       const { id, ...rest } = this.toHit(kind, hit, query);
-      return { tmdbId: id, ...rest };
+      return { tmdbId: id, title: rest.title, year: rest.year, overview: rest.overview, posterPath: rest.posterPath };
     });
   }
 
@@ -228,11 +264,28 @@ export class Metadata {
     kind: K,
     id: string,
     find: () => Promise<CacheFile[K][string]["value"]>,
+    /** For a movie or show saved before backdrops were kept: asks TMDB again by its id, keeping the match. */
+    refresh?: (value: MovieHit) => Promise<MovieHit | null>,
   ): CacheFile[K][string]["value"] {
     const entry = this.cache[kind][id];
-    const fresh = entry && (entry.value !== null || entry.pinned || this.now() - entry.at < RETRY_MISS_MS);
+    const old = refresh && entry?.value && (entry.value as MovieHit).backdropPath === undefined;
+    const fresh = entry && !old && (entry.value !== null || entry.pinned || this.now() - entry.at < RETRY_MISS_MS);
     const task = `${kind}:${id}`;
-    if (!fresh && !this.pending.has(task)) {
+    if (old && !this.pending.has(task)) {
+      this.pending.add(task);
+      this.queue = this.queue
+        .then(() => (this.enabled ? refresh(entry.value as MovieHit) : null))
+        .then((value) => {
+          const now = this.cache[kind][id];
+          if (!value || now !== entry) return;
+          (this.cache[kind] as Record<string, CacheEntry<unknown>>)[id] = { ...entry, value };
+          this.scheduleSave();
+        })
+        .catch((err) => {
+          if (err !== OFFLINE) console.warn(`TMDB lookup failed (${task}): ${err instanceof Error ? err.message : err}`);
+        })
+        .finally(() => this.pending.delete(task));
+    } else if (!fresh && !this.pending.has(task)) {
       this.pending.add(task);
       this.queue = this.queue
         .then(() => this.loaded)
@@ -280,7 +333,23 @@ export class Metadata {
 
   private toHit(kind: "movie" | "tv", hit: any, fallback: string): MovieHit {
     const title = text(kind === "movie" ? hit.title : hit.name) ?? fallback;
-    return { id: hit.id, title, year: yearOf(kind === "movie" ? hit.release_date : hit.first_air_date), overview: text(hit.overview), posterPath: text(hit.poster_path) };
+    return {
+      id: hit.id,
+      title,
+      year: yearOf(kind === "movie" ? hit.release_date : hit.first_air_date),
+      overview: text(hit.overview),
+      posterPath: text(hit.poster_path),
+      backdropPath: text(hit.backdrop_path),
+      rating: ratingOf(hit),
+      genres: genresOf(hit),
+    };
+  }
+
+  /** The same movie or show asked for again by id, for details older saved answers lack. */
+  private async refresh(kind: "movie" | "tv", value: MovieHit): Promise<MovieHit | null> {
+    const data = await this.get(`/${kind}/${value.id}`, {});
+    if (!data || typeof data.id !== "number") return { ...value, backdropPath: null };
+    return this.toHit(kind, data, value.title);
   }
 
   private async findSeason(showId: number, season: number): Promise<SeasonHit | null> {

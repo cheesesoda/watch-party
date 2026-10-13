@@ -1,8 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
-import { api, getInviteBase } from "./api.ts";
-import { LogOutIcon, PencilIcon } from "./Icons.tsx";
-import { Library, Shelf } from "./Library.tsx";
+import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
+import { Banner, HomeRows, MoviePage, MoviesPage, SearchResults, ShowPage, ShowsPage, type Browse } from "./Browse.tsx";
+import { buildCatalog } from "./catalog.ts";
+import { CaptionsIcon, FilmIcon, HomeIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
+import { Details, fmtSize } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 
@@ -11,8 +13,21 @@ import { Logo } from "./Logo.tsx";
 export const inviteLink = (code: string) =>
   `${getInviteBase()}/join/${code.toUpperCase()}`;
 
-/** The host's home: pick a movie to start a party (it shows the code; nothing plays until you join), see running parties, or join by code. */
+const NAV: [string, string, (p: { size?: number }) => ReactNode][] = [
+  ["/", "Home", HomeIcon],
+  ["/movies", "Movies", FilmIcon],
+  ["/shows", "TV shows", TvIcon],
+  ["/parties", "Watch parties", UsersIcon],
+  ["/subtitles", "Has subtitles", CaptionsIcon],
+];
+
+/**
+ * The host's dashboard, laid out like Jellyfin or Plex: a sidebar, search and party code on top, and pages for Home,
+ * Movies, TV shows, Watch parties and Has subtitles, plus a page per movie and show. Starting a party shows its code;
+ * nothing plays until someone joins.
+ */
 export function Home(props: {
+  route: string;
   name: string;
   onRename: () => void;
   onSignOut: () => void;
@@ -24,6 +39,17 @@ export function Home(props: {
   // The party whose code was just clicked, to say its invite link was copied.
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState(() => session("query") ?? "");
+  useEffect(() => saveSession("query", query), [query]);
+
+  const [library, setLibrary] = useState<LibraryResponse | null>(null);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [info, setInfo] = useState<{ id: string; fix: boolean } | null>(null);
+  const loadLibrary = (rescan = false) => {
+    setLibraryError(null);
+    (rescan ? api.rescan() : api.library()).then(setLibrary, (e) => setLibraryError(e.message));
+  };
+  useEffect(() => loadLibrary(), []);
 
   // When the list arrived, so playing parties' progress can move on between refreshes.
   const [fetchedAt, setFetchedAt] = useState(() => Date.now());
@@ -50,10 +76,10 @@ export function Home(props: {
     return () => clearInterval(t);
   }, [anyPlaying]);
 
-  const start = async (mediaId: string, queue?: string[]) => {
+  const start = async (ids: string[]) => {
     setError(null);
     try {
-      const room = await api.createRoom(mediaId, queue);
+      const room = await api.createRoom(ids[0], ids.length > 1 ? ids : undefined);
       setStarted(room);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
@@ -104,120 +130,269 @@ export function Home(props: {
     if (id) navigate(`/room/${id}`);
   };
 
+  const cat = useMemo(() => buildCatalog(library?.items ?? []), [library]);
+  const browse: Browse = useMemo(
+    () => ({
+      cat,
+      details: !!library?.details,
+      convert: library?.convert ?? true,
+      start: (ids) => void start(ids),
+      openInfo: (id, fix = false) => setInfo({ id, fix }),
+    }),
+    [cat, library],
+  );
+
+  // Going to another page clears the search, the way a search box in an app does.
+  const route = props.route;
+  const go = (path: string) => {
+    setQuery("");
+    navigate(path);
+  };
+  const lastRoute = useRef(route);
+  useEffect(() => {
+    if (lastRoute.current !== route) setQuery("");
+    lastRoute.current = route;
+  }, [route]);
+
+  // Each page keeps its scroll position, so Back from a movie lands where you were (also after a refresh).
+  const scrolls = useRef<Record<string, number>>(JSON.parse(session("scroll") ?? "{}"));
+  useEffect(() => {
+    const save = () => {
+      scrolls.current[route] = window.scrollY;
+      saveSession("scroll", JSON.stringify(scrolls.current));
+    };
+    window.addEventListener("pagehide", save);
+    return () => {
+      save();
+      window.removeEventListener("pagehide", save);
+    };
+  }, [route]);
+  useLayoutEffect(() => {
+    if (library) window.scrollTo(0, scrolls.current[route] ?? 0);
+  }, [route, !!library]);
+
+  const movieId = /^\/movie\/([\w-]+)/.exec(route)?.[1];
+  const showKey = /^\/show\/([^/]+)/.exec(route)?.[1];
+  const movie = movieId ? cat.byId.get(movieId) : undefined;
+  const show = showKey ? cat.shows.find((s) => s.key === decodeURIComponent(showKey)) : undefined;
+  const section = movie ? "/movies" : show ? "/shows" : route;
+  const hero = !query.trim() && (movie || show || (route === "/" && browse.details));
+
+  let page: ReactNode;
+  if (libraryError) page = <p className="error">{libraryError}</p>;
+  else if (!library) page = <p className="muted">Loading library…</p>;
+  else if (library.items.length === 0 && route !== "/parties")
+    page = <p className="muted">No videos found. Put files in the server's media folder and press Rescan library.</p>;
+  else if (query.trim()) page = <SearchResults b={browse} query={query} />;
+  else if (route === "/parties") page = null;
+  else if (movie) page = <MoviePage key={movie.id} b={browse} item={movie} />;
+  else if (show) page = <ShowPage key={show.key} b={browse} show={show} />;
+  else if (route === "/movies") page = <MoviesPage b={browse} />;
+  else if (route === "/shows") page = <ShowsPage b={browse} />;
+  else if (route === "/subtitles") page = <MoviesPage b={browse} subtitlesOnly />;
+  else if (movieId || showKey) page = <p className="muted">That video isn't in the library anymore.</p>;
+  else page = <HomeRows b={browse} />;
+
+  const partyCards = (
+    <div className="party-grid">
+      {rooms.map((r) => (
+        <PartyCard
+          key={r.id}
+          room={r}
+          elapsed={(now - fetchedAt) / 1000}
+          details={browse.details}
+          copied={copiedCode === r.id}
+          onCopy={() => copyCode(r.id)}
+          onEnd={() => end(r)}
+        />
+      ))}
+    </div>
+  );
+
   return (
-    <div className="page-wrap">
-      <div className="page">
-        <header className="topbar">
-          <Logo />
-          <span className="spacer" />
+    <div className="dash">
+      <aside className="sidebar">
+        <button className="sidebar-logo" onClick={() => go("/")} aria-label="Home">
+          <Logo size={34} />
+        </button>
+        <nav>
+          {NAV.map(([path, label, Icon]) => (
+            <button key={path} className={section === path && !query.trim() ? "on" : ""} aria-current={section === path && !query.trim() ? "page" : undefined} onClick={() => go(path)}>
+              <Icon size={20} />
+              <span>{label}</span>
+              {path === "/parties" && rooms.length > 0 && <b className="nav-count">{rooms.length}</b>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-foot">
           <button className="name-link" onClick={props.onRename} title="Change name">
-            <span className="hosting-as">Hosting as</span> <strong>{props.name}</strong>
-            <PencilIcon size={15} />
+            <span>
+              Hosting as <strong>{props.name}</strong>
+            </span>
+            <PencilIcon size={14} />
           </button>
-          <button className="icon-button" onClick={props.onSignOut} title="Sign out" aria-label="Sign out">
-            <LogOutIcon size={19} />
+          <button onClick={() => loadLibrary(true)} title="Look for new or removed videos">
+            <RefreshIcon size={16} /> Rescan library
           </button>
+          <button onClick={props.onSignOut}>
+            <LogOutIcon size={16} /> Sign out
+          </button>
+        </div>
+      </aside>
+
+      <main className={hero ? "dash-main over-art" : "dash-main"}>
+        <header className="dash-top">
+          <label className="search">
+            <SearchIcon size={18} />
+            <input
+              type="search"
+              placeholder={library ? `Search ${cat.movies.length + cat.shows.length} movies and TV shows` : "Search movies and TV shows"}
+              aria-label="Search"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                window.scrollTo(0, 0);
+              }}
+            />
+          </label>
+          <span className="spacer" />
+          <form className="join-code" onSubmit={join}>
+            <label htmlFor="party-code">Party code</label>
+            <input id="party-code" placeholder="______" value={code} maxLength={12} autoComplete="off" onChange={(e) => setCode(e.target.value.toUpperCase())} />
+            <button className="pill tonal" disabled={!code.trim()}>
+              Join
+            </button>
+          </form>
         </header>
 
-        {error && <p className="error">{error}</p>}
-
-        {started && (
-          <section>
-            <div className="card started">
-              <p className="muted">
-                Party ready for <strong>{started.media?.title}</strong>
-                {started.binge && `, the first of ${started.binge.length} in this binge`}. Share
-                the code or the invite link, then join when you're ready to
-                watch.
-              </p>
-              <p className="party-code">{started.id.toUpperCase()}</p>
-              <div className="row">
-                <button
-                  className="primary"
-                  onClick={() => navigate(`/room/${started.id}`)}
-                >
-                  Join party
-                </button>
-                <button onClick={() => copy(started.id)}>
-                  {copied ? "Link copied" : "Copy invite link"}
-                </button>
-                <button onClick={() => end(started)}>End party</button>
+        {(error || started) && (
+          <div className="dash-notices">
+            {error && <p className="error">{error}</p>}
+            {started && (
+              <div className="started">
+                <div>
+                  <p>
+                    Party ready for <strong>{started.media?.title}</strong>
+                    {started.binge && `, the first of ${started.binge.length} in this binge`}. Share the code or the invite link, then join when you're
+                    ready to watch.
+                  </p>
+                  <p className="party-code">{started.id.toUpperCase()}</p>
+                </div>
+                <div className="started-actions">
+                  <button className="pill primary" onClick={() => navigate(`/room/${started.id}`)}>
+                    Join party
+                  </button>
+                  <button className="pill tonal" onClick={() => copy(started.id)}>
+                    {copied ? "Link copied" : "Copy invite link"}
+                  </button>
+                  <button className="pill text" onClick={() => end(started)}>
+                    End party
+                  </button>
+                  <button className="pill text" onClick={() => setStarted(null)}>
+                    Dismiss
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {route === "/" && !query.trim() && library && <Banner b={browse} />}
+
+        {route === "/" && !query.trim() && rooms.length > 0 && (
+          <section className="dash-section">
+            <div className="dash-section-head">
+              <h2>Watch parties</h2>
             </div>
+            {partyCards}
           </section>
         )}
 
-        <section className="parties">
-          <div className="section-head">
-            <h2>Watch parties</h2>
-            <form className="join-code" onSubmit={join}>
-              <input
-                placeholder="Party code"
-                aria-label="Party code"
-                value={code}
-                maxLength={12}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-              />
-              <button>Join</button>
-            </form>
-          </div>
-          {rooms.length === 0 ? (
-            <p className="muted">No parties right now.</p>
-          ) : (
-            <Shelf className="party-shelf">
-              {rooms.map((r) => (
-                <div key={r.id} className="party-card">
-                  <button
-                    className="party-open"
-                    onClick={() => navigate(`/room/${r.id}`)}
-                  >
-                    <span className="title">
-                      {r.media?.title ?? "Nothing picked yet"}
-                      {r.binge && <span className="year"> · {r.binge.index} of {r.binge.length}</span>}
-                    </span>
-                    <span className="meta">
-                      {r.members.length === 0
-                        ? "Nobody here yet"
-                        : [...new Set(r.members.map((m) => m.name))].join(", ")}
-                    </span>
-                    {r.playback && (
-                      <Progress
-                        playback={r.playback}
-                        elapsed={(now - fetchedAt) / 1000}
-                      />
-                    )}
-                  </button>
-                  <div className="party-actions">
-                    <button
-                      className={copiedCode === r.id ? "party-card-code copied" : "party-card-code"}
-                      onClick={() => copyCode(r.id)}
-                      title="Copy invite link"
-                    >
-                      {copiedCode === r.id ? "Link copied" : r.id.toUpperCase()}
-                    </button>
-                    <button className="end" onClick={() => end(r)}>
-                      End
-                    </button>
-                    <button className="primary" onClick={() => navigate(`/room/${r.id}`)}>
-                      Join
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </Shelf>
-          )}
-        </section>
+        {route === "/parties" && !query.trim() ? (
+          <>
+            <div className="page-head">
+              <h1>Watch parties</h1>
+              <span className="count">{rooms.length}</span>
+            </div>
+            {rooms.length === 0 ? <p className="muted">No parties right now. Start one from any movie or episode.</p> : partyCards}
+          </>
+        ) : (
+          page
+        )}
+      </main>
 
-        <section className="start-party">
-          <h2>Start a party</h2>
-          <Library
-            remember="home"
-            actionLabel="Start party"
-            onPick={(item) => start(item.id)}
-            onBinge={(ids) => start(ids[0], ids)}
-          />
-        </section>
+      {info && cat.byId.has(info.id) && (
+        <Details
+          key={info.id + info.fix}
+          item={cat.byId.get(info.id)!}
+          startFixing={info.fix}
+          canMatch={browse.details}
+          actionLabel="Start party"
+          lengthLabel={detailsLine(cat.byId.get(info.id)!)}
+          onPick={() => {
+            const item = cat.byId.get(info.id)!;
+            setInfo(null);
+            void start(item.part?.ids ?? [item.id]);
+          }}
+          onBingeFrom={(() => {
+            const item = cat.byId.get(info.id)!;
+            const s = item.episode && cat.shows.find((x) => x.episodes.includes(item));
+            if (!s) return undefined;
+            return () => {
+              setInfo(null);
+              void start(s.episodes.slice(s.episodes.indexOf(item)).map((e) => e.id));
+            };
+          })()}
+          onMatched={setLibrary}
+          onClose={() => setInfo(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function detailsLine(item: { duration?: number | null; size: number; subtitles: unknown[]; extra?: { kind: string } | null }) {
+  const length = item.duration ? clock(item.duration) : fmtSize(item.size);
+  return [item.extra?.kind, length, item.subtitles.length > 0 ? "Subtitles" : ""].filter(Boolean).join(" · ");
+}
+
+/** A running party: its art, whether it's playing, the code (click to copy the invite link), who's there and how far in. */
+function PartyCard(props: { room: RoomSummary; elapsed: number; details: boolean; copied: boolean; onCopy: () => void; onEnd: () => void }) {
+  const r = props.room;
+  const m = r.media?.meta;
+  const art = props.details ? (m?.backdropPath ?? m?.stillPath ?? null) : null;
+  const [failed, setFailed] = useState(false);
+  const state = !r.playback || r.members.length === 0 ? "Waiting" : r.playback.paused ? "Paused" : "Watching";
+  const title = r.media?.episode ? (m?.show ?? r.media.episode.show) : (m?.title ?? r.media?.title ?? "Nothing picked yet");
+  const sub = r.media?.episode ? `S${r.media.episode.season} · E${r.media.episode.episode}` : null;
+  return (
+    <div className="party-card">
+      <span className="party-art">
+        {art && !failed && <img src={imageUrl(art, "w780")} alt="" loading="lazy" onError={() => setFailed(true)} />}
+        <span className={`party-state ${state.toLowerCase()}`}>{state}</span>
+        <span className="party-title">
+          {title}
+          {r.binge && <span className="year"> · {r.binge.index} of {r.binge.length}</span>}
+        </span>
+      </span>
+      <div className="party-body">
+        <span className="meta">
+          {[sub, r.members.length === 0 ? "Nobody here yet" : [...new Set(r.members.map((x) => x.name))].join(", ")].filter(Boolean).join(" · ")}
+        </span>
+        {r.playback ? <Progress playback={r.playback} elapsed={props.elapsed} /> : <span />}
+        <div className="party-actions">
+          <button className="party-end" onClick={props.onEnd}>
+            End
+          </button>
+          {/* Covers the whole card, so clicking anywhere on it joins. */}
+          <button className="party-open" onClick={() => navigate(`/room/${r.id}`)} aria-label={`Join ${title}`}>
+            Join
+          </button>
+        </div>
       </div>
+      <button className={props.copied ? "party-card-code copied" : "party-card-code"} onClick={props.onCopy} title="Copy invite link">
+        {props.copied ? "Link copied" : r.id.toUpperCase()}
+      </button>
     </div>
   );
 }
@@ -242,8 +417,7 @@ function Progress(props: { playback: RoomPlayback; elapsed: number }) {
       ) : null}
       <span className="progress-time">
         {clock(shown)}
-        {duration ? ` / ${clock(duration)}` : ""} ·{" "}
-        {paused ? "Paused" : "Playing"}
+        {duration ? ` / ${clock(duration)}` : ""}
       </span>
     </span>
   );
@@ -256,4 +430,20 @@ function clock(seconds: number): string {
   const m = Math.floor((s % 3600) / 60);
   const ss = String(s % 60).padStart(2, "0");
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+// Session storage: survives a refresh of this tab, not a new visit. It can be unavailable (private windows), so failures are ignored.
+function session(key: string): string | null {
+  try {
+    return sessionStorage.getItem(`dash:${key}`);
+  } catch {
+    return null;
+  }
+}
+function saveSession(key: string, value: string) {
+  try {
+    sessionStorage.setItem(`dash:${key}`, value);
+  } catch {
+    // Remembering is a convenience.
+  }
 }

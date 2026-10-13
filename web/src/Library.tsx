@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.ts";
+import { buildCatalog, byName, isLaterPart, isOwnedExtra, plural, type Show } from "./catalog.ts";
 import { ChevronLeftIcon, ChevronRightIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
-function fmtSize(bytes: number): string {
+export function fmtSize(bytes: number): string {
   const gb = bytes / 1024 ** 3;
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
 }
@@ -17,8 +18,7 @@ export function fmtLength(seconds: number): string {
   return `${h > 0 ? `${h}:` : ""}${mm}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const BROWSER_SAFE = new Set(["video/mp4", "video/webm"]);
-const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+export const BROWSER_SAFE = new Set(["video/mp4", "video/webm"]);
 
 type View = "all" | "movies" | "shows";
 type Sort = "recent" | "az" | "length" | "size";
@@ -28,15 +28,6 @@ const SORTS: [Sort, string][] = [
   ["length", "Length"],
   ["size", "Size"],
 ];
-
-interface Show {
-  name: string;
-  /** The show names read from file names that were grouped into this one. */
-  aliases: string[];
-  episodes: MediaItem[];
-  seasons: number[];
-  addedAt: number;
-}
 
 /** The library: one menu (All videos, Movies, TV shows), sorting, a Recently added row, and shows grouped into seasons. */
 export function Library(props: {
@@ -103,51 +94,12 @@ export function Library(props: {
   const q = query.trim().toLowerCase();
   const matches = (i: MediaItem) => !q || i.title.toLowerCase().includes(q) || i.relPath.toLowerCase().includes(q);
 
-  // Extras (behind the scenes, trailers…) that belong to a movie or show are listed under it, not on their own.
-  const owned = (i: MediaItem) => !!(i.extra && (i.extra.of || i.extra.show));
-  // A movie split into files ("Pt 1", "Pt 2") is listed once, as its first part, and plays all of them.
-  const laterPart = (i: MediaItem) => !!i.part && i.part.index > 1;
+  const owned = isOwnedExtra;
+  const laterPart = isLaterPart;
   const pick = (item: MediaItem) => (item.part && props.onBinge ? props.onBinge(item.part.ids) : props.onPick(item));
-  const { movieExtras, showExtras: extrasByFolderName, byId } = useMemo(() => {
-    const movieExtras = new Map<string, MediaItem[]>();
-    const showExtras = new Map<string, MediaItem[]>();
-    for (const i of items ?? []) {
-      const key = i.extra?.of ?? i.extra?.show;
-      if (!key) continue;
-      const map = i.extra!.of ? movieExtras : showExtras;
-      map.set(key, [...(map.get(key) ?? []), i].sort((a, b) => byName(a.title, b.title)));
-    }
-    return { movieExtras, showExtras, byId: new Map((items ?? []).map((i) => [i.id, i])) };
-  }, [items]);
-
-  const shows = useMemo(() => {
-    const map = new Map<string, Show>();
-    for (const item of items ?? []) {
-      if (!item.episode) continue;
-      // With TMDB, "Franklin & Bash" and "Franklin and Bash" folders are one show, under TMDB's name.
-      const id = item.meta?.tmdbId ? `tmdb:${item.meta.tmdbId}` : item.episode.show.toLowerCase().replace(/\s*&\s*/g, " and ");
-      if (!map.has(id)) map.set(id, { name: item.meta?.show ?? item.episode.show, aliases: [], episodes: [], seasons: [], addedAt: 0 });
-      const show = map.get(id)!;
-      if (!show.aliases.includes(item.episode.show)) show.aliases.push(item.episode.show);
-      show.episodes.push(item);
-      show.addedAt = Math.max(show.addedAt, item.addedAt ?? 0);
-    }
-    for (const show of map.values()) {
-      show.episodes.sort((a, b) => a.episode!.season - b.episode!.season || a.episode!.episode - b.episode!.episode);
-      show.seasons = [...new Set(show.episodes.map((e) => e.episode!.season))];
-    }
-    return [...map.values()].sort((a, b) => byName(a.name, b.name));
-  }, [items]);
-
-  // A show's extras are found by its folder name, which may be one of several merged under TMDB's name.
-  const showExtras = useMemo(() => {
-    const byShow = new Map<string, MediaItem[]>();
-    for (const show of shows) {
-      const extras = show.aliases.flatMap((a) => extrasByFolderName.get(a) ?? []);
-      if (extras.length > 0) byShow.set(show.name, extras);
-    }
-    return byShow;
-  }, [shows, extrasByFolderName]);
+  const { movieExtras, byId, shows } = useMemo(() => buildCatalog(items ?? []), [items]);
+  // A show's extras, by its name.
+  const showExtras = useMemo(() => new Map(shows.filter((s) => s.extras.length > 0).map((s) => [s.name, s.extras])), [shows]);
 
   // Movies (anything that isn't an episode), plus one row per show under All videos.
   const rows = useMemo(() => {
@@ -447,7 +399,7 @@ export function Library(props: {
 }
 
 /** A TMDB poster or still, or an empty frame of the same size so rows line up when there's none. */
-function Poster(props: { path?: string | null; size: "w92" | "w185" | "w342" | "w300"; className?: string }) {
+export function Poster(props: { path?: string | null; size: "w92" | "w185" | "w342" | "w300" | "w780" | "w1280"; className?: string }) {
   const [failed, setFailed] = useState(false);
   const cls = props.className ?? "poster";
   if (!props.path || failed) return <span className={`${cls} empty`} aria-hidden="true" />;
@@ -455,7 +407,7 @@ function Poster(props: { path?: string | null; size: "w92" | "w185" | "w342" | "
 }
 
 /** The row's own Start party (or Play) button, so clicking the row itself only opens its details. */
-function StartButton(props: { label: string; onClick: () => void }) {
+export function StartButton(props: { label: string; onClick: () => void }) {
   return (
     <button className="row-start" onClick={props.onClick}>
       {props.label}
@@ -495,7 +447,7 @@ function savePlace(key: string | undefined, place: Place) {
 }
 
 /** A movie's or episode's TMDB details, with Fix match for when the server picked the wrong one. */
-function Details(props: {
+export function Details(props: {
   item: MediaItem;
   /** Open on the Fix match search. */
   startFixing?: boolean;
@@ -636,7 +588,7 @@ function Details(props: {
 }
 
 /** A ⋮ button in the top-right corner with a small menu, for things that shouldn't take up room. */
-function MoreMenu(props: { label: string; items: [string, () => void][] }) {
+export function MoreMenu(props: { label: string; items: [string, () => void][] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -682,7 +634,6 @@ function MoreMenu(props: { label: string; items: [string, () => void][] }) {
 /** The Extras tab next to a show's seasons. */
 const EXTRAS = -1;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** A row of cards with no scrollbar: arrow buttons page through it when it doesn't all fit. Swiping still works. */
 export function Shelf(props: { children: ReactNode; className?: string }) {

@@ -139,3 +139,66 @@ export const MoreIcon = (p: Props) => (
     <circle cx="12" cy="19" r="1" />
   </Svg>
 );
+
+// The dashboard's sidebar and buttons.
+export const HomeIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+    <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </Svg>
+);
+
+export const FilmIcon = (p: Props) => (
+  <Svg {...p}>
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+    <path d="M7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4" />
+  </Svg>
+);
+
+export const TvIcon = (p: Props) => (
+  <Svg {...p}>
+    <rect width="20" height="15" x="2" y="7" rx="2" ry="2" />
+    <path d="m17 2-5 5-5-5" />
+  </Svg>
+);
+
+export const UsersIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+  </Svg>
+);
+
+export const CaptionsIcon = (p: Props) => (
+  <Svg {...p}>
+    <rect width="18" height="14" x="3" y="5" rx="2" ry="2" />
+    <path d="M7 15h4M15 15h2M7 11h2M13 11h4" />
+  </Svg>
+);
+
+export const SearchIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Svg>
+);
+
+export const RefreshIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+    <path d="M8 16H3v5" />
+  </Svg>
+);
+
+/** Filled, for Start party buttons. */
+export const PlayIcon = (p: Props) => {
+  const size = p.size ?? 20;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M7 4.5v15a1 1 0 0 0 1.52.85l12-7.5a1 1 0 0 0 0-1.7l-12-7.5A1 1 0 0 0 7 4.5z" />
+    </svg>
+  );
+};

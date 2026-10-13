@@ -59,6 +59,12 @@ export interface MediaMeta {
   /** The show's own poster and summary, for episodes. */
   showPosterPath?: string | null;
   showOverview?: string | null;
+  /** Wide background art: the movie's, or the show's for an episode. */
+  backdropPath?: string | null;
+  /** TMDB's average score out of 10 (the show's for an episode). */
+  rating?: number | null;
+  /** "Comedy", "Crime"… (the show's for an episode). */
+  genres?: string[];
 }
 
 export interface ExtraInfo {
