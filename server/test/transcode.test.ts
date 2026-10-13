@@ -25,6 +25,31 @@ test("parseProbe picks the main video and default audio, skipping cover art", ()
   assert.equal(info.audioIndex, 3);
 });
 
+test("parseProbe plays English audio when the file has it, even if another track is the default", () => {
+  const probe = (streams: any[]) => parseProbe({ format: { format_name: "matroska", duration: "60" }, streams: [{ index: 0, codec_type: "video", codec_name: "h264" }, ...streams] });
+  const dual = probe([
+    { index: 1, codec_type: "audio", codec_name: "aac", tags: { language: "jpn" }, disposition: { default: 1 } },
+    { index: 2, codec_type: "audio", codec_name: "aac", tags: { language: "eng" }, disposition: { default: 0 } },
+  ]);
+  assert.equal(dual.audioIndex, 2);
+  assert.equal(dual.audioNotFirst, true);
+  // English first: browsers can play it as-is.
+  const first = probe([
+    { index: 1, codec_type: "audio", codec_name: "aac", tags: { language: "en" } },
+    { index: 2, codec_type: "audio", codec_name: "aac", tags: { language: "spa" }, disposition: { default: 1 } },
+  ]);
+  assert.equal(first.audioIndex, 1);
+  assert.equal(first.audioNotFirst, false);
+  // The main English track, not the commentary; untagged tracks named "English" count.
+  const commentary = probe([
+    { index: 1, codec_type: "audio", codec_name: "aac", tags: { language: "eng", title: "Director's commentary" } },
+    { index: 2, codec_type: "audio", codec_name: "aac", tags: { title: "English 5.1" } },
+  ]);
+  assert.equal(commentary.audioIndex, 2);
+  // No English: the default, as before.
+  assert.equal(probe([{ index: 1, codec_type: "audio", codec_name: "aac", tags: { language: "fre" } }, { index: 2, codec_type: "audio", codec_name: "aac", tags: { language: "ger" }, disposition: { default: 1 } }]).audioIndex, 2);
+});
+
 test("playlist lists every segment, the last one short", () => {
   const text = playlist(10, 4);
   assert.match(text, /#EXT-X-PLAYLIST-TYPE:VOD/);

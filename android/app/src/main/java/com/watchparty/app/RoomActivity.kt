@@ -221,8 +221,10 @@ class RoomActivity : ComponentActivity() {
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(http)).build()
         // Subtitles start off, even when the file marks a track as the default; the subtitle button turns them on.
         // Forced ones (signs, lines in another language) still show when they match the sound's language.
+        // English audio plays first in files with more than one language, as on the web (Settings can switch it).
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .setPreferredAudioLanguage("en")
             .build()
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {

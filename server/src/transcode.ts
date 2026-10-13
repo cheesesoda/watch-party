@@ -51,12 +51,26 @@ export function subtitleLabel(lang: string | null, title: string, forced: boolea
   return forced && !/forced/i.test(label) ? `${label}, forced` : label;
 }
 
+const isEnglish = (s: any) => /^(en|eng)$/i.test(String(s.tags?.language ?? "")) || /\benglish\b/i.test(String(s.tags?.title ?? ""));
+const isCommentary = (s: any) => Boolean(s.disposition?.comment) || /commentary|descri(ptive|bed)|audio description/i.test(String(s.tags?.title ?? ""));
+
+/**
+ * The audio track to play: English when the file has it (the main one, not a commentary), else the one the file
+ * marks as default, else the first.
+ */
+export function pickAudio(audios: any[]): any {
+  const english = audios.filter(isEnglish);
+  const main = english.filter((s) => !isCommentary(s));
+  const pool = main.length ? main : english;
+  return pool.find((s) => s.disposition?.default) ?? pool[0] ?? audios.find((s) => s.disposition?.default) ?? audios[0];
+}
+
 /** Reads codecs and duration from ffprobe's JSON output. */
 export function parseProbe(json: any): ProbeResult {
   const streams: any[] = Array.isArray(json?.streams) ? json.streams : [];
   const video = streams.find((s) => s.codec_type === "video" && !s.disposition?.attached_pic);
   const audios = streams.filter((s) => s.codec_type === "audio");
-  const audio = audios.find((s) => s.disposition?.default) ?? audios[0];
+  const audio = pickAudio(audios);
   const duration = Number(json?.format?.duration ?? video?.duration ?? 0);
   const texts = streams.filter((s) => s.codec_type === "subtitle" && TEXT_SUBTITLES.has(String(s.codec_name)));
   const subtitles = texts.map((s, index) => {
@@ -71,6 +85,8 @@ export function parseProbe(json: any): ProbeResult {
     audio: audio ? { codec: String(audio.codec_name), channels: Number(audio.channels) || 0 } : null,
     videoIndex: video ? Number(video.index) : null,
     audioIndex: audio ? Number(audio.index) : null,
+    // Browsers play a file's first audio track and can't switch, so another one needs the converted copy.
+    audioNotFirst: !!audio && audio !== audios[0],
     convert: false,
     subtitles,
     subtitleIndexes: texts.map((s) => Number(s.index)),
