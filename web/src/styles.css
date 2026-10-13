@@ -2212,9 +2212,13 @@ button.link:focus-visible {
 }
 
 /* Change video in a party: the dashboard's posters and pages in one large window. */
+/* Clear of the room's toolbar, so the title and "1 of 4" line above stay readable. */
+.modal.picker {
+  padding-top: 72px;
+}
 .modal.picker .modal-body {
   width: min(1100px, 100%);
-  height: min(860px, 90vh);
+  height: min(860px, calc(100vh - 88px));
   max-height: none;
   padding: 0;
   display: flex;
