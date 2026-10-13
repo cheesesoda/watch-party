@@ -52,7 +52,7 @@ test("library lists videos with sidecar subtitles", async () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].title, "Ep One");
   assert.equal(items[0].folder, "Shows");
-  assert.deepEqual(items[0].subtitles, [{ index: 0, label: "en", lang: "en" }]);
+  assert.deepEqual(items[0].subtitles, [{ index: 0, label: "English", lang: "en" }]);
 
   const vtt = await fetch(`${base}/api/media/${items[0].id}/subtitles/0.vtt?token=${token}`);
   assert.equal(await vtt.text(), "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello\n");

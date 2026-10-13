@@ -209,6 +209,11 @@ class RoomActivity : ComponentActivity() {
         // The token goes in a header too: HLS segment links can't carry it in the URL.
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(api.authHeaders())
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(http)).build()
+        // Subtitles start off, even when the file marks a track as the default; the subtitle button turns them on.
+        // Forced ones (signs, lines in another language) still show when they match the sound's language.
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (!switchToConverted()) Toast.makeText(this@RoomActivity, "Can't play this video: ${error.errorCodeName}", Toast.LENGTH_LONG).show()
@@ -405,14 +410,15 @@ class RoomActivity : ComponentActivity() {
     /** Plays [media], either the original file or the server's converted copy. */
     private fun load(media: MediaItem, converted: Boolean) {
         this.converted = converted
-        val subs = media.subtitles.map { track ->
-            ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, track.index)))
+        fun sub(index: Any, track: SubtitleTrack) =
+            ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, index)))
                 .setMimeType(MimeTypes.TEXT_VTT)
                 .setLanguage(track.lang)
                 .setLabel(track.label)
-                .setSelectionFlags(if (track.index == 0) C.SELECTION_FLAG_DEFAULT else 0)
                 .build()
-        }
+        // The converted copy drops the subtitles inside the file, so the server's copies of them come along.
+        val inside = if (converted) mediaInfo?.subtitles.orEmpty().map { sub("e${it.index}", it) } else emptyList()
+        val subs = media.subtitles.map { sub(it.index, it) } + inside
         val item = ExoMediaItem.Builder()
             .setUri(if (converted) api.hlsUrl(media.id) else api.streamUrl(media.id))
             .setMimeType(if (converted) MimeTypes.APPLICATION_M3U8 else null)

@@ -150,6 +150,22 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     };
   }, [mediaId]);
 
+  // Which subtitles show: "" for none, else a <track>'s id ("s0" for a sidecar file, "e0" for one inside the video).
+  const [subtitle, setSubtitle] = useState("");
+  useEffect(() => setSubtitle(""), [mediaId]);
+  useEffect(() => {
+    const tracks = videoRef.current?.textTracks;
+    if (!tracks) return;
+    for (const t of Array.from(tracks)) t.mode = t.id === subtitle ? "showing" : "disabled";
+    // The player's own ⋮ menu can change them too; keep Settings in step.
+    const changed = () => setSubtitle(Array.from(tracks).find((t) => t.mode === "showing")?.id ?? "");
+    tracks.addEventListener("change", changed);
+    return () => tracks.removeEventListener("change", changed);
+  }, [subtitle, mediaId, mediaInfo]);
+  const subtitleChoices = view.media
+    ? [...view.media.subtitles.map((s) => ({ id: `s${s.index}`, label: s.label })), ...(mediaInfo?.subtitles ?? []).map((s) => ({ id: `e${s.index}`, label: s.label }))]
+    : [];
+
   // Point the video at the original file or the converted stream.
   useEffect(() => {
     const video = videoRef.current!;
@@ -304,9 +320,14 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         onDoubleClick={toggleFullscreen}
         onEnded={() => media && send({ type: "ended", mediaId: media.id })}
       >
+        {/* Subtitles start off; Settings (or the player's own ⋮ menu) turns one on. */}
         {media?.subtitles.map((s) => (
-          <track key={`${media.id}-${s.index}`} kind="subtitles" label={s.label} srcLang={s.lang ?? undefined} src={subtitleUrl(media.id, s.index)} default={s.index === 0} />
+          <track key={`${media.id}-${s.index}`} id={`s${s.index}`} kind="subtitles" label={s.label} srcLang={s.lang ?? undefined} src={subtitleUrl(media.id, s.index)} />
         ))}
+        {media &&
+          mediaInfo?.subtitles?.map((s) => (
+            <track key={`${media.id}-e${s.index}`} id={`e${s.index}`} kind="subtitles" label={s.label} srcLang={s.lang ?? undefined} src={subtitleUrl(media.id, `e${s.index}`)} />
+          ))}
       </video>
 
       <div className="room-top">
@@ -444,6 +465,22 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
               </span>
               <input type="checkbox" role="switch" checked={popups} onChange={(e) => changePopups(e.target.checked)} />
             </label>
+            {subtitleChoices.length > 0 && (
+              <label className="switch-row">
+                <span>
+                  Subtitles
+                  <small>Only on this device.</small>
+                </span>
+                <select value={subtitle} onChange={(e) => setSubtitle(e.target.value)}>
+                  <option value="">Off</option>
+                  {subtitleChoices.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {mediaInfo?.convert && (
               <label className="switch-row">
                 <span>

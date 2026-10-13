@@ -113,7 +113,7 @@ The log is also saved to `%APPDATA%\Popcorn Club\server.log`.
 
 - Subfolders show up as groups in the library. For several folders without Docker, use `MEDIA_DIRS=/a,/b` (on Windows, `D:/Movies;E:/Shows`).
 - New files appear within a minute, or press **Rescan** in the library.
-- Subtitles: put a `.srt` or `.vtt` next to the video with the same name (`Movie.mp4` + `Movie.srt`, or `Movie.en.srt`).
+- Subtitles: put a `.srt` or `.vtt` next to the video with the same name (`Movie.mp4` + `Movie.srt`, or `Movie.en.srt`). Text subtitles inside the file (common in `.mkv`) show up too; picture-based ones (Blu-ray PGS, DVD) only on Android when it plays the original file. Subtitles always start off: turn them on with the subtitles button on Android, or in **Settings** in the browser. Each device picks its own.
 - MP4 files with H.264 video and AAC audio play everywhere. See [Troubleshooting](#troubleshooting) for other formats.
 
 ### Settings
