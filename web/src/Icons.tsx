@@ -34,7 +34,7 @@ export const CheckIcon = (p: Props) => (
 
 export const ChatIcon = (p: Props) => (
   <Svg {...p}>
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
   </Svg>
 );
 
@@ -76,9 +76,9 @@ export const MicOffIcon = (p: Props) => (
   </Svg>
 );
 
-export const HeadphonesIcon = (p: Props) => (
+export const CloseIcon = (p: Props) => (
   <Svg {...p}>
-    <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+    <path d="M18 6 6 18M6 6l12 12" />
   </Svg>
 );
 

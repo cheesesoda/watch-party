@@ -1770,6 +1770,25 @@ button.link:focus-visible {
   color: var(--muted);
   font-size: 13px;
 }
+/* The in-party picker: the title and year over the bottom of every poster. */
+.pcard-over {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 36px 12px 10px;
+  background: linear-gradient(180deg, rgba(10, 7, 14, 0), rgba(10, 7, 14, 0.92));
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+}
+.pcard-over .year {
+  color: var(--muted);
+  font-weight: 500;
+}
+.pcard-poster.overlay .pcard-start {
+  top: 8px;
+  bottom: auto;
+}
 /* The play button shows on hover or keyboard focus, in the poster's corner. */
 .pcard-start {
   position: absolute;
@@ -2209,4 +2228,67 @@ button.link:focus-visible {
     flex-basis: 100%;
     gap: 12px;
   }
+}
+
+/* Change video in a party: the dashboard's posters and pages in one large window. */
+/* Clear of the room's toolbar, so the title and "1 of 4" line above stay readable. */
+.modal.picker {
+  padding-top: 72px;
+}
+.modal.picker .modal-body {
+  width: min(1100px, 100%);
+  height: min(860px, calc(100vh - 88px));
+  max-height: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px 20px;
+}
+.picker-head h2 {
+  margin: 0;
+  font-size: 20px;
+  white-space: nowrap;
+}
+.picker-search {
+  flex: 1 1 auto;
+  margin-left: auto;
+  max-width: 420px;
+}
+.picker-tabs {
+  padding: 0 20px 8px;
+}
+.picker-body {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 24px 24px;
+}
+.picker-body .hero-art {
+  inset: -12px -24px auto;
+  width: calc(100% + 48px);
+  height: 420px;
+}
+.picker-body .page-head h1,
+.picker-body .hero h1 {
+  font-size: 28px;
+}
+@media (max-width: 600px) {
+  .picker-head h2 {
+    display: none;
+  }
+}
+.ep-playing {
+  flex: none;
+  padding: 0 14px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
 }
