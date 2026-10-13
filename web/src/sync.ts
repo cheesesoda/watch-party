@@ -8,6 +8,8 @@ const SOFT_DRIFT = 0.15;
 const SETTLED = 0.04;
 /** A local seek this far from the room position counts as the user seeking. */
 const USER_SEEK = 1.0;
+/** Longest drag along the seek bar before letting go counts as pausing there. */
+const SCRUB_MS = 10_000;
 
 /**
  * Keeps a <video> element in step with the room's PlaybackState.
@@ -23,6 +25,11 @@ export class VideoSync {
   private offset = 0;
   /** The hold this page last said it was ready for, so it says so once. */
   private readyFor = "";
+  /**
+   * Dragging along the browser's own seek bar pauses the video, seeks, then plays again. Treated as one jump, so
+   * the room holds for everyone instead of hearing pause and play and moving on without the slower screens.
+   */
+  private scrubbing: number | undefined;
   private timer: number | undefined;
   private detach: () => void;
   /** Set when the browser refused to autoplay; the UI asks for a click. */
@@ -34,12 +41,22 @@ export class VideoSync {
   ) {
     const onPlay = () => {
       this.onAutoplayBlocked(false);
+      if (this.scrubbing !== undefined) return this.scrubbed();
       if (this.state?.paused) this.local("play");
     };
     const onPause = () => {
-      if (this.state && !this.state.paused && !video.ended) this.local("pause");
+      if (!this.state || this.state.paused || video.ended) return;
+      // A click on the seek bar pauses and plays again at once; the seek that follows is the jump.
+      if (!video.paused) return;
+      if (video.seeking) {
+        window.clearTimeout(this.scrubbing);
+        this.scrubbing = window.setTimeout(() => this.scrubbed(true), SCRUB_MS);
+        return;
+      }
+      this.local("pause");
     };
     const onSeeked = () => {
+      if (this.scrubbing !== undefined) return;
       if (this.state && Math.abs(video.currentTime - this.target()) > USER_SEEK) this.local("seek");
       this.reconcile();
     };
@@ -51,6 +68,7 @@ export class VideoSync {
     video.addEventListener("canplay", onLoaded);
     this.timer = window.setInterval(() => this.reconcile(), 1000);
     this.detach = () => {
+      window.clearTimeout(this.scrubbing);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeked", onSeeked);
@@ -91,6 +109,15 @@ export class VideoSync {
     return this.state ? expectedPosition(this.state, this.serverNow()) : 0;
   }
 
+  /** Let go of the seek bar: one jump. [stayedPaused]: the browser didn't play again, so it was a pause too. */
+  private scrubbed(stayedPaused = false): void {
+    window.clearTimeout(this.scrubbing);
+    this.scrubbing = undefined;
+    if (stayedPaused && this.video.paused) this.local("pause");
+    if (this.state && Math.abs(this.video.currentTime - this.target()) > USER_SEEK) this.local("seek");
+    this.reconcile();
+  }
+
   /** The local user did something: update optimistically and tell the room. */
   private local(type: "play" | "pause" | "seek"): void {
     if (!this.state) return;
@@ -106,7 +133,7 @@ export class VideoSync {
   private reconcile(): void {
     const { video, state } = this;
     // Skip while a seek is in flight; the position is meaningless until it lands.
-    if (!state || video.readyState < HTMLMediaElement.HAVE_METADATA || video.seeking) return;
+    if (!state || this.scrubbing !== undefined || video.readyState < HTMLMediaElement.HAVE_METADATA || video.seeking) return;
     const target = Math.min(this.target(), Number.isFinite(video.duration) ? video.duration : Infinity);
     const drift = video.currentTime - target;
 
