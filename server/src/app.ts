@@ -210,10 +210,11 @@ export function createApp(config: Config): App {
     if (access.kind === "host" || rooms.get(req.params.id)?.id === access.roomId) return next();
     res.status(403).json({ error: "You can only see the party you joined." });
   });
-  // Everything else (the library, the list of parties, starting one) is for the host.
+  // Everything else (the library, the list of parties, starting one) is for the host. Guests also get posters and stills
+  // (TMDB's artwork, nothing from the library itself), for the thumbnails in Up next.
   app.use("/api", (req, res, next) => {
     const access: Access = res.locals.access;
-    if (access.kind === "host" || /^\/(media|rooms)\/[^/]+/.test(req.path)) return next();
+    if (access.kind === "host" || /^\/(media|rooms|images)\/[^/]+/.test(req.path)) return next();
     res.status(403).json({ error: "Only the host can do that. Ask them for the password." });
   });
 

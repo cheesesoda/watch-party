@@ -2261,8 +2261,235 @@ button.link:focus-visible {
   margin-left: auto;
   max-width: 420px;
 }
+/* No search box (guests): the close button still sits at the right. */
+.picker-head h2 + button:last-child {
+  margin-left: auto;
+}
 .picker-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 0 20px 8px;
+}
+.chip-count {
+  margin-left: 6px;
+  opacity: 0.7;
+}
+
+/* Up next: the video playing now, then what's coming, in order. */
+.un-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+.un-row.un-now {
+  background: rgba(224, 154, 98, 0.1);
+  border: 1px solid rgba(224, 154, 98, 0.35);
+}
+.un-now .un-lead {
+  color: var(--accent);
+}
+.un-lead {
+  flex: none;
+  width: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 600;
+}
+.un-list .un-lead {
+  cursor: grab;
+}
+.un-thumb {
+  flex: none;
+  width: 144px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--panel-2);
+}
+.un-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.un-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.un-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.un-facts {
+  font-size: 13px;
+  color: var(--muted);
+}
+.un-count {
+  margin: 14px 12px 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.un-note {
+  margin: 14px 12px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.un-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.un-list .un-row {
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+}
+.un-list .un-row.dragging {
+  opacity: 0.5;
+}
+.un-list .un-row.drop-before {
+  border-top-color: var(--accent);
+}
+.un-list .un-row.drop-after {
+  border-bottom-color: var(--accent);
+}
+.un-row > button:last-child {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+}
+.un-row > button:last-child:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+@container (max-width: 640px) {
+  .un-thumb {
+    width: 96px;
+  }
+  .un-row .pill {
+    display: none;
+  }
+}
+
+/* "Added … to Up next · Undo" at the bottom of the picker. */
+.snackbar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  max-width: calc(100% - 32px);
+  padding: 10px 10px 10px 16px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.snackbar button {
+  border: 0;
+  background: transparent;
+  color: #8a4a1a;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
+/* Add to Up next: on posters (beside the play button), episode rows and pages; "In Up next" once it's there. */
+.pcard-queue {
+  position: absolute;
+  right: 54px;
+  top: 8px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 7, 14, 0.85);
+  color: var(--text);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.pcard-poster:hover .pcard-queue,
+.pcard-queue:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .pcard-queue {
+    opacity: 1;
+  }
+}
+.pcard-queued {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(10, 7, 14, 0.85);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.round-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(238, 234, 243, 0.08);
+  color: var(--text);
+}
+.round-icon:hover {
+  background: rgba(238, 234, 243, 0.16);
+}
+.queued {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* A party's next video, under its card on the dashboard. */
+.party-next {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.party-next svg {
+  vertical-align: -2px;
+  margin-right: 6px;
+  color: var(--muted);
 }
 .picker-body {
   position: relative;

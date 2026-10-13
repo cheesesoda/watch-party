@@ -199,6 +199,72 @@ test("a binge plays its videos in order, moving on after a countdown the host ca
   mgr.rooms.clear();
 });
 
+test("the host adds to, reorders, trims and clears Up next; guests can't", () => {
+  const vids: MediaItem[] = [1, 2, 3, 4, 5].map((n) => ({ ...movie, id: `v${n}`, title: `Video ${n}` }));
+  const mgr = new RoomManager((id) => vids.find((v) => v.id === id), Date.now, 1000);
+  const room = mgr.create("v1");
+  const inbox: ServerMessage[] = [];
+  const host = room.join("Host", (m) => inbox.push(m));
+  const guest = room.join("Guest", () => {}, "web", () => {}, true);
+  const ids = () => room.queueInfo()?.items.map((i) => i.id) ?? [];
+
+  room.handle(guest.id, { type: "queue-add", mediaIds: ["v2"] });
+  assert.equal(room.queueInfo(), null, "a guest can't add");
+
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v2", "v3", "v1", "nope"] });
+  assert.deepEqual(ids(), ["v1", "v2", "v3"], "the video playing now and unknown ids are skipped");
+  assert.equal(room.queueInfo()?.at, 0);
+  assert.deepEqual(room.summary().upNext, { item: vids[1], count: 2 });
+  assert.ok(room.chat.at(-1)?.text.includes("added 2 videos to Up next"));
+
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v4"] });
+  room.handle(host.id, { type: "queue-move", mediaId: "v4", to: 0 });
+  assert.deepEqual(ids(), ["v1", "v4", "v2", "v3"]);
+  room.handle(host.id, { type: "queue-move", mediaId: "v4", to: 99 });
+  assert.deepEqual(ids(), ["v1", "v2", "v3", "v4"]);
+  room.handle(host.id, { type: "queue-move", mediaId: "v1", to: 2 });
+  assert.deepEqual(ids(), ["v1", "v2", "v3", "v4"], "the video playing now can't move");
+
+  // Adding one that's already coming up moves it to the end.
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v2"] });
+  assert.deepEqual(ids(), ["v1", "v3", "v4", "v2"]);
+
+  // A countdown to a video that's taken out stops.
+  room.advanceDelayMs = 60_000;
+  room.handle(host.id, { type: "ended", mediaId: "v1" });
+  assert.equal(room.queueInfo()?.advance?.mediaId, "v3");
+  room.handle(host.id, { type: "queue-remove", mediaId: "v3" });
+  assert.equal(room.queueInfo()?.advance, null);
+  assert.deepEqual(ids(), ["v1", "v4", "v2"]);
+
+  // Played videos stay for Previous; clearing keeps them and the one playing now.
+  room.handle(host.id, { type: "select", mediaId: "v4" });
+  room.handle(host.id, { type: "queue-clear" });
+  assert.deepEqual(ids(), ["v1", "v4"]);
+  assert.equal(room.summary().upNext, null);
+  room.handle(host.id, { type: "select", mediaId: "v1" });
+  room.handle(host.id, { type: "queue-clear" });
+  assert.equal(room.queueInfo(), null, "just one video left isn't a queue");
+
+  // Playing something else keeps Up next, right after the video that was playing.
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v2", "v3"] });
+  room.handle(host.id, { type: "select", mediaId: "v5" });
+  assert.deepEqual(ids(), ["v1", "v5", "v2", "v3"]);
+  assert.equal(room.queueInfo()?.at, 1);
+  mgr.rooms.clear();
+});
+
+test("adding to Up next with nothing playing picks the first video", () => {
+  const vids: MediaItem[] = [1, 2].map((n) => ({ ...movie, id: `v${n}`, title: `Video ${n}` }));
+  const mgr = new RoomManager((id) => vids.find((v) => v.id === id), Date.now, 1000);
+  const room = mgr.create();
+  const host = room.join("Host", () => {});
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v1", "v2"] });
+  assert.equal(room.media?.id, "v1");
+  assert.deepEqual(room.summary().upNext?.item.id, "v2");
+  mgr.rooms.clear();
+});
+
 test("sentAt trusts the sender's time only when it is believable", () => {
   const now = 1_000_000;
   assert.equal(sentAt(now - 150, now), now - 150);

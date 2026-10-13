@@ -338,7 +338,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <div className="room-title">
           <strong>{media?.title ?? "Nothing playing"}</strong>
           <span className="muted">
-            {queue && at >= 0 && `${media?.part ? "Part" : "Binge"} ${at + 1} of ${queue.items.length} · `}
+            {queue && at >= 0 && `${media?.part ? "Part " : ""}${at + 1} of ${queue.items.length} · `}
+            {next && `Up next: ${next.episode?.title ?? next.title} · `}
             {view.status === "open" ? [...new Set(view.members.map((m) => m.name))].join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>
         </div>
@@ -353,8 +354,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
             </button>
           </>
         )}
-        {props.host && (
-          <button className="icon" onClick={() => setPicking(true)} title="Change video" aria-label="Change video">
+        {(props.host || next) && (
+          <button className="icon" onClick={() => setPicking(true)} title={props.host ? "Change video" : "Up next"} aria-label={props.host ? "Change video" : "Up next"}>
             <ListVideoIcon />
           </button>
         )}
@@ -495,10 +496,11 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         </div>
       )}
 
-      {picking && props.host && (
+      {picking && (props.host || next) && (
         <Picker
           queue={queue}
-          at={at}
+          media={media}
+          edit={props.host ? send : undefined}
           onPlay={(ids) => {
             send(ids.length > 1 ? { type: "binge", mediaIds: ids } : { type: "select", mediaId: ids[0] });
             setPicking(false);

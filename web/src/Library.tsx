@@ -458,6 +458,9 @@ export function Details(props: {
   onPick: () => void;
   /** For an episode: play it and every episode after it. */
   onBingeFrom?: () => void;
+  /** In a party, for the host: add it to Up next ([queued] once it's there). */
+  onQueue?: () => void;
+  queued?: boolean;
   onMatched: (r: LibraryResponse) => void;
   onClose: () => void;
 }) {
@@ -542,6 +545,7 @@ export function Details(props: {
               <button className="primary" onClick={props.onPick}>
                 {props.actionLabel}
               </button>
+              {props.onQueue && (props.queued ? <span className="queued">In Up next</span> : <button onClick={props.onQueue}>Add to Up next</button>)}
               {props.onBingeFrom && <button onClick={props.onBingeFrom}>Binge from here</button>}
               <button onClick={props.onClose}>Close</button>
             </div>

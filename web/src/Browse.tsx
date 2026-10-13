@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { byName, fmtRuntime, partsLength, plural, type Catalog, type Show } from "./catalog.ts";
-import { InfoIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
+import { CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
 import { BROWSER_SAFE, fmtSize, MoreMenu, Poster, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 
@@ -23,6 +23,8 @@ export interface Browse {
   startLabel?: string;
   /** Titles on the posters rather than under them, for the in-party picker. */
   compact?: boolean;
+  /** In a party, for the host: what's coming up, and adding videos to the end of Up next ([label] names them). */
+  queue?: { has: (id: string) => boolean; add: (ids: string[], label: string) => void };
 }
 
 const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
@@ -58,7 +60,21 @@ function showFacts(show: Show): string[] {
  * A 2:3 poster with the title under it. Without a poster, the title sits on a plain card. In the compact in-party picker
  * ([overlay]) the title and year sit on every poster instead, with nothing under it. The play button starts a party.
  */
-export function PosterCard(props: { title: string; year?: number | string | null; sub?: string; poster?: string | null; badge?: string; details: boolean; overlay?: boolean; onOpen: () => void; onStart?: () => void; startLabel?: string }) {
+export function PosterCard(props: {
+  title: string;
+  year?: number | string | null;
+  sub?: string;
+  poster?: string | null;
+  badge?: string;
+  details: boolean;
+  overlay?: boolean;
+  onOpen: () => void;
+  onStart?: () => void;
+  startLabel?: string;
+  /** Adds it to Up next; [queued] when it's already there. */
+  onQueue?: () => void;
+  queued?: boolean;
+}) {
   const [failed, setFailed] = useState(false);
   const art = props.details && props.poster && !failed;
   return (
@@ -75,10 +91,20 @@ export function PosterCard(props: { title: string; year?: number | string | null
             !art && <span className="pcard-fallback">{props.title}</span>
           )}
           {props.badge && <span className="pcard-badge">{props.badge}</span>}
+          {props.queued && (
+            <span className="pcard-queued">
+              <CheckIcon size={12} /> Up next
+            </span>
+          )}
         </span>
         {!props.overlay && <span className="pcard-title">{props.title}</span>}
         {!props.overlay && props.sub && <span className="pcard-sub">{props.sub}</span>}
       </button>
+      {props.onQueue && !props.queued && (
+        <button className="pcard-queue" onClick={props.onQueue} title="Add to Up next" aria-label={`Add to Up next: ${props.title}`}>
+          <ListPlusIcon size={18} />
+        </button>
+      )}
       {props.onStart && (
         <button className="pcard-start" onClick={props.onStart} title={props.startLabel ?? "Start party"} aria-label={`${props.startLabel ?? "Start party"}: ${props.title}`}>
           <PlayIcon size={18} />
@@ -101,6 +127,8 @@ export function MovieCard(props: { item: MediaItem; b: Browse }) {
       onOpen={() => go(b, movieLink(item))}
       onStart={() => b.start(playIds(item))}
       startLabel={startLabel(b)}
+      onQueue={b.queue && (() => b.queue!.add(playIds(item), item.meta?.title ?? item.title))}
+      queued={b.queue?.has(playIds(item)[0])}
     />
   );
 }
@@ -334,6 +362,7 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
             <button className="pill primary" onClick={() => b.start(playIds(item))}>
               <PlayIcon size={18} /> {startLabel(b)}
             </button>
+            {b.queue && <QueueButton b={b} ids={playIds(item)} label={m?.title ?? item.title} />}
             {b.details && <MoreMenu label={`More for ${item.title}`} items={[[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)]]} />}
           </div>
         </div>
@@ -375,8 +404,13 @@ export function ShowPage(props: { b: Browse; show: Show }) {
             <button className="pill primary" onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
               <PlayIcon size={18} /> Binge season {binge}
             </button>
+            {b.queue && (
+              <button className="pill tonal" onClick={() => b.queue!.add(inSeason(binge).map((e) => e.id), `${show.name} season ${binge}`)}>
+                <ListPlusIcon size={18} /> Add season {binge} to Up next
+              </button>
+            )}
             {show.seasons.length > 1 && (
-              <button className="pill tonal" onClick={() => b.start(show.episodes.map((e) => e.id))}>
+              <button className={b.queue ? "pill text" : "pill tonal"} onClick={() => b.start(show.episodes.map((e) => e.id))}>
                 <ListVideoIcon size={18} /> Binge all {show.seasons.length} seasons
               </button>
             )}
@@ -430,6 +464,7 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
           {b.details && ep && item.meta?.overview && <span className="ep-overview">{item.meta.overview}</span>}
         </span>
       </button>
+      {b.queue && !props.playing && <QueueButton b={b} ids={[item.id]} label={item.title} small />}
       {props.playing ? (
         <span className="ep-playing">Playing now</span>
       ) : (
@@ -438,6 +473,27 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
         </button>
       )}
     </li>
+  );
+}
+
+/** Add to Up next, or "In Up next" once it's there. [small] is the round icon button on episode rows. */
+function QueueButton(props: { b: Browse; ids: string[]; label: string; small?: boolean }) {
+  const { queue } = props.b;
+  if (!queue) return null;
+  if (queue.has(props.ids[0]))
+    return (
+      <span className="queued">
+        <CheckIcon size={16} /> In Up next
+      </span>
+    );
+  return props.small ? (
+    <button className="round-icon" onClick={() => queue.add(props.ids, props.label)} title="Add to Up next" aria-label={`Add to Up next: ${props.label}`}>
+      <ListPlusIcon size={18} />
+    </button>
+  ) : (
+    <button className="pill tonal" onClick={() => queue.add(props.ids, props.label)}>
+      <ListPlusIcon size={18} /> Add to Up next
+    </button>
   );
 }
 

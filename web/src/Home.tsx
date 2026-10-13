@@ -3,7 +3,7 @@ import type { RoomPlayback, RoomSummary } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, MoviePage, MoviesPage, SearchResults, ShowPage, ShowsPage, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
-import { CaptionsIcon, FilmIcon, HomeIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
+import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
 import { Details, fmtSize } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
@@ -382,6 +382,12 @@ function PartyCard(props: { room: RoomSummary; elapsed: number; details: boolean
         <span className="meta">
           {[sub, r.members.length === 0 ? "Nobody here yet" : [...new Set(r.members.map((x) => x.name))].join(", ")].filter(Boolean).join(" · ")}
         </span>
+        {r.upNext && (
+          <span className="party-next">
+            <ListVideoIcon size={14} /> Up next: <b>{r.upNext.item.episode?.title ?? r.upNext.item.title}</b>
+            {r.upNext.count > 1 && <span className="muted"> +{r.upNext.count - 1} more</span>}
+          </span>
+        )}
         {r.playback ? <Progress playback={r.playback} elapsed={props.elapsed} /> : <span />}
         <div className="party-actions">
           <button className="party-end" onClick={props.onEnd}>

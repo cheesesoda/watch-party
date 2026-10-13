@@ -146,9 +146,14 @@ export interface ChatMessage {
   system?: boolean;
 }
 
-/** A binge: the videos the party plays one after another, and the switch to the next one if it's coming up. */
+/**
+ * Up next: the videos the party plays one after another (including the ones already played and the one playing now),
+ * and the switch to the next one if it's coming up. Binge fills it; the host can add, remove and reorder what's next.
+ */
 export interface Queue {
   items: MediaItem[];
+  /** Which of [items] is playing now; the ones after it are Up next. -1 when nothing in it is playing. */
+  at?: number;
   /** Counting down to the next video: which one, and when it starts (server clock, ms). */
   advance: { mediaId: string; at: number } | null;
 }
@@ -159,6 +164,8 @@ export interface RoomSummary {
   members: Member[];
   /** Set for a binge: where the party is in it, e.g. 3 of 10. */
   binge?: { index: number; length: number } | null;
+  /** The next video in Up next, and how many there are in all after the one playing now. */
+  upNext?: { item: MediaItem; count: number } | null;
   /** Where the party is in its video, for the host's party list. Only on the room list and room lookups. */
   playback?: RoomPlayback;
 }
@@ -187,6 +194,14 @@ export type ClientMessage =
   | { type: "ended"; mediaId: string }
   /** Host: don't move on to the next video in the binge. */
   | { type: "cancel-advance" }
+  /** Host: add these to the end of Up next (when nothing is playing, the first one is picked). */
+  | { type: "queue-add"; mediaIds: string[] }
+  /** Host: take this video out of Up next. */
+  | { type: "queue-remove"; mediaId: string }
+  /** Host: move this video to place [to] in Up next (0 = next). */
+  | { type: "queue-move"; mediaId: string; to: number }
+  /** Host: empty Up next (the video playing now keeps playing). */
+  | { type: "queue-clear" }
   | { type: "chat"; text: string }
   | { type: "ping"; clientTime: number }
   /** Join or leave voice, or change mute while in it. */
