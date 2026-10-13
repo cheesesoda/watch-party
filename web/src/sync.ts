@@ -21,6 +21,8 @@ export class VideoSync {
   private state: PlaybackState | null = null;
   private offsets: Array<{ rtt: number; offset: number }> = [];
   private offset = 0;
+  /** The hold this page last said it was ready for, so it says so once. */
+  private readyFor = "";
   private timer: number | undefined;
   private detach: () => void;
   /** Set when the browser refused to autoplay; the UI asks for a click. */
@@ -39,18 +41,21 @@ export class VideoSync {
     };
     const onSeeked = () => {
       if (this.state && Math.abs(video.currentTime - this.target()) > USER_SEEK) this.local("seek");
+      this.reconcile();
     };
     const onLoaded = () => this.reconcile();
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("seeked", onSeeked);
     video.addEventListener("loadedmetadata", onLoaded);
+    video.addEventListener("canplay", onLoaded);
     this.timer = window.setInterval(() => this.reconcile(), 1000);
     this.detach = () => {
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("loadedmetadata", onLoaded);
+      video.removeEventListener("canplay", onLoaded);
       window.clearInterval(this.timer);
     };
   }
@@ -91,7 +96,9 @@ export class VideoSync {
     if (!this.state) return;
     const position = this.video.currentTime;
     const paused = type === "seek" ? this.state.paused : type === "pause";
-    this.state = { ...this.state, paused, position, updatedAt: this.serverNow() };
+    // A jump while playing holds everyone at the new spot until each screen has loaded it (the server decides when).
+    const hold = type === "seek" && (this.state.hold || !this.state.paused);
+    this.state = { ...this.state, paused: paused || hold, position, updatedAt: this.serverNow(), hold: hold || undefined };
     // Our estimate of the server's clock right now, once a ping has measured it.
     this.send(this.offsets.length > 0 ? { type, position, at: Math.round(this.serverNow()) } : { type, position });
   }
@@ -107,6 +114,13 @@ export class VideoSync {
       video.playbackRate = 1;
       if (!video.paused) video.pause();
       if (Math.abs(drift) > 0.25) video.currentTime = target;
+      else if (state.hold && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        const key = `${state.updatedAt}:${state.position}`;
+        if (this.readyFor !== key) {
+          this.readyFor = key;
+          this.send({ type: "ready", position: video.currentTime });
+        }
+      }
       return;
     }
 

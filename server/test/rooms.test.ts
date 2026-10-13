@@ -207,3 +207,51 @@ test("sentAt trusts the sender's time only when it is believable", () => {
   assert.equal(sentAt(now - 60_000, now), now, "a clock far behind");
   assert.equal(sentAt("soon", now), now);
 });
+
+test("a jump while playing waits for every screen to load the spot, then plays for everyone", () => {
+  const { room, a, alice, bob } = setup();
+  const lastState = () => a.filter((m) => m.type === "state").at(-1) as Extract<ServerMessage, { type: "state" }>;
+  room.handle(alice.id, { type: "player", on: true });
+  room.handle(bob.id, { type: "player", on: true });
+  room.handle(alice.id, { type: "play", position: 10 });
+  room.handle(alice.id, { type: "seek", position: 60 });
+  assert.deepEqual([lastState().state.paused, lastState().state.hold, lastState().state.position], [true, true, 60]);
+  room.handle(alice.id, { type: "ready", position: 60 });
+  assert.equal(lastState().state.hold, true, "still waiting for Bob");
+  room.handle(bob.id, { type: "ready", position: 30 });
+  assert.equal(lastState().state.hold, true, "a ready for another spot doesn't count");
+  room.handle(bob.id, { type: "ready", position: 60.2 });
+  assert.equal(lastState().state.paused, false);
+  assert.equal(lastState().state.hold, undefined);
+  assert.equal(lastState().state.position, 60);
+  // Paused rooms, and rooms without newer apps, jump straight away as before.
+  room.handle(alice.id, { type: "pause", position: 61 });
+  room.handle(alice.id, { type: "seek", position: 90 });
+  assert.equal(lastState().state.hold, undefined);
+});
+
+test("a hold gives up on slow or departed screens", async () => {
+  const { room, a, alice, bob } = setup();
+  const lastState = () => a.filter((m) => m.type === "state").at(-1) as Extract<ServerMessage, { type: "state" }>;
+  room.holdMs = 5;
+  room.handle(alice.id, { type: "player", on: true });
+  room.handle(bob.id, { type: "player", on: true });
+  room.handle(alice.id, { type: "play", position: 10 });
+  room.handle(alice.id, { type: "seek", position: 60 });
+  room.handle(alice.id, { type: "ready", position: 60 });
+  room.leave(bob.id);
+  assert.equal(lastState().state.paused, false, "Bob left, so nobody is left to wait for");
+  room.handle(alice.id, { type: "player", on: true });
+  room.join("Cara", () => {});
+  const cara = [...room.members.values()].find((m) => m.member.name === "Cara")!.member;
+  room.handle(cara.id, { type: "player", on: true });
+  room.handle(alice.id, { type: "seek", position: 120 });
+  room.handle(alice.id, { type: "ready", position: 120 });
+  assert.equal(lastState().state.hold, true);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(lastState().state.paused, false, "played anyway after the wait ran out");
+  // Pressing pause during a hold just pauses.
+  room.handle(alice.id, { type: "seek", position: 200 });
+  room.handle(alice.id, { type: "pause", position: 200 });
+  assert.deepEqual([lastState().state.paused, lastState().state.hold], [true, undefined]);
+});

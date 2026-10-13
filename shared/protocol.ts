@@ -105,6 +105,11 @@ export interface PlaybackState {
   position: number;
   /** Server clock (ms since epoch) when `position` was recorded. */
   updatedAt: number;
+  /**
+   * Paused only until every screen has loaded the spot someone jumped to; then everyone plays together.
+   * Screens answer with a "ready" message once they have.
+   */
+  hold?: boolean;
 }
 
 export interface Member {
@@ -171,6 +176,10 @@ export type ClientMessage =
   | { type: "play"; position: number; at?: number }
   | { type: "pause"; position: number; at?: number }
   | { type: "seek"; position: number; at?: number }
+  /** This screen has loaded `position` during a hold (see PlaybackState.hold). */
+  | { type: "ready"; position: number }
+  /** This member's screen plays the video (false for a phone that's only for chat). Holds wait for these screens. */
+  | { type: "player"; on: boolean }
   | { type: "select"; mediaId: string }
   /** Host: play these one after another, starting with the first. */
   | { type: "binge"; mediaIds: string[] }

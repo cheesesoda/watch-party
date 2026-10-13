@@ -84,6 +84,8 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
             });
             handlersRef.current.onState?.(msg.state);
             handlersRef.current.onWelcome?.(msg.you);
+            // This page plays the video, so jumps wait for it to load the new spot.
+            ws.send(JSON.stringify({ type: "player", on: true }));
             break;
           case "state":
             setView((v) => ({ ...v, state: msg.state, media: msg.media }));

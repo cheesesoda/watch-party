@@ -328,6 +328,8 @@ class RoomActivity : ComponentActivity() {
         when (msg) {
             is ServerMessage.Welcome -> {
                 me = msg.you
+                // Jumps wait for this screen to load the new spot, unless it's only for chat.
+                connection.send(Protocol.player(!companion))
                 iceServers = msg.iceServers
                 voice?.rejoin(msg.you.id)
                 chat.clear()
@@ -1381,6 +1383,7 @@ class RoomActivity : ComponentActivity() {
     private fun enterCompanion(auto: Boolean) {
         if (companion) return
         companion = true
+        connection.send(Protocol.player(false))
         closeChat()
         sync.stop()
         player.stop()
@@ -1403,6 +1406,7 @@ class RoomActivity : ComponentActivity() {
     private fun exitCompanion() {
         if (!companion) return
         companion = false
+        connection.send(Protocol.player(true))
         hideKeyboard(companionView)
         companionView.visibility = View.GONE
         playerView.visibility = View.VISIBLE
