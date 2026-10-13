@@ -239,7 +239,7 @@ The app opens on **Join a party** and **Start a party**.
 
 The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
 
-On a TV, any D-pad press shows the player controls: the title at the top left, the seek bar (each left or right press moves 10 seconds), and one row of round buttons under it (play/pause and, in a binge, previous and next on the left; **Chat**, **Join voice**, subtitles, **Change video** for the host, **Settings** and **Leave** on the right). The remote's Menu button also opens chat. On a phone the buttons are icons in the top bar, and a long press shows their names. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
+On a TV, any D-pad press shows the player controls: the title at the top left, the seek bar (each left or right press moves 10 seconds), and one row of round buttons under it (play/pause and, in a binge, previous and next on the left; **Chat**, **Join voice**, subtitles, **Change video** for the host, **Settings** and **Leave** on the right). The remote's Menu button also opens chat. On a phone, tap the video: what's on is at the top left, the buttons (**Chat**, **Join voice**, subtitles, **Change video** for the host, **Settings** and **Leave**) are icons at the top right (a long press shows their names), play/pause is in the middle with previous and next beside it in a binge, and the seek bar is along the bottom. Double-tap the left or right side of the video to jump 10 seconds back or ahead for everyone; keep tapping to jump further. For the host, **Leave** asks whether to just leave or to end the party for everyone.
 
 ## Chat, voice and phone chat mode
 
@@ -269,7 +269,7 @@ Watch on the TV and chat from your phone's keyboard.
 2. On your phone, open the app with **exactly the same name** as on the TV and join the same party.
 3. The phone switches to chat only: no video, just the conversation, a keyboard and the voice buttons. Join voice from the phone to talk while the TV plays the movie.
 
-Tap **Watch here** to play the video on the phone again, or **Chat only** in the phone's top bar to switch back by hand.
+Tap **Watch here** to play the video on the phone again, or **Chat only** in the phone player's **Settings** to switch back by hand.
 
 The see-through TV panel and phone chat mode need an APK built after October 11, 2026. If your phone doesn't switch, ask the host for a fresh APK.
 

@@ -99,8 +99,8 @@ seconds; the full chat opens as a see-through panel along the right edge, with t
 
 **Phone as a chat screen:** if you're in a party on the TV and open the same party on your phone (same
 name in both apps), the phone switches to chat only: no video, just the conversation, a keyboard, and the
-voice buttons. Tap **Watch here** to play the video on the phone again, or **Chat only** in the phone's top
-bar to switch by hand.
+voice buttons. Tap **Watch here** to play the video on the phone again, or **Chat only** in the phone player's
+**Settings** to switch by hand.
 
 **Voice on Android:** press **Join voice** and allow the mic. TVs without a mic join listen-only. Voice
 plays through the same speaker as the movie, so headphones help keep it out of everyone else's mic.

@@ -32,4 +32,17 @@
         <item name="android:textColor">#E6FFFFFF</item>
         <item name="android:fontFamily">@font/barlow_regular</item>
     </style>
+
+    <!-- The phone controls' time and "Up next" line (phone_player_controls). -->
+    <style name="PhonePlayerTime">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">#E6FFFFFF</item>
+        <item name="android:fontFamily">@font/barlow_regular</item>
+    </style>
+
+    <!-- The phone seek bar's dot: small while the controls show, larger while it's dragged (PhoneTimeBar). -->
+    <dimen name="phone_scrubber_enabled">14dp</dimen>
+    <dimen name="phone_scrubber_dragged">20dp</dimen>
 </resources>
