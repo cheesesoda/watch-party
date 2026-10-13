@@ -92,6 +92,11 @@ export interface MediaInfo {
   duration: number;
   video: { codec: string; width: number; height: number; pixFmt: string } | null;
   audio: { codec: string; channels: number } | null;
+  /**
+   * The track to play (English when the file has it) isn't the file's first audio track. Browsers play the first one
+   * and can't switch, so they need the converted copy, which carries the right one.
+   */
+  audioNotFirst?: boolean;
   /** The server can convert this file for browsers (ffmpeg is installed). */
   convert: boolean;
   /** Text subtitles inside the file, which the server serves as WebVTT (picture-based ones are left out). */

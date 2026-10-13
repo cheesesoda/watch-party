@@ -41,6 +41,8 @@ export function canPlayDirect(info: MediaInfo): boolean {
     if (!supported((tenBit ? VIDEO_10BIT : VIDEO)[info.video.codec])) return false;
   }
   if (info.audio && !supported(AUDIO[info.audio.codec])) return false;
+  // English (or the file's chosen track) isn't the first audio track, which is the one a browser would play.
+  if (info.audioNotFirst) return false;
   return true;
 }
 
