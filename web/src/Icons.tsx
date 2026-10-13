@@ -89,6 +89,29 @@ export const ListVideoIcon = (p: Props) => (
   </Svg>
 );
 
+export const ListPlusIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M16 5H3M11 12H3M16 19H3M18 9v6M21 12h-6" />
+  </Svg>
+);
+
+export const GripIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="9" cy="12" r="1" />
+    <circle cx="9" cy="5" r="1" />
+    <circle cx="9" cy="19" r="1" />
+    <circle cx="15" cy="12" r="1" />
+    <circle cx="15" cy="5" r="1" />
+    <circle cx="15" cy="19" r="1" />
+  </Svg>
+);
+
+export const TrashIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+  </Svg>
+);
+
 export const ChevronLeftIcon = (p: Props) => (
   <Svg {...p}>
     <path d="m15 18-6-6 6-6" />

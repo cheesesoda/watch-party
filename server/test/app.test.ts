@@ -147,6 +147,8 @@ test("a party code lets a viewer into that party only, until it ends", async () 
     assert.equal((await fetch(base + path, { headers: as })).status, 403, path);
   }
   assert.equal((await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...as, "content-type": "application/json" }, body: "{}" })).status, 403);
+  // Posters for Up next: not refused as host-only (404 here only because TMDB is off in these tests).
+  assert.equal((await fetch(`${base}/api/images/w300/abc.jpg`, { headers: as })).status, 404);
 
   const denied = new WebSocket(`${base.replace("http", "ws")}/ws?room=${other.id}&token=${guest}`);
   await new Promise<void>((r) => denied.on("error", () => r()));

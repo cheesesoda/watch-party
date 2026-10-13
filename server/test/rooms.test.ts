@@ -245,6 +245,12 @@ test("the host adds to, reorders, trims and clears Up next; guests can't", () =>
   room.handle(host.id, { type: "select", mediaId: "v1" });
   room.handle(host.id, { type: "queue-clear" });
   assert.equal(room.queueInfo(), null, "just one video left isn't a queue");
+
+  // Playing something else keeps Up next, right after the video that was playing.
+  room.handle(host.id, { type: "queue-add", mediaIds: ["v2", "v3"] });
+  room.handle(host.id, { type: "select", mediaId: "v5" });
+  assert.deepEqual(ids(), ["v1", "v5", "v2", "v3"]);
+  assert.equal(room.queueInfo()?.at, 1);
   mgr.rooms.clear();
 });
 

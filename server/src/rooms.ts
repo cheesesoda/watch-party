@@ -239,8 +239,11 @@ export class Room {
     if (!media) return false;
     this.cancelAdvance();
     this.cancelHold();
-    // Picking something outside the binge ends it.
-    if (!this.queue.includes(mediaId)) this.queue = [];
+    if (!this.queue.includes(mediaId)) {
+      // Playing something else keeps Up next: it goes in right after the video that was playing, so Previous goes back there.
+      const index = this.media ? this.queue.indexOf(this.media.id) : -1;
+      this.queue = index >= 0 && index < this.queue.length - 1 ? [...this.queue.slice(0, index + 1), mediaId, ...this.queue.slice(index + 1)] : [];
+    }
     this.media = media;
     this.state = { mediaId, paused: true, position: 0, updatedAt: this.now() };
     return true;
