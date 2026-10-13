@@ -28,7 +28,7 @@ export function titleFromFilename(file: string): string {
 }
 
 /** Release tags that mark the end of a title in a file name, e.g. "Movie 1080p BluRay x264". */
-const JUNK = /^(\d{3,4}p|4k|uhd|hdr\d*|dv|bluray|blu-ray|bdrip|brrip|web|webrip|web-dl|webdl|hdtv|dvdrip|remux|x26[45]|h26[45]|hevc|avc|aac\d*|ac3|dts|ddp?\d*|atmos|10bit|proper|repack|extended|unrated|imax)$/i;
+const JUNK = /^(\d{3,4}p|4k|uhd|hdr\d*|dv|bluray|blu-ray|bdrip|brrip|web|webrip|web-dl|webdl|hdtv|dvdrip|remux|x26[45]|h26[45]|hevc|avc|aac\d*|ac3|dts|ddp?\d*|atmos|10bit|proper|repack|extended|unrated|imax|amzn|nf|dsnp|hmax|atvp|pcok|ita|eng|multi)$/i;
 
 function clean(text: string): string {
   return text.replace(/[._]+/g, " ").replace(/\s+/g, " ").replace(/^[\s\-–·:]+|[\s\-–·:(\[]+$/g, "").trim();

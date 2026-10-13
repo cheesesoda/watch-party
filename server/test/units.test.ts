@@ -46,6 +46,7 @@ test("parseName reads titles, years and episodes from file names", () => {
   assert.deepEqual(parseName("TV/The Bear/Season 3/S03E10.mkv").episode, { show: "The Bear", season: 3, episode: 10, title: null });
   assert.deepEqual(parseName("TV/Game of Thrones/Season 1/Game.of.Thrones.S01E01.1080p.BluRay.x265.mkv").episode, { show: "Game of Thrones", season: 1, episode: 1, title: null });
   assert.equal(parseName("Game of Thrones - S01E02 - The Kingsroad (1080p BluRay x265).mkv").episode?.title, "The Kingsroad");
+  assert.equal(parseName("TV/Reacher/Season 4/Reacher.S04E01.La.Citta.Dell.Amore.Fraterno.ITA.ENG.AMZN.WEB-DL.mkv").episode?.title, "La Citta Dell Amore Fraterno");
   assert.deepEqual(parseName("Planet Earth II - 1x02 - Mountains.mp4").episode, { show: "Planet Earth II", season: 1, episode: 2, title: "Mountains" });
 });
 
