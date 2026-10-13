@@ -27,6 +27,30 @@ class LogicTest {
     }
 
     @Test
+    fun upNextIsWhatComesAfterTheVideoPlayingNow() {
+        fun item(id: String) = MediaItem(id = id, title = id, relPath = "$id.mp4")
+        val queue = Queue(items = listOf(item("a"), item("b"), item("c"), item("d")), at = 1)
+        assertEquals(listOf("c", "d"), queue.upcoming("b").map { it.id })
+        // Older servers don't say where the party is; the video playing now says it.
+        assertEquals(listOf("d"), queue.copy(at = null).upcoming("c").map { it.id })
+        assertEquals(emptyList<MediaItem>(), queue.copy(at = -1).upcoming("x"))
+        val msg = Protocol.parse("""{"type":"queue","queue":{"items":[{"id":"a","title":"A","relPath":"a.mp4"}],"at":0,"advance":null}}""")
+        assertEquals(0, (msg as ServerMessage.QueueChanged).queue?.at)
+    }
+
+    @Test
+    fun countsPlacesInUpNext() {
+        assertEquals(listOf("1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"), listOf(1, 2, 3, 4, 11, 12, 13, 21, 22).map(::ordinal))
+    }
+
+    @Test
+    fun writesUpNextMessages() {
+        assertEquals("""{"type":"queue-add","mediaIds":["a","b"]}""", Protocol.queueAdd(listOf("a", "b")))
+        assertEquals("""{"type":"queue-move","mediaId":"a","to":2}""", Protocol.queueMove("a", 2))
+        assertEquals("""{"type":"binge","mediaIds":["a"]}""", Protocol.binge(listOf("a")))
+    }
+
+    @Test
     fun expectedPositionAdvancesOnlyWhilePlaying() {
         val playing = PlaybackState("m", paused = false, position = 10.0, updatedAt = 1000)
         assertEquals(15.0, playing.expectedPosition(6000), 1e-9)

@@ -67,5 +67,11 @@
             android:exported="false"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.WatchParty.Player" />
+
+        <activity
+            android:name=".AddVideosActivity"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation"
+            android:exported="false" />
     </application>
 </manifest>
