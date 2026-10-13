@@ -143,7 +143,36 @@ data class RoomSummary(
     val playback: RoomPlayback? = null,
     /** Set for a binge: where the party is in it, e.g. 3 of 10. */
     val binge: BingePosition? = null,
+    /** The next video in Up next, and how many there are in all after the one playing now. */
+    val upNext: UpNextInfo? = null,
 )
+
+@Serializable
+data class UpNextInfo(val item: MediaItem, val count: Int)
+
+/** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
+@Serializable
+data class Spot(
+    val id: String,
+    /** The video to start, and how far into it (seconds). */
+    val media: MediaItem,
+    val position: Double,
+    /** What was still lined up after it, in order. */
+    val next: List<MediaItem> = emptyList(),
+    /** When it was saved (ms since epoch). */
+    val savedAt: Long,
+)
+
+/** Close enough to the end that the video counts as watched: the last minute, or the last 5% for long ones. */
+fun nearEnd(position: Double, duration: Double?): Boolean =
+    duration != null && duration > 0 && position >= duration - maxOf(60.0, duration * 0.05)
+
+/**
+ * Whether a party stopping here is worth picking up later: partway through a video (past the first minute and not at
+ * the credits), or with more lined up after it. Same as the server's.
+ */
+fun worthSaving(position: Double, duration: Double?, upcoming: Int): Boolean =
+    if (nearEnd(position, duration)) upcoming > 0 else position >= 60 || upcoming > 0
 
 @Serializable
 data class BingePosition(val index: Int, val length: Int)
@@ -322,7 +351,11 @@ object Protocol {
         put("clientTime", clientTime)
     }.toString()
 
-    fun end(): String = buildJsonObject { put("type", "end") }.toString()
+    /** Ends the party for everyone. [save]: keep its spot on Home under "Pick up where you left off". */
+    fun end(save: Boolean = false): String = buildJsonObject {
+        put("type", "end")
+        if (save) put("save", true)
+    }.toString()
 
     /** The video finished on this screen; in a binge, the next one comes up. */
     fun ended(mediaId: String): String = buildJsonObject {

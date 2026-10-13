@@ -440,7 +440,7 @@ private fun UpNextOptions(api: Api, item: MediaItem, index: Int, count: Int, edi
 
 /** A row in a dialog's list: a pill that turns white with dark text while the remote is on it, as in Settings. */
 @Composable
-private fun OptionRow(icon: Int, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
+internal fun OptionRow(icon: Int, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val color = when {
@@ -470,7 +470,7 @@ private fun OptionRow(icon: Int, label: String, modifier: Modifier = Modifier, e
 
 /** A video's picture: the episode's still, else the backdrop or poster, with how far the party is along the bottom. */
 @Composable
-private fun Thumb(api: Api, item: MediaItem, progress: Float?) {
+internal fun Thumb(api: Api, item: MediaItem, progress: Float?) {
     val m = item.meta
     val (path, size) = when {
         m?.stillPath != null -> m.stillPath to "w300"

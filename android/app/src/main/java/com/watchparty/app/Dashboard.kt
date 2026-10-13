@@ -170,6 +170,9 @@ private class Actions(
     val adding: Boolean = false,
     /** Adds these videos to Up next; the text names them in the "Added" message. */
     val queue: (List<String>, String) -> Unit = { _, _ -> },
+    /** The show's saved spot (Pick up where you left off), for Continue binge on its page. */
+    val spotOf: (Show) -> Spot? = { null },
+    val startSpot: (Spot) -> Unit = {},
 ) {
     val startLabel = if (adding) "Play for everyone" else "Start party"
 }
@@ -192,6 +195,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     var error by remember { mutableStateOf<String?>(null) }
     var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
     var ending by remember { mutableStateOf<RoomSummary?>(null) }
+    // Pick up where you left off, and the one whose options are open on a TV.
+    var spots by remember { mutableStateOf<List<Spot>>(emptyList()) }
+    var spotOptions by remember { mutableStateOf<Spot?>(null) }
     var askCode by remember { mutableStateOf(false) }
 
     // Pages opened so far; Back returns to the one before. Kept through rotation.
@@ -238,6 +244,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 fetchedAt = System.currentTimeMillis()
                 now = fetchedAt
             }
+            // Parties ended in the player, or that closed by themselves, may have saved a spot.
+            guard { api.spots() }?.let { spots = it }
             delay(5000)
         }
     }
@@ -259,6 +267,32 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             added = null
         }
     }
+    val spotActions = SpotActions(
+        start = { spot ->
+            spotOptions = null
+            scope.launch {
+                val room = guard { api.startSpot(spot.id) }
+                spots = spots.filter { it.id != spot.id }
+                if (room != null) {
+                    started = room
+                    rooms = rooms.filter { it.id != room.id } + room
+                    listState.scrollToItem(0)
+                } else guard { api.spots() }?.let { spots = it }
+            }
+        },
+        open = { spot ->
+            spotOptions = null
+            val m = spot.media
+            val show = m.episode?.let { library?.shows?.firstOrNull { s -> s.episodes.any { it.id == m.id } } }
+            go(if (show != null) "show/${show.name}" else "movie/${m.id}")
+        },
+        remove = { spot ->
+            spotOptions = null
+            spots = spots.filter { it.id != spot.id }
+            scope.launch { guard { api.removeSpot(spot.id) } ?: guard { api.spots() }?.let { spots = it } }
+        },
+        options = { spotOptions = it },
+    )
     val party = PartyLink.party
     val actions = if (adding) Actions(
         api = api,
@@ -294,6 +328,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         info = { shownInfo = it.id },
         join = { RoomActivity.start(context, it.id) },
         end = { ending = it },
+        spotOf = { show -> spots.firstOrNull { sp -> show.episodes.any { it.id == sp.media.id } } },
+        startSpot = { spotActions.start(it) },
     )
     val sinceFetch = (now - fetchedAt).coerceAtLeast(0)
 
@@ -311,7 +347,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             route == "shows" -> PosterGrid(lib, "TV shows", emptyList(), lib.shows, actions, gridState)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
-            else -> HomePage(lib, rooms, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
+            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
         }
     }
 
@@ -352,24 +388,40 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         }
     }
     ending?.let { room ->
-        AlertDialog(
+        val endIt = { save: Boolean ->
+            ending = null
+            scope.launch {
+                guard { api.endRoom(room.id, prefs.name, save) }?.let {
+                    rooms = rooms.filter { it.id != room.id }
+                    if (started?.id == room.id) started = null
+                    if (save) guard { api.spots() }?.let { spots = it }
+                }
+            }
+        }
+        // Partway through something, the choice is whether to save the spot; otherwise just a check.
+        val p = room.playback
+        val position = p?.let { it.position + if (it.paused) 0.0 else sinceFetch / 1000.0 } ?: 0.0
+        val duration = p?.duration ?: room.media?.duration
+        val upcoming = room.upNext?.count ?: 0
+        if (room.media != null && worthSaving(position, duration, upcoming)) {
+            SaveSpotDialog(
+                api,
+                spotPreview(room.media, position, duration, room.upNext?.item, upcoming),
+                onSave = { endIt(true) },
+                onDontSave = { endIt(false) },
+                onCancel = { ending = null },
+            )
+        } else AlertDialog(
             onDismissRequest = { ending = null },
             title = { Text("End this party?") },
             text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
-            confirmButton = {
-                DialogButton("End party", danger = true) {
-                    ending = null
-                    scope.launch {
-                        guard { api.endRoom(room.id, prefs.name) }?.let {
-                            rooms = rooms.filter { it.id != room.id }
-                            if (started?.id == room.id) started = null
-                        }
-                    }
-                }
-            },
+            confirmButton = { DialogButton("End party", danger = true) { endIt(false) } },
             dismissButton = { DialogButton("Cancel") { ending = null } },
             containerColor = DialogSurface,
         )
+    }
+    spotOptions?.let { s ->
+        SpotOptions(api, s, onStart = { spotActions.start(s) }, onOpen = { spotActions.open(s) }, onRemove = { spotActions.remove(s) }, onClose = { spotOptions = null })
     }
     val lib = library
     val shownMedia = shownInfo?.let { id -> lib?.byId?.get(id) }
@@ -390,6 +442,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         )
     }
 }
+
+/** What Home's "Pick up where you left off" cards do. [options] is a TV's OK. */
+private class SpotActions(val start: (Spot) -> Unit, val open: (Spot) -> Unit, val remove: (Spot) -> Unit, val options: (Spot) -> Unit)
 
 private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search")
 
@@ -535,6 +590,8 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
 private fun HomePage(
     lib: Library,
     rooms: List<RoomSummary>,
+    spots: List<Spot>,
+    sa: SpotActions,
     sinceFetch: Long,
     started: RoomSummary?,
     error: String?,
@@ -558,6 +615,17 @@ private fun HomePage(
             if (lib.featured.isNotEmpty() && lib.details) {
                 item(key = "banner") {
                     if (tv) TvBanner(lib.featured, a, firstFocus) { shown = it } else PhoneBanner(lib.featured, a)
+                }
+            }
+            // Under the banner, before Watch parties (see ui-redesign/resume).
+            if (spots.isNotEmpty()) {
+                item(key = "spots") {
+                    ShelfRow("Pick up where you left off", null, a) {
+                        items(spots, key = { it.id }) { s ->
+                            if (tv) TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) }
+                            else PhoneSpotCard(a.api, lib.details, s, 250.dp, onOpen = { sa.open(s) }, onStart = { sa.start(s) }, onRemove = { sa.remove(s) })
+                        }
+                    }
                 }
             }
             if (rooms.isNotEmpty()) {
@@ -933,6 +1001,8 @@ private fun DetailPage(
     poster: String?,
     backdrop: String?,
     buttons: @Composable (FocusRequester) -> Unit,
+    /** Over the buttons: a show's saved spot. */
+    above: (@Composable () -> Unit)? = null,
     below: LazyListScope.() -> Unit,
 ) {
     val primary = remember { FocusRequester() }
@@ -948,11 +1018,13 @@ private fun DetailPage(
                         Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 52.sp, lineHeight = 54.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                         overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
-                        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) { buttons(primary) }
+                        above?.let { Box(Modifier.padding(top = 16.dp)) { it() } }
+                        Row(Modifier.padding(top = if (above != null) 14.dp else 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) { buttons(primary) }
                     }
                 } else {
                     PhoneHeader(lib, a, title, facts, overview, poster, backdrop) {
-                        Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { buttons(primary) }
+                        above?.let { Box(Modifier.padding(top = 14.dp)) { it() } }
+                        Column(Modifier.padding(top = if (above != null) 12.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { buttons(primary) }
                     }
                 }
             }
@@ -1026,6 +1098,8 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
     val shown = season.takeIf { it in show.seasons || (it == -1 && extras != null) } ?: show.seasons.first()
     val binge = if (shown == -1) show.seasons.first() else shown
     val inSeason = { n: Int -> show.episodes.filter { it.episode!!.season == n } }
+    // A saved spot puts Continue binge first (ui-redesign/resume/*-show-continue).
+    val spot = if (a.adding) null else a.spotOf(show)
     DetailPage(
         lib, a, state,
         title = show.name,
@@ -1046,13 +1120,18 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
                 Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
                 Pill("Add season $binge to Up next", R.drawable.ic_list_plus, onClick = addSeason)
                 if (show.seasons.size > 1) MoreButton(listOf("Binge all ${show.seasons.size} seasons" to { a.start(show.episodes.first(), show.episodes.map { it.id }) }))
+            } else if (spot != null) {
+                Pill("Continue binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) { a.startSpot(spot) }
+                Pill("Binge season $binge", R.drawable.ic_play_filled, wide = !a.tv, onClick = bingeSeason)
             } else {
                 Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
             }
             if (show.seasons.size > 1 && !a.adding) {
-                Pill("Binge all ${show.seasons.size} seasons", R.drawable.ic_list_video, wide = !a.tv) { a.start(show.episodes.first(), show.episodes.map { it.id }) }
+                // With Continue binge, a phone shows it as a text button so the three fit.
+                Pill("Binge all ${show.seasons.size} seasons", R.drawable.ic_list_video, wide = !a.tv, text = spot != null && !a.tv) { a.start(show.episodes.first(), show.episodes.map { it.id }) }
             }
         },
+        above = spot?.let { sp -> @Composable { SpotLine(a.api, lib.details, sp, a.tv) } },
     ) {
         if (show.seasons.size > 1 || extras != null) {
             item(key = "seasons") {

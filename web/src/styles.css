@@ -2519,3 +2519,209 @@ button.link:focus-visible {
   font-size: 14px;
   font-weight: 600;
 }
+
+/* Pick up where you left off: wide art with how far in, the title and when. Hover shows Start party and ×. */
+.spot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 330px));
+  gap: 16px;
+}
+.spot-card {
+  position: relative;
+  border-radius: 14px;
+  background: var(--panel);
+  overflow: hidden;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.spot-card:hover,
+.spot-card:focus-within {
+  outline-color: var(--accent);
+}
+.spot-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(160deg, #3a3550, #1f1a29);
+}
+.spot-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.spot-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.spot-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.spot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px 12px;
+}
+.spot-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spot-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+.spot-open {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.spot-open:focus-visible {
+  outline: none;
+}
+.spot-top {
+  position: relative;
+}
+.spot-start.pill {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.spot-remove {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(10, 7, 14, 0.75);
+  color: var(--text);
+}
+.spot-remove:hover {
+  background: rgba(10, 7, 14, 0.95);
+}
+.spot-start,
+.spot-remove {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.spot-card:hover .spot-start,
+.spot-card:hover .spot-remove,
+.spot-card:focus-within .spot-start,
+.spot-card:focus-within .spot-remove {
+  opacity: 1;
+}
+@media (hover: none) {
+  .spot-start,
+  .spot-remove {
+    opacity: 1;
+  }
+}
+
+/* Save your spot? Asked when the host ends a party that's partway through something. */
+.save-spot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.save-spot {
+  width: min(520px, 100%);
+  background: var(--panel-2);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.save-spot h2 {
+  margin: 0 0 16px;
+  font-family: "Barlow", sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+}
+.save-spot p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.save-spot p b {
+  color: var(--text);
+}
+.save-spot-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.save-spot-item .spot-art {
+  flex: none;
+  width: 128px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.save-spot-item > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.save-spot-item small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.save-spot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+.pill.text.accent {
+  color: var(--accent);
+}
+
+/* A show page's saved spot, above Continue binge. */
+.spot-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+.spot-line .spot-art {
+  flex: none;
+  width: 96px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.spot-line > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+.spot-line small {
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { MediaInfo, MediaItem } from "../../shared/protocol.ts";
+import { worthSaving, type MediaInfo, type MediaItem } from "../../shared/protocol.ts";
 import { api, hlsUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
 import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Picker } from "./Picker.tsx";
+import { SaveSpotDialog, spotPreview } from "./Spots.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
@@ -35,6 +36,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [picking, setPicking] = useState(false);
+  // "Save your spot?", with what ending now would save.
+  const [saving, setSaving] = useState<ReturnType<typeof spotPreview> | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [idle, setIdle] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -281,8 +284,17 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     }
   }, [view.status]);
 
+  // Partway through something, the host chooses whether to save the spot for later; otherwise it just checks.
   const endParty = () => {
-    if (confirm("End this watch party for everyone?")) send({ type: "end" });
+    const media = view.media;
+    const video = videoRef.current;
+    const position = video?.currentTime ?? 0;
+    const duration = media?.duration ?? (video && Number.isFinite(video.duration) ? video.duration : null);
+    const q = view.queue;
+    const at = q && media ? q.items.findIndex((i) => i.id === media.id) : -1;
+    const upcoming = q && at >= 0 ? q.items.slice(at + 1) : [];
+    if (media && worthSaving(position, duration, upcoming.length)) setSaving(spotPreview(media, position, duration, upcoming[0] ?? null, upcoming.length));
+    else if (confirm("End this watch party for everyone?")) send({ type: "end" });
   };
 
   if (view.status === "missing" || view.status === "ended") {
@@ -452,6 +464,22 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       )}
 
       <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} popups={popups} onSend={(text) => send({ type: "chat", text })} />
+
+      {saving && (
+        <SaveSpotDialog
+          {...saving}
+          details
+          onSave={() => {
+            setSaving(null);
+            send({ type: "end", save: true });
+          }}
+          onDontSave={() => {
+            setSaving(null);
+            send({ type: "end" });
+          }}
+          onCancel={() => setSaving(null)}
+        />
+      )}
 
       {settingsOpen && (
         <div className="modal" onClick={() => setSettingsOpen(false)}>

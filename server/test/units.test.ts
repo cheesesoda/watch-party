@@ -177,3 +177,33 @@ test("INVITE_URL drops a trailing slash and is optional", () => {
   assert.equal(loadConfig({ INVITE_URL: "https://tv.chzsda.com/" }).inviteUrl, "https://tv.chzsda.com");
   assert.equal(loadConfig({}).inviteUrl, undefined);
 });
+
+test("spots: newest first, one per key, at most six, expire after 30 days, saved to disk", async () => {
+  const { Spots, SPOT_TTL_MS } = await import("../src/spots.ts");
+  const fsMod = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const file = pathMod.join(fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "spots-")), "spots.json");
+  let now = 1_000;
+  const spots = new Spots(file, () => now);
+  for (let i = 0; i < 8; i++) {
+    now += 1;
+    spots.add({ mediaId: `m${i}`, position: i, next: [], key: `k${i}` });
+  }
+  spots.add({ mediaId: "again", position: 0, next: [], key: "k7" });
+  assert.deepEqual(spots.list().map((s) => s.mediaId), ["again", "m6", "m5", "m4", "m3", "m2"]);
+  assert.deepEqual(new Spots(file, () => now).list().map((s) => s.mediaId), ["again", "m6", "m5", "m4", "m3", "m2"]);
+  assert.ok(spots.remove(spots.list()[0].id));
+  now += SPOT_TTL_MS;
+  assert.equal(spots.list().length, 0);
+});
+
+test("worthSaving: partway in, or with more lined up", async () => {
+  const { worthSaving } = await import("../../shared/protocol.ts");
+  assert.equal(worthSaving(30, 3000, 0), false);
+  assert.equal(worthSaving(30, 3000, 2), true);
+  assert.equal(worthSaving(1200, 3000, 0), true);
+  assert.equal(worthSaving(2950, 3000, 0), false);
+  assert.equal(worthSaving(2950, 3000, 1), true);
+  assert.equal(worthSaving(1200, null, 0), true);
+});

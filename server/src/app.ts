@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, MediaItem, RoomSummary, ServerMessage } from "../../shared/protocol.ts";
+import type { ClientMessage, MediaItem, RoomSummary, ServerMessage, Spot } from "../../shared/protocol.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -14,6 +14,7 @@ import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
+import { Spots } from "./spots.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
@@ -32,7 +33,7 @@ export function createApp(config: Config): App {
   const rooms = new RoomManager((id) => {
     const item = library.peek(id)?.item;
     return item && metadata.enrich(item);
-  }, Date.now, undefined, config.iceServers);
+  }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile));
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const app = express();
   app.disable("x-powered-by");
@@ -391,7 +392,42 @@ export function createApp(config: Config): App {
     res.json({ rooms: await Promise.all([...rooms.rooms.values()].map(withPlayback)) });
   });
 
+  // "Pick up where you left off": where parties stopped, newest first. Ones whose video left the library are skipped.
+  app.get("/api/spots", async (_req, res) => {
+    await library.list();
+    const lookup = (id: string) => {
+      const item = library.peek(id)?.item;
+      return item && metadata.enrich(item);
+    };
+    const spots: Spot[] = [];
+    for (const s of rooms.spots.list()) {
+      const media = lookup(s.mediaId);
+      if (media) spots.push({ id: s.id, media, position: s.position, next: s.next.map(lookup).filter((m): m is MediaItem => !!m), savedAt: s.savedAt });
+    }
+    res.json({ spots });
+  });
+
+  app.delete("/api/spots/:id", (req, res) => {
+    if (!rooms.spots.remove(req.params.id)) return void res.status(404).json({ error: "No such spot." });
+    res.status(204).end();
+  });
+
   app.post("/api/rooms", async (req, res) => {
+    // Picking up a saved spot: its video, from where it stopped, with the rest lined up. The spot is used up.
+    const spotId = req.body?.spot;
+    if (spotId !== undefined) {
+      const spot = typeof spotId === "string" ? rooms.spots.get(spotId) : undefined;
+      if (!spot) return void res.status(404).json({ error: "That spot isn't saved anymore." });
+      await library.list();
+      const room = rooms.create(undefined, [spot.mediaId, ...spot.next], spot.position);
+      if (!room.media || room.media.id !== spot.mediaId) {
+        room.end("the server");
+        rooms.spots.remove(spot.id);
+        return void res.status(400).json({ error: "That video isn't in the library anymore." });
+      }
+      rooms.spots.remove(spot.id);
+      return void res.status(201).json({ room: room.summary() });
+    }
     const mediaId = req.body?.mediaId;
     if (mediaId !== undefined && (typeof mediaId !== "string" || !(await library.get(mediaId)))) {
       return void res.status(400).json({ error: "That file is not in the library." });
@@ -414,7 +450,7 @@ export function createApp(config: Config): App {
     if (access.kind !== "host") return void res.status(403).json({ error: "Only the host can end a party." });
     const room = rooms.get(req.params.id);
     if (!room) return void res.status(404).json({ error: "No such room." });
-    room.end(typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim().slice(0, 32) : "the host");
+    room.end(typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim().slice(0, 32) : "the host", req.body?.save === true);
     res.status(204).end();
   });
 

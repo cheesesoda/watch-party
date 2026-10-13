@@ -321,3 +321,50 @@ test("a hold gives up on slow or departed screens", async () => {
   room.handle(alice.id, { type: "pause", position: 200 });
   assert.deepEqual([lastState().state.paused, lastState().state.hold], [true, undefined]);
 });
+
+test("ending with Save spot keeps where the party is, and a new party picks up there", () => {
+  let now = 1_000;
+  const ep = (n: number): MediaItem => ({ ...movie, id: `e${n}`, title: `Ep ${n}`, duration: 3000, episode: { show: "Show", season: 1, episode: n, title: null } });
+  const lib = new Map([1, 2, 3].map((n) => [`e${n}`, ep(n)]));
+  const mgr = new RoomManager((id) => lib.get(id), () => now, 1000);
+  const room = mgr.create(undefined, ["e1", "e2", "e3"]);
+  const host = room.join("Host", () => {});
+  room.handle(host.id, { type: "play", position: 600 });
+  now += 30_000;
+  room.handle(host.id, { type: "end", save: true });
+  const [spot] = mgr.spots.list();
+  assert.deepEqual({ mediaId: spot.mediaId, position: spot.position, next: spot.next }, { mediaId: "e1", position: 630, next: ["e2", "e3"] });
+
+  const again = mgr.create(undefined, [spot.mediaId, ...spot.next], spot.position);
+  assert.equal(again.media?.id, "e1");
+  assert.equal(again.state.position, 630);
+  assert.equal(again.state.paused, true);
+  assert.deepEqual(again.queue, ["e1", "e2", "e3"]);
+
+  // At the credits, the spot is the next episode; one spot per show, so it replaces the first.
+  const late = again.join("Host", () => {});
+  again.handle(late.id, { type: "seek", position: 2990 });
+  again.handle(late.id, { type: "end", save: true });
+  assert.deepEqual(mgr.spots.list().map((s) => [s.mediaId, s.position, s.next]), [["e2", 0, ["e3"]]]);
+
+  // Without Save spot, or with nothing worth coming back to, nothing is kept.
+  const plain = mgr.create("e3");
+  const h = plain.join("Host", () => {});
+  plain.handle(h.id, { type: "end", save: true });
+  assert.equal(mgr.spots.list().length, 1, "the first minute of a single video isn't worth saving");
+});
+
+test("a party that empties out saves its spot when it's dropped, at the moment everyone left", () => {
+  let now = 1_000;
+  const long: MediaItem = { ...movie, duration: 7200 };
+  const mgr = new RoomManager((id) => (id === long.id ? long : undefined), () => now, 1000);
+  const room = mgr.create(long.id);
+  const a = room.join("A", () => {});
+  room.handle(a.id, { type: "play", position: 1200 });
+  now += 60_000;
+  room.leave(a.id);
+  now += 5_000;
+  mgr.sweep();
+  assert.equal(mgr.rooms.size, 0);
+  assert.deepEqual(mgr.spots.list().map((s) => [s.mediaId, s.position]), [["m1", 1260]]);
+});

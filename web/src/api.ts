@@ -1,4 +1,4 @@
-import type { MediaInfo, MediaItem, RoomSummary } from "../../shared/protocol.ts";
+import type { MediaInfo, MediaItem, RoomSummary, Spot } from "../../shared/protocol.ts";
 
 /** A TMDB movie or show the host can pick with Fix match. */
 export type MatchCandidate = { tmdbId: number; title: string; year: number | null; overview: string | null; posterPath: string | null };
@@ -74,12 +74,18 @@ export const api = {
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),
-  /** Ends a party for everyone in it, without joining. Host only. */
-  endRoom: (id: string, name: string) =>
-    call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name }) }),
+  /** Ends a party for everyone in it, without joining. Host only. save: keep its spot under "Pick up where you left off". */
+  endRoom: (id: string, name: string, save = false) =>
+    call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name, save }) }),
   /** queue: a binge, the videos to play one after another from the first. */
   createRoom: (mediaId?: string, queue?: string[]) =>
     call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue }) }).then((r) => r.room),
+  /** "Pick up where you left off": where parties stopped, newest first. */
+  spots: () => call<{ spots: Spot[] }>("/api/spots").then((r) => r.spots),
+  removeSpot: (id: string) => call(`/api/spots/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. */
+  startSpot: (id: string) =>
+    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ spot: id }) }).then((r) => r.room),
 };
 
 export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
