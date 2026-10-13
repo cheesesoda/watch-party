@@ -233,19 +233,19 @@ This APK is only for Fire TV. On a phone or Google TV, use the Play Store versio
 The app opens on **Join a party** and **Start a party**.
 
 - **Join a party (friends):** tap the invite link the host sent and it opens in the app with the code filled in; enter your name and press **Join**. Or type the party code yourself. The app already knows the host's server; press **Other server** only if the host gave you a different address.
-- **Start a party (host):** enter your name and the password. Then press **Start party** next to a movie to get its code and a **Join party** button.
+- **Start a party (host):** enter your name and the password. The app's home looks like the web dashboard: on a TV, a menu on the left (Search, Home, Movies, TV shows, Watch parties, Join with code) opens when you move into it; on a phone, the bar at the bottom has Home, Movies, TV shows and Parties, with search, the party-code keypad and the ⋮ menu (Scan TV code, Refresh library, Settings) at the top. Open a movie or show and press **Start party** (or **Binge season N**) to get its code and a **Join party** button.
 - **Sign in with your phone (TV only):** the TV shows a QR code. Scan it with your phone's camera, enter the party code and a name for the TV, and the TV joins by itself. The host can tap **I'm the host** instead to sign the TV in as host. On a phone with the app installed the link opens in the app, otherwise in the browser; both work.
 - **Watch on the TV, chat on the phone:** join the party on your phone, then pick **Sign in with your phone** on the TV and scan its QR code. The phone fills in the party code and your name, so press **Join on the TV**. When a TV joins under the same name as your phone, the phone switches to chat only.
 
 The app comes with the host's server built in. **Other server** takes the host's `https://` address, or a local one on the same Wi-Fi like `192.168.1.20:8080`.
 
-On a TV, the D-pad shows the player controls and the top bar (**Chat**, **Change video** for the host, **Join voice**, **Settings**, **Leave**; on a phone the buttons are icons, and a long press shows their names); the remote's Menu button also opens chat. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
+On a TV, any D-pad press shows the player controls: the title at the top left, the seek bar (each left or right press moves 10 seconds), and one row of round buttons under it (play/pause and, in a binge, previous and next on the left; **Chat**, **Join voice**, subtitles, **Change video** for the host, **Settings** and **Leave** on the right). The remote's Menu button also opens chat. On a phone the buttons are icons in the top bar, and a long press shows their names. On a phone, tap the video. For the host, **Leave** asks whether to just leave or to end the party for everyone.
 
 ## Chat, voice and phone chat mode
 
 ### Chat
 
-New messages float over the video for a few seconds. On the TV, **Chat** (or the remote's Menu button) opens the full chat as a see-through panel on the right, with the movie still full size behind it. To stop messages popping up over the movie, open **Settings** in the player's top bar (web, phone and TV) and turn off **Chat pop-ups**. Each device remembers its own setting, so you can have pop-ups on the TV and not on your phone, or the other way round. The full chat still opens as usual.
+New messages float over the video for a few seconds. On the TV, **Chat** (or the remote's Menu button) opens the full chat as a see-through panel on the right, with the movie still full size behind it. To stop messages popping up over the movie, open **Settings** in the player (web, phone and TV) and turn off **Chat pop-ups**. Each device remembers its own setting, so you can have pop-ups on the TV and not on your phone, or the other way round. The full chat still opens as usual.
 
 ### Voice
 
