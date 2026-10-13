@@ -132,7 +132,7 @@ The log is also saved to `%APPDATA%\Popcorn Club\server.log`.
 | `INVITE_URL` | empty | Your own address for invite links, such as `https://tv.chzsda.com`. That address must forward `/join/CODE` to this server (the Railway proxy below does). Empty: invite links use the ts.net address. |
 | `MEDIA_URL` | empty | This server's own public address (the `https://…ts.net` one) when the pages come through the Railway proxy, so video, subtitles and posters still load straight from your PC. |
 | `PROXY_KEY` | empty | A long random string shared with the Railway proxy. It lets the proxy say which friend each request is from, so a wrong password only locks out that friend. Must match the proxy's `PROXY_KEY`. |
-| `TMDB_TOKEN` | empty | Turns on movie and episode details (episode names, posters, summaries) from TMDB. Make a free account at themoviedb.org, then under Settings, API, copy the **API Read Access Token** (the long one, not the API Key). The server keeps what it finds in `data/metadata.json`, so each movie and season is looked up once. |
+| `TMDB_TOKEN` | empty | Turns on movie and episode details (episode names, posters, background art, ratings, summaries) from TMDB. Make a free account at themoviedb.org, then under Settings, API, copy the **API Read Access Token** (the long one, not the API Key). The server keeps what it finds in `data/metadata.json`, so each movie and season is looked up once. |
 | `TMDB_LANGUAGE` | `en-US` | Language for TMDB titles and summaries. |
 | `ALLOW_NO_PASSWORD` | off | Set to `1` to skip the password. Only on a network you fully trust. |
 
@@ -195,10 +195,11 @@ A party code only gets you into that one party. It stops working when the host e
 **Starting (host):**
 
 1. Press **Start a party**, enter your name and the server password. You stay signed in on that browser.
-2. Find the movie under **Start a party** and press **Start party** next to it. You get a party code, a **Copy invite link** button and a **Join party** button. Nothing plays yet, and you stay on the home page.
-3. Send the link, then press **Join party** when you're ready to watch. **Change video** (the list icon in the party's top bar) picks something else. The **Invite** button in the party also shows the code.
+2. Find something to watch. The sidebar has **Home** (new titles, running parties, and rows of movies and TV shows), **Movies**, **TV shows**, **Watch parties** and **Has subtitles**, and the search box at the top looks through everything. Click a poster to open its page. A movie's page has **Start party**; a show's page has **Binge season N**, **Binge all seasons**, and a **Start party** button on each episode. You can also hover a movie poster and press its play button. Wrong poster or summary? Use **Fix match** in the ⋮ menu on the page.
+3. You get a party code, a **Copy invite link** button and a **Join party** button. Nothing plays yet, and you stay on the dashboard. To join someone else's party, type its code in **Party code** at the top right.
+4. Send the link, then press **Join party** when you're ready to watch. **Change video** (the list icon in the party's top bar) picks something else. The **Invite** button in the party also shows the code.
 
-Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party. To end a party without joining it, press **End** next to it under **Watch parties** on the host's home page (web or app).
+Everyone can play, pause and seek, and it changes for everyone. If you join late, you land at the right spot. Only the host can change the movie or end the party. To end a party without joining it, press **End** on its card under **Watch parties** (web or app). Clicking a party's code copies its invite link.
 
 To end a party for everyone, press **End party** (the coral power icon in the top bar; in the Android app it's under **Leave**). Everyone is sent out and the code stops working. Otherwise a party ends on its own 30 minutes after the last person leaves, or when the server restarts.
 

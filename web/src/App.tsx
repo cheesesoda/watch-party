@@ -77,7 +77,7 @@ export function App() {
   }
 
   if (host) {
-    return <Home name={name} onRename={() => saveName("")} onSignOut={() => api.logout().then(() => setMe("out"))} />;
+    return <Home route={route} name={name} onRename={() => saveName("")} onSignOut={() => api.logout().then(() => setMe("out"))} />;
   }
   return <Landing />;
 }

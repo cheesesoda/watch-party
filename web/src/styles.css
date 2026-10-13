@@ -160,70 +160,6 @@ input:focus {
 .page-wrap {
   min-height: 100%;
 }
-/* Full width, like a TV app. */
-.page {
-  margin: 0 auto;
-  padding: 24px 32px;
-}
-/* On a computer screen the dashboard fits the window like an app: the header, parties, search and menu stay put,
-   and only the video list (and a long party list) scroll. Small screens scroll the whole page as usual. */
-@media (min-width: 900px) and (min-height: 560px) {
-  .page-wrap {
-    height: 100%;
-  }
-  .page {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    padding-bottom: 0;
-  }
-  .page > header,
-  .page > section {
-    flex: none;
-  }
-  .page > section.start-party {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .page .library {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .page .browse {
-    flex: 1;
-    min-height: 0;
-    grid-template-rows: minmax(0, 1fr);
-    align-items: stretch;
-  }
-  .page .browse-main {
-    min-height: 0;
-    overflow-y: auto;
-    /* Room for the Recently added arrows, which sit just outside the row. */
-    margin: 0 -12px;
-    padding: 0 12px 24px;
-  }
-  .page .rail {
-    align-content: start;
-    position: static;
-  }
-}
-.page > section {
-  margin-top: 28px;
-}
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.topbar h1 {
-  margin: 0;
-}
-
 .library-bar {
   display: flex;
   flex-wrap: wrap;
@@ -948,131 +884,11 @@ input.code,
   font-weight: 700;
   margin: 8px 0 16px;
 }
-.card.started {
-  width: auto;
-}
 .row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
-/* A section heading with a control at its right end (Watch parties and the join-by-code box). */
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-.section-head h2 {
-  margin: 0;
-}
-.join-code {
-  display: flex;
-  gap: 8px;
-}
-.join-code input {
-  width: 160px;
-  min-width: 0;
-}
-
-/* Running parties: a row of cards, paged with arrows like Recently added. */
-.shelf.party-shelf {
-  grid-auto-columns: minmax(260px, 320px);
-}
-@media (max-width: 640px) {
-  .shelf.party-shelf {
-    grid-auto-columns: 85%;
-  }
-}
-/* The whole card lights up together; its buttons get no outline of their own. */
-.party-card {
-  display: flex;
-  flex-direction: column;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid transparent;
-  overflow: hidden;
-}
-.party-card:hover,
-.party-card:focus-within {
-  background: var(--panel-2);
-  border-color: var(--accent);
-}
-.party-card button:hover,
-.party-card button:focus-visible {
-  border-color: transparent;
-}
-.party-open {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 12px 14px 10px;
-  text-align: left;
-  background: transparent;
-  border-radius: 0;
-}
-.party-open .title {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.party-open .year {
-  color: var(--muted);
-  font-weight: 400;
-}
-.party-open .meta {
-  color: var(--muted);
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.party-open .progress {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.party-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px 10px 14px;
-}
-.party-card-code {
-  margin-right: auto;
-  background: transparent;
-  padding: 6px 8px;
-  margin-left: -8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: 0.12em;
-  font-size: 13px;
-  color: var(--muted);
-}
-.party-actions button {
-  padding: 6px 14px;
-  font-size: 13px;
-}
-.party-actions .end,
-.party-actions .party-card-code {
-  background: transparent;
-  color: var(--muted);
-}
-.party-actions .end:hover,
-.party-actions .party-card-code:hover,
-.party-actions .end:focus-visible,
-.party-actions .party-card-code:focus-visible {
-  color: var(--text);
-}
-
 /* TMDB posters and stills. An empty frame keeps rows lined up when there's no image. */
 .poster,
 .still,
@@ -1263,6 +1079,13 @@ button.link:focus-visible {
   margin-top: auto;
   padding-top: 8px;
 }
+/* Rounded like the dashboard's buttons. */
+.details-actions button {
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-weight: 600;
+}
 .fix-match {
   margin-top: 20px;
   padding-top: 16px;
@@ -1390,37 +1213,6 @@ button.link:focus-visible {
   }
 }
 
-/* Header: the host's name doubles as the rename button; sign out is an icon. */
-.topbar .name-link {
-  background: none;
-  border: 0;
-  padding: 6px 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-}
-.topbar .name-link strong {
-  color: var(--text);
-}
-.topbar .name-link:hover strong,
-.topbar .name-link:focus-visible strong {
-  text-decoration: underline;
-}
-.topbar .icon-button {
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
-.topbar .icon-button:hover,
-.topbar .icon-button:focus-visible {
-  color: var(--text);
-}
-
-/* ⋮ menu in the top-right corner of the details window and a show's header. */
 .details {
   position: relative;
 }
@@ -1483,20 +1275,924 @@ button.link:focus-visible {
 .details-text {
   padding-right: 36px;
 }
-/* Phones: keep the header on one line by dropping "Hosting as". */
-@media (max-width: 480px) {
-  .topbar {
-    flex-wrap: nowrap;
-  }
-  .topbar .hosting-as {
-    display: none;
+
+/* ---------- Dashboard: a sidebar and pages, like Jellyfin and Plex ---------- */
+.dash {
+  --sidebar: #140f1a;
+  --tonal: rgba(238, 234, 243, 0.12);
+  --tonal-hover: rgba(238, 234, 243, 0.2);
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100%;
+  /* The sidebar's color runs the full height, however long the page. */
+  background: linear-gradient(to right, var(--sidebar) 232px, var(--bg) 232px);
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 14px 18px;
+  background: var(--sidebar);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  overflow-y: auto;
+}
+.sidebar button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.sidebar-logo {
+  padding: 4px 8px;
+}
+.sidebar-logo .logo {
+  margin: 0;
+  font-size: 25px;
+}
+.sidebar nav {
+  display: grid;
+  gap: 4px;
+}
+.sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 500;
+}
+.sidebar nav button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+.sidebar nav button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.sidebar nav button.on {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.sidebar nav svg {
+  flex: none;
+}
+.nav-count {
+  margin-left: auto;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  text-align: center;
+}
+.sidebar-foot {
+  margin-top: auto;
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+.sidebar-foot button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.sidebar-foot button:hover,
+.sidebar-foot button:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.sidebar-foot .name-link strong {
+  color: var(--text);
+}
+
+.dash-main {
+  position: relative;
+  min-width: 0;
+  padding: 0 32px 48px;
+  container-type: inline-size;
+}
+.dash-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+}
+.search {
+  flex: 0 1 520px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: rgba(10, 7, 14, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  backdrop-filter: blur(12px);
+}
+.search:focus-within {
+  border-color: var(--accent);
+}
+.search input {
+  background: transparent;
+  border: 0;
+  padding: 10px 0;
+}
+.join-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.join-code label {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.join-code input {
+  width: 96px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(10, 7, 14, 0.55);
+  border-color: rgba(255, 255, 255, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+.join-code input::placeholder {
+  color: rgba(176, 166, 191, 0.5);
+  letter-spacing: 0.05em;
+}
+
+/* Material 3 style buttons: filled (primary), tonal and text, all fully rounded. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.pill.primary:hover {
+  background: #eaa874;
+}
+.pill.tonal {
+  background: var(--tonal);
+  color: var(--text);
+  backdrop-filter: blur(12px);
+}
+.pill.tonal:hover {
+  background: var(--tonal-hover);
+}
+.pill.text {
+  background: transparent;
+  color: var(--muted);
+  padding: 0 12px;
+}
+.pill.text:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+.pill.small {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+.pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pill:hover {
+  border-color: transparent;
+}
+
+.dash-notices {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 20px;
+}
+.started {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid rgba(224, 154, 98, 0.35);
+}
+.started p {
+  margin: 0;
+}
+.started .party-code {
+  margin: 6px 0 0;
+  font-size: 34px;
+}
+.started-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Home's banner: the newest titles' backdrops taking turns, fading into the page. */
+.over-art .dash-top {
+  margin-bottom: -84px;
+}
+.banner {
+  position: relative;
+  margin: 0 -32px 8px;
+  padding: 100px 32px 36px;
+  min-height: 420px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.banner-art,
+.hero-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+  z-index: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent 100%), linear-gradient(to right, transparent 0%, #000 55%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to bottom, #000 45%, transparent 100%), linear-gradient(to right, rgba(0, 0, 0, 0.25) 0%, #000 60%);
+  mask-composite: intersect;
+}
+.banner-art {
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+.banner-art.on {
+  opacity: 1;
+}
+.banner-text {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
+}
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.banner h1,
+.hero h1 {
+  margin: 0 0 6px;
+  font-size: clamp(40px, 5vw, 60px);
+  line-height: 1;
+}
+.facts {
+  margin: 0;
+  color: rgba(238, 234, 243, 0.85);
+}
+.banner-actions,
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  text-shadow: none;
+}
+.dots {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 14px;
+}
+.dots button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(238, 234, 243, 0.35);
+  transition: width 200ms ease;
+}
+.dots button.on {
+  width: 22px;
+  background: var(--accent);
+}
+
+.dash-section {
+  margin-top: 32px;
+}
+.dash-section h2,
+.grid-title {
+  margin: 0 0 12px;
+  font-size: 26px;
+}
+.dash-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.see-all {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 4px 8px;
+}
+.see-all:hover,
+.see-all:focus-visible {
+  color: var(--text);
+}
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin: 8px 0 18px;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 40px;
+}
+.page-head .count {
+  color: var(--muted);
+  font-size: 18px;
+}
+.page-note {
+  margin: -8px 0 18px;
+}
+.grid-title {
+  margin-top: 32px;
+}
+.dash-main .chip {
+  padding: 6px 14px;
+}
+.dash-main .chip.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+/* Posters: a 2:3 card with the title under it, in rows (paged with arrows) and grids. */
+.shelf.poster-shelf {
+  grid-auto-columns: calc((100% - 7 * 16px) / 8);
+  gap: 16px;
+}
+@container (max-width: 1300px) {
+  .shelf.poster-shelf {
+    grid-auto-columns: calc((100% - 5 * 16px) / 6);
   }
 }
-.party-actions .party-card-code {
-  padding: 6px 8px;
+@container (max-width: 900px) {
+  .shelf.poster-shelf {
+    grid-auto-columns: calc((100% - 3 * 16px) / 4);
+  }
 }
-.party-actions .party-card-code.copied {
+@container (max-width: 560px) {
+  .shelf.poster-shelf {
+    grid-auto-columns: calc((100% - 16px) / 2.4);
+  }
+}
+.poster-shelf ~ .shelf-arrow {
+  top: calc(50% - 22px);
+}
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 24px 16px;
+}
+@container (max-width: 560px) {
+  .poster-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+}
+.pcard-poster {
+  position: relative;
+  min-width: 0;
+}
+.pcard-open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.pcard-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #3a2f4a, #211a2a);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 120ms ease;
+}
+.pcard-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 200ms ease;
+}
+.pcard-open:hover .pcard-art,
+.pcard-open:focus-visible .pcard-art {
+  outline-color: var(--accent);
+}
+.pcard-open:hover .pcard-art img {
+  transform: scale(1.03);
+}
+.pcard-fallback {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 10px 12px;
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+}
+.pcard-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(10, 7, 14, 0.75);
+  font-size: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+.pcard-title {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pcard-sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+/* The play button shows on hover or keyboard focus, in the poster's corner. */
+.pcard-start {
+  position: absolute;
+  right: 8px;
+  bottom: calc(8px + 44px);
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  padding-left: 2px;
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.pcard-poster:has(.pcard-sub) .pcard-start {
+  bottom: calc(8px + 64px);
+}
+.pcard-poster:hover .pcard-start,
+.pcard-start:focus-visible {
+  opacity: 1;
+  transform: none;
+}
+.pcard-start:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .pcard-start {
+    opacity: 1;
+    transform: none;
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* Watch parties: the video's art with its state and code, then who's there and how far in. The whole card lights up together. */
+.party-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 320px));
+  gap: 16px;
+}
+.party-card {
+  position: relative;
+  border-radius: 14px;
+  background: var(--panel);
+  overflow: hidden;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.party-card:hover,
+.party-card:focus-within {
+  outline-color: var(--accent);
+}
+.party-card button {
+  border: 0;
+}
+.party-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 1;
+  background: linear-gradient(160deg, #3a3550, #1f1a29);
+}
+.party-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.party-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(35, 28, 45, 0.98), transparent 65%);
+}
+.party-state {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(10, 7, 14, 0.7);
+  color: var(--text);
+}
+.party-state.watching {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.party-state.watching::before {
+  content: "● ";
+}
+.party-title {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 8px;
+  z-index: 1;
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.party-title .year {
+  color: var(--muted);
+  font-weight: 500;
+}
+.party-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px 16px;
+  padding: 6px 14px 12px;
+}
+.party-body .meta {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.party-body .progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.party-actions {
+  display: flex;
+  gap: 2px;
+  margin-right: -8px;
+}
+.party-actions button {
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.party-open {
+  color: var(--accent);
+}
+.party-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.party-open:focus-visible {
+  outline: none;
+}
+.party-end {
+  position: relative;
+  z-index: 2;
+  color: var(--muted);
+  font-weight: 500 !important;
+}
+.party-end:hover,
+.party-end:focus-visible {
+  color: var(--text);
+}
+.party-card-code {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: rgba(10, 7, 14, 0.8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.party-card-code:hover,
+.party-card-code:focus-visible {
+  background: rgba(10, 7, 14, 0.95);
+  color: var(--accent);
+}
+.party-card-code.copied {
   font-family: inherit;
   letter-spacing: normal;
   color: var(--accent);
+}
+
+/* A movie's or show's page: its backdrop behind the top, the poster at left and the details beside it. */
+.hero-page {
+  position: relative;
+}
+.hero-art {
+  position: absolute;
+  inset: -84px -32px auto;
+  width: calc(100% + 64px);
+  height: 520px;
+}
+.hero-art.empty {
+  background: radial-gradient(ellipse at 70% 0%, rgba(90, 75, 120, 0.35), transparent 65%);
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 32px;
+  padding-top: 96px;
+}
+.hero-poster {
+  flex: none;
+  width: 200px;
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  background: var(--panel-2);
+}
+.hero-text {
+  min-width: 0;
+  max-width: 820px;
+  padding-bottom: 4px;
+}
+.hero-text .overview {
+  margin: 12px 0 0;
+  color: rgba(238, 234, 243, 0.85);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hero-text .warn {
+  margin: 8px 0 0;
+  color: var(--warn);
+  font-size: 14px;
+}
+.hero-actions .more-button {
+  width: 40px;
+  height: 40px;
+  background: var(--tonal);
+  color: var(--text);
+}
+.hero-actions .more-menu .menu {
+  left: 0;
+  right: auto;
+}
+.chips.seasons {
+  position: relative;
+  z-index: 1;
+  margin: 28px 0 8px;
+}
+
+/* Episodes and extras: a 16:9 still, then the title, facts and a two-line summary, with Start party at the right. */
+.ep-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  position: relative;
+  z-index: 1;
+}
+.ep-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 14px;
+  border-radius: 14px;
+}
+.ep-row:hover,
+.ep-row:focus-within {
+  background: var(--panel);
+}
+.ep-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+}
+.ep-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ep-still {
+  flex: none;
+  width: 176px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  object-fit: cover;
+  background: linear-gradient(160deg, #3a3550, #1f1a29);
+}
+.ep-still.empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+}
+.ep-list:not(:has(.ep-still:not(.empty))) .ep-still.empty:empty {
+  display: none;
+}
+.ep-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.ep-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+.ep-facts {
+  color: var(--muted);
+  font-size: 13px;
+}
+.ep-overview {
+  margin-top: 4px;
+  color: rgba(238, 234, 243, 0.78);
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dash-main .credit {
+  margin-top: 40px !important;
+}
+
+/* Narrow windows and phones: the sidebar becomes a bar across the top. */
+@media (max-width: 860px) {
+  .dash {
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--bg);
+  }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .sidebar-logo .logo {
+    font-size: 22px;
+  }
+  .sidebar nav {
+    order: 3;
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sidebar nav button {
+    flex: none;
+    padding: 8px 12px;
+    gap: 8px;
+    font-size: 15px;
+  }
+  .sidebar-foot {
+    margin: 0 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .sidebar-foot button {
+    padding: 6px 8px;
+  }
+  .dash-main {
+    padding: 0 16px 40px;
+  }
+  .dash-top {
+    flex-wrap: wrap;
+  }
+  .search {
+    flex: 1 1 100%;
+  }
+  .over-art .dash-top {
+    margin-bottom: 0;
+  }
+  .banner {
+    margin: 0 -16px;
+    padding: 40px 16px 24px;
+    min-height: 300px;
+  }
+  .hero-art {
+    inset: -150px -16px auto;
+    width: calc(100% + 32px);
+  }
+  .hero {
+    padding-top: 40px;
+    gap: 18px;
+  }
+  .hero-poster {
+    width: 120px;
+  }
+}
+@media (max-width: 560px) {
+  .sidebar-foot .name-link span {
+    display: none;
+  }
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ep-row {
+    flex-wrap: wrap;
+    padding: 0 0 10px;
+  }
+  .ep-row .pill {
+    margin-left: 144px;
+  }
+  .ep-still {
+    width: 120px;
+  }
+  .ep-open {
+    flex-basis: 100%;
+    gap: 12px;
+  }
 }
