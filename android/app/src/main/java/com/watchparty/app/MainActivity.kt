@@ -155,19 +155,7 @@ class MainActivity : ComponentActivity() {
         pairLink.value = pairLinkFrom(intent)
         joinLink.value = joinLinkFrom(intent)
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Accent,
-                    onPrimary = Bg,
-                    background = Bg,
-                    surface = Panel,
-                    surfaceContainerHigh = Panel,
-                    onSurfaceVariant = Muted,
-                    outline = Color(0xFF8A7F9A),
-                    error = ErrorColor,
-                ),
-                typography = BrandTypography,
-            ) {
+            PopcornTheme {
                 var setUp by remember { mutableStateOf(prefs.isSetUp) }
                 var notice by remember { mutableStateOf<String?>(null) }
                 val link = pairLink.value
@@ -199,6 +187,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+/** The app's Material 3 colors (dusky plum and soft amber) and Barlow type, for every Compose screen. */
+@Composable
+internal fun PopcornTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Accent,
+            onPrimary = Bg,
+            background = Bg,
+            surface = Panel,
+            surfaceContainerHigh = Panel,
+            onSurfaceVariant = Muted,
+            outline = Color(0xFF8A7F9A),
+            error = ErrorColor,
+        ),
+        typography = BrandTypography,
+        content = content,
+    )
 }
 
 /** First screen for anyone who isn't signed in as the host: join with a code, or start a party with the password. */
@@ -674,6 +681,10 @@ internal fun DetailsDialog(
     onStart: () -> Unit,
     onBingeFrom: (() -> Unit)?,
     onClose: () -> Unit,
+    startLabel: String = "Start party",
+    /** Adding to a party's Up next: Add to Up next comes first, so a remote picks several with OK in a row. */
+    onQueue: (() -> Unit)? = null,
+    queued: Boolean = false,
 ) {
     val m = media.meta
     val ep = media.episode
@@ -722,9 +733,18 @@ internal fun DetailsDialog(
                     text()
                 }
                 FlowRowButtons {
-                    Button(onClick = onStart, modifier = Modifier.focusRing().focusRequester(start)) { Text("Start party") }
-                    onBingeFrom?.let { OutlinedButton(onClick = it, modifier = Modifier.focusRing()) { Text("Binge from here") } }
-                    OutlinedButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Close") }
+                    if (onQueue != null) {
+                        // Cancel, Play for everyone, Add to Up next (as in ui-redesign/queue/tv-add-episode).
+                        OutlinedButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Cancel") }
+                        OutlinedButton(onClick = onStart, modifier = Modifier.focusRing().then(if (queued) Modifier.focusRequester(start) else Modifier)) { Text(startLabel) }
+                        Button(onClick = onQueue, enabled = !queued, modifier = Modifier.focusRing().then(if (queued) Modifier else Modifier.focusRequester(start))) {
+                            Text(if (queued) "In Up next" else "Add to Up next")
+                        }
+                    } else {
+                        Button(onClick = onStart, modifier = Modifier.focusRing().focusRequester(start)) { Text(startLabel) }
+                        onBingeFrom?.let { OutlinedButton(onClick = it, modifier = Modifier.focusRing()) { Text("Binge from here") } }
+                        OutlinedButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Close") }
+                    }
                 }
                 if (credit) {
                     Text(

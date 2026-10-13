@@ -150,12 +150,15 @@ private class Library(val items: List<MediaItem>) {
 private data class Featured(val title: String, val facts: String, val backdrop: String, val route: Route, val movie: MediaItem?, val addedAt: Long)
 
 /** 7260.0 -> "2 h 1 m", 3000.0 -> "50 m" */
-private fun runtime(seconds: Double): String {
+internal fun runtime(seconds: Double): String {
     val m = Math.round(seconds / 60).toInt()
     return if (m >= 60) "${m / 60} h ${m % 60} m" else "${maxOf(1, m)} m"
 }
 
-/** What the pages call: start a party, open a page or a video's details. */
+/**
+ * What the pages call: start a party, open a page or a video's details. While [adding] to a party's Up next
+ * ("Add videos" in the player), [start] plays for everyone in that party instead, and [queue] adds to Up next.
+ */
 private class Actions(
     val api: Api,
     val tv: Boolean,
@@ -164,11 +167,19 @@ private class Actions(
     val info: (MediaItem) -> Unit,
     val join: (RoomSummary) -> Unit,
     val end: (RoomSummary) -> Unit,
-)
+    val adding: Boolean = false,
+    /** Adds these videos to Up next; the text names them in the "Added" message. */
+    val queue: (List<String>, String) -> Unit = { _, _ -> },
+) {
+    val startLabel = if (adding) "Play for everyone" else "Start party"
+}
 
-/** The host's home. Replaces the old single list; [onSignedOut] goes back to the sign-in screen (Settings). */
+/**
+ * The host's home. Replaces the old single list; [onSignedOut] goes back to the sign-in screen (Settings). With
+ * [adding], it's the library for the open party's Up next ([AddVideosActivity]), and [onBackToParty] returns to it.
+ */
 @Composable
-fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
+fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = false, onBackToParty: () -> Unit = {}) {
     val api = remember { Api(prefs.serverUrl, prefs.token) }
     val context = LocalContext.current
     val tv = remember {
@@ -220,7 +231,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     var fetchedAt by remember { mutableStateOf(0L) }
     var now by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
-        while (true) {
+        // While adding to a party, the parties aren't shown: picking one would open a second player.
+        while (!adding) {
             guard { api.rooms() }?.let {
                 rooms = it
                 fetchedAt = System.currentTimeMillis()
@@ -239,7 +251,34 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     }
 
     val library = remember(items) { items?.let(::Library) }
-    val actions = Actions(
+    // "Added … to Up next", with Undo, at the bottom of a phone; a TV shows a toast.
+    var added by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    LaunchedEffect(added) {
+        if (added != null) {
+            delay(4000)
+            added = null
+        }
+    }
+    val party = PartyLink.party
+    val actions = if (adding) Actions(
+        api = api,
+        tv = tv,
+        go = go,
+        start = { media, queue ->
+            val ids = queue ?: listOf(media.id)
+            party?.send?.invoke(if (ids.size > 1) Protocol.binge(ids) else Protocol.select(ids[0]))
+            onBackToParty()
+        },
+        info = { shownInfo = it.id },
+        join = {},
+        end = {},
+        adding = true,
+        queue = { ids, label ->
+            party?.send?.invoke(Protocol.queueAdd(ids))
+            if (tv) android.widget.Toast.makeText(context, "Added to Up next", android.widget.Toast.LENGTH_SHORT).show()
+            else added = label to ids
+        },
+    ) else Actions(
         api = api,
         tv = tv,
         go = go,
@@ -277,9 +316,30 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
     }
 
     if (tv) {
-        TvShell(route, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go, content = page)
+        TvShell(route, adding, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go) {
+            Box(Modifier.fillMaxSize()) {
+                page()
+                if (adding) PartyPill(tv = true, Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 32.dp), onBackToParty)
+            }
+        }
     } else {
-        PhoneShell(route, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go, content = page)
+        PhoneShell(route, adding, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, onBack = onBackToParty, go = go) {
+            Box(Modifier.fillMaxSize()) {
+                page()
+                // The top pages show it in their bar; movie and show pages over their backdrop.
+                if (adding && route !in TOP_PAGES) PartyPill(tv = false, Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 12.dp), onBackToParty)
+                added?.let { (label, ids) ->
+                    Snackbar(
+                        "Added “$label” to Up next",
+                        Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                        onUndo = {
+                            ids.forEach { party?.send?.invoke(Protocol.queueRemove(it)) }
+                            added = null
+                        },
+                    )
+                }
+            }
+        }
     }
 
     if (askCode) {
@@ -322,8 +382,11 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             length = listOfNotNull(media.extra?.kind, media.duration?.let(::clock) ?: formatSize(media.size), "Subtitles".takeIf { media.subtitles.isNotEmpty() }).joinToString(" · "),
             credit = lib.details,
             onStart = { shownInfo = null; actions.start(media, media.part?.ids) },
-            onBingeFrom = show?.let { s -> { shownInfo = null; actions.start(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
+            onBingeFrom = show?.takeIf { !adding }?.let { s -> { shownInfo = null; actions.start(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
             onClose = { shownInfo = null },
+            startLabel = actions.startLabel,
+            onQueue = if (!adding) null else ({ shownInfo = null; actions.queue(media.part?.ids ?: listOf(media.id), media.meta?.title ?: media.title) }),
+            queued = adding && PartyLink.queued(media.id),
         )
     }
 }
@@ -349,11 +412,19 @@ private fun section(route: Route) = when {
 }
 
 @Composable
-private fun PhoneShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+private fun PhoneShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         // Movie and show pages draw their own header over the backdrop.
-        if (route in TOP_PAGES) {
+        if (route in TOP_PAGES && adding) {
+            // Adding to a party: back to it, search, and which party.
+            Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconAction(R.drawable.ic_back, "Back to the party", onBack)
+                IconAction(R.drawable.ic_search, "Search") { go("search") }
+                Spacer(Modifier.weight(1f))
+                PartyPill(tv = false, Modifier, onBack)
+            }
+        } else if (route in TOP_PAGES) {
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
                 IconAction(R.drawable.ic_keypad, "Join with a party code", onCode)
@@ -374,7 +445,7 @@ private fun PhoneShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, 
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         NavigationBar(containerColor = Color(0xFF211A2A)) {
-            NAV.forEach { item ->
+            NAV.filter { !adding || it.route != "parties" }.forEach { item ->
                 NavigationBarItem(
                     selected = section(route) == item.route,
                     onClick = { go(item.route) },
@@ -402,7 +473,7 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
-private fun TvShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+private fun TvShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     Box(Modifier.fillMaxSize()) {
@@ -423,16 +494,17 @@ private fun TvShell(route: Route, onCode: () -> Unit, onRefresh: () -> Unit, onS
                 if (open) LogoTitle(fontSize = 20.sp, markSize = 26.dp) else LogoMark(26.dp)
             }
             TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open) { go("search") }
-            listOf(
+            // While adding to a party there's no other party to go to, and no signing out from under it.
+            listOfNotNull(
                 NavItem("home", "Home", R.drawable.ic_nav_home),
                 NavItem("movies", "Movies", R.drawable.ic_nav_movies),
                 NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
-                NavItem("parties", "Watch parties", R.drawable.ic_nav_parties),
+                NavItem("parties", "Watch parties", R.drawable.ic_nav_parties).takeIf { !adding },
             ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open) { go(item.route) } }
-            TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
+            if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
             Spacer(Modifier.weight(1f))
             TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, onRefresh)
-            TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
+            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
         }
     }
 }
@@ -554,7 +626,7 @@ private fun TvBanner(featured: List<Featured>, a: Actions, firstFocus: FocusRequ
         overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
         Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             val movie = f.movie
-            if (movie != null) Pill("Start party", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(firstFocus)) { a.start(movie, movie.part?.ids) }
+            if (movie != null) Pill(a.startLabel, R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(firstFocus)) { a.start(movie, movie.part?.ids) }
             Pill(if (movie != null) "Details" else "Episodes", R.drawable.ic_info, modifier = if (movie == null) Modifier.focusRequester(firstFocus) else Modifier) { a.go(f.route) }
             if (featured.size > 1) Dots(featured.size, index)
         }
@@ -581,7 +653,7 @@ private fun PhoneBanner(featured: List<Featured>, a: Actions) {
                     Text(f.facts.split(" · ").take(3).joinToString(" · "), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val movie = f.movie
-                        if (movie != null) Pill("Start party", R.drawable.ic_play_filled, primary = true, small = true) { a.start(movie, movie.part?.ids) }
+                        if (movie != null) Pill(a.startLabel, R.drawable.ic_play_filled, primary = true, small = true) { a.start(movie, movie.part?.ids) }
                         Pill(if (movie != null) "Details" else "Episodes", null, small = true) { a.go(f.route) }
                     }
                 }
@@ -930,7 +1002,13 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
         poster = m.meta?.posterPath,
         backdrop = m.meta?.backdropPath,
         buttons = { primary ->
-            Pill("Start party", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) { a.start(m, m.part?.ids) }
+            Pill(a.startLabel, R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) { a.start(m, m.part?.ids) }
+            if (a.adding) {
+                val queued = PartyLink.queued(m.id)
+                Pill(if (queued) "In Up next" else "Add to Up next", if (queued) R.drawable.ic_check else R.drawable.ic_list_plus, wide = !a.tv, enabled = !queued) {
+                    a.queue(m.part?.ids ?: listOf(m.id), m.meta?.title ?: m.title)
+                }
+            }
         },
     ) {
         if (extras.isNotEmpty()) {
@@ -956,10 +1034,22 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         poster = show.meta?.showPosterPath,
         backdrop = show.meta?.backdropPath,
         buttons = { primary ->
-            Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) {
-                inSeason(binge).let { eps -> a.start(eps.first(), eps.map { it.id }) }
+            val bingeSeason = { inSeason(binge).let { eps -> a.start(eps.first(), eps.map { it.id }) } }
+            val addSeason = { a.queue(inSeason(binge).map { it.id }, "Season $binge") }
+            if (a.adding && !a.tv) {
+                // Binge (which replaces Up next and plays now) and Add side by side, as in ui-redesign/queue/phone-add.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, modifier = Modifier.weight(1f), onClick = bingeSeason)
+                    Pill("Add season $binge", R.drawable.ic_list_plus, modifier = Modifier.weight(1f), onClick = addSeason)
+                }
+            } else if (a.adding) {
+                Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
+                Pill("Add season $binge to Up next", R.drawable.ic_list_plus, onClick = addSeason)
+                if (show.seasons.size > 1) MoreButton(listOf("Binge all ${show.seasons.size} seasons" to { a.start(show.episodes.first(), show.episodes.map { it.id }) }))
+            } else {
+                Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
             }
-            if (show.seasons.size > 1) {
+            if (show.seasons.size > 1 && !a.adding) {
                 Pill("Binge all ${show.seasons.size} seasons", R.drawable.ic_list_video, wide = !a.tv) { a.start(show.episodes.first(), show.episodes.map { it.id }) }
             }
         },
@@ -1038,16 +1128,43 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions) {
             else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
             Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
         }
+        // Adding to a party: the length and whether it's already lined up, with an Add button (✓ once added).
+        val playing = a.adding && PartyLink.playing == m.id
+        val queued = a.adding && PartyLink.queued(m.id)
         Column(Modifier.weight(1f)) {
             Text(episodeTitle(m), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = m.meta?.overview?.takeIf { m.episode != null } ?: listOfNotNull(m.extra?.kind, "Subtitles".takeIf { m.subtitles.isNotEmpty() }).joinToString(" · ")
-            if (sub.isNotEmpty()) Text(sub, color = Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (a.adding) {
+                Row {
+                    Text(episodeLength(m), color = Muted, fontSize = 12.sp)
+                    val status = if (playing) "Playing now" else if (queued) "In Up next" else null
+                    status?.let { Text(" · $it", color = Accent, fontSize = 12.sp) }
+                }
+            } else {
+                val sub = m.meta?.overview?.takeIf { m.episode != null } ?: listOfNotNull(m.extra?.kind, "Subtitles".takeIf { m.subtitles.isNotEmpty() }).joinToString(" · ")
+                if (sub.isNotEmpty()) Text(sub, color = Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Box(
-            Modifier.size(40.dp).clip(CircleShape).background(Tonal).clickable { a.start(m, m.part?.ids) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(painterResource(R.drawable.ic_play_filled), contentDescription = "Start party", tint = Color.White, modifier = Modifier.size(18.dp).offset(x = 1.dp))
+        if (a.adding && !playing) {
+            if (queued) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_check), contentDescription = "In Up next", tint = Accent, modifier = Modifier.size(20.dp))
+                }
+            } else {
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(Tonal).clickable { a.queue(m.part?.ids ?: listOf(m.id), m.meta?.title ?: m.title) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_list_plus), contentDescription = "Add to Up next", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+        if (!playing) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(Tonal).clickable { a.start(m, m.part?.ids) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_play_filled), contentDescription = a.startLabel, tint = Color.White, modifier = Modifier.size(18.dp).offset(x = 1.dp))
+            }
         }
     }
 }
@@ -1067,6 +1184,7 @@ private fun Pill(
     small: Boolean = false,
     text: Boolean = false,
     wide: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -1084,7 +1202,7 @@ private fun Pill(
             .scale(if (focused) 1.06f else 1f)
             .clip(CircleShape)
             .background(bg)
-            .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClick = onClick)
+            .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), enabled = enabled, onClick = onClick)
             .heightIn(min = if (small) 38.dp else 46.dp)
             .padding(horizontal = if (small) 16.dp else 22.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1092,6 +1210,80 @@ private fun Pill(
     ) {
         icon?.let { Icon(painterResource(it), contentDescription = null, tint = fg, modifier = Modifier.size(if (small) 16.dp else 18.dp)) }
         Text(label, color = fg, fontSize = if (small) 14.sp else 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** A round ⋮ button that opens a short menu of more actions; white while the remote is on it. */
+@Composable
+private fun MoreButton(actions: List<Pair<String, () -> Unit>>) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            Modifier
+                .scale(if (focused) 1.06f else 1f)
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(if (focused) FocusFill else Tonal)
+                .clickable(interactionSource = interaction, indication = null) { open = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More", tint = if (focused) OnFocus else Color.White, modifier = Modifier.size(20.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Panel) {
+            actions.forEach { (label, action) ->
+                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; action() })
+            }
+        }
+    }
+}
+
+/**
+ * Which party videos are being added to, and how many are lined up: on a TV a pill that goes back to the party, on a
+ * phone a small label (the page's back arrow goes back).
+ */
+@Composable
+private fun PartyPill(tv: Boolean, modifier: Modifier, onBack: () -> Unit) {
+    val party = PartyLink.party ?: return
+    val count = PartyLink.upcoming.size
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    if (tv) {
+        Row(
+            modifier
+                .scale(if (focused) 1.05f else 1f)
+                .clip(CircleShape)
+                .background(if (focused) FocusFill else Color(0xE6100C15))
+                .clickable(interactionSource = interaction, indication = null, onClick = onBack)
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(painterResource(R.drawable.ic_back), contentDescription = null, tint = if (focused) OnFocus else Color.White, modifier = Modifier.size(18.dp))
+            Text("Back to party ${party.code}", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp))
+            Text(" · $count in Up next", color = if (focused) OnFocusMuted else Muted, fontSize = 14.sp)
+        }
+    } else {
+        Text(
+            "Adding to party ${party.code} · $count next",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = modifier.clip(CircleShape).background(Color(0xD9100C15)).padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** A Material 3 snackbar: what just happened, and Undo. */
+@Composable
+private fun Snackbar(text: String, modifier: Modifier, onUndo: () -> Unit) {
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFEEEAF3)).padding(start = 16.dp, end = 4.dp).heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, color = OnFocus, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text("Undo", color = Color(0xFF8A4F1E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo).padding(12.dp))
     }
 }
 

@@ -2,7 +2,9 @@ package com.watchparty.app
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -146,9 +148,23 @@ data class RoomSummary(
 @Serializable
 data class BingePosition(val index: Int, val length: Int)
 
-/** A binge: the videos the party plays one after another, and the switch to the next one if it's coming up. */
+/**
+ * A binge or Up next: the videos the party plays one after another (the ones already played, the one playing now
+ * and the ones after it), and the switch to the next one if it's coming up.
+ */
 @Serializable
-data class Queue(val items: List<MediaItem> = emptyList(), val advance: Advance? = null) {
+data class Queue(
+    val items: List<MediaItem> = emptyList(),
+    val advance: Advance? = null,
+    /** Which of [items] is playing now; -1 when none of them is. Older servers leave it out. */
+    val at: Int? = null,
+) {
+    /** Where the video playing now ([playing], its id) sits in [items], or -1. */
+    fun indexOf(playing: String?): Int = at?.takeIf { it in items.indices } ?: items.indexOfFirst { it.id == playing }
+
+    /** Up next: the videos after the one playing now. */
+    fun upcoming(playing: String?): List<MediaItem> = indexOf(playing).let { i -> if (i < 0) emptyList() else items.drop(i + 1) }
+
     /** Counting down to the next video: which one, and when it starts (server clock, ms). */
     @Serializable
     data class Advance(val mediaId: String, val at: Long)
@@ -274,6 +290,32 @@ object Protocol {
         put("type", "select")
         put("mediaId", mediaId)
     }.toString()
+
+    /** Host: play these videos one after another, starting now (replaces Up next). */
+    fun binge(mediaIds: List<String>): String = buildJsonObject {
+        put("type", "binge")
+        put("mediaIds", JsonArray(mediaIds.map { JsonPrimitive(it) }))
+    }.toString()
+
+    /** Host: add these videos to the end of Up next. */
+    fun queueAdd(mediaIds: List<String>): String = buildJsonObject {
+        put("type", "queue-add")
+        put("mediaIds", JsonArray(mediaIds.map { JsonPrimitive(it) }))
+    }.toString()
+
+    fun queueRemove(mediaId: String): String = buildJsonObject {
+        put("type", "queue-remove")
+        put("mediaId", mediaId)
+    }.toString()
+
+    /** Host: move a video in Up next to place [to] (0 is next). */
+    fun queueMove(mediaId: String, to: Int): String = buildJsonObject {
+        put("type", "queue-move")
+        put("mediaId", mediaId)
+        put("to", to)
+    }.toString()
+
+    fun queueClear(): String = buildJsonObject { put("type", "queue-clear") }.toString()
 
     fun ping(clientTime: Long): String = buildJsonObject {
         put("type", "ping")

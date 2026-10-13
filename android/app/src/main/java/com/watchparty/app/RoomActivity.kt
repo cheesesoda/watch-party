@@ -59,6 +59,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import android.text.TextUtils
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
@@ -167,6 +168,14 @@ class RoomActivity : ComponentActivity() {
     /** The binge, if the party has one. */
     private var queue: Queue? = null
     private var upNext: AlertDialog? = null
+    /** Up next (the list, not the countdown): open or not, and what it shows. Compose state, read by [upNextView]. */
+    private val upNextOpen = mutableStateOf(false)
+    private val upNextQueue = mutableStateOf<Queue?>(null)
+    private val upNextMedia = mutableStateOf<MediaItem?>(null)
+    private val listButtons = mutableListOf<View>()
+    private lateinit var upNextView: ComposeView
+    /** This host's party, for the library's Add videos (see [PartyLink]). */
+    private var link: PartyLink.Party? = null
     private lateinit var prevButton: Button
     private lateinit var nextButton: Button
     private var iceServers: List<IceServer> = emptyList()
@@ -245,6 +254,7 @@ class RoomActivity : ComponentActivity() {
             onStatus = ::onStatus,
         )
         connection.connect()
+        if (host) link = PartyLink.Party(roomCode) { connection.send(it) }.also { PartyLink.party = it }
     }
 
     override fun onStart() {
@@ -265,6 +275,11 @@ class RoomActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (link != null && PartyLink.party === link) {
+            PartyLink.party = null
+            PartyLink.queue = null
+            PartyLink.playing = null
+        }
         prefs.startLag = PlayerSync.startLag
         stopVoice()
         if (::connection.isInitialized) connection.close()
@@ -277,6 +292,11 @@ class RoomActivity : ComponentActivity() {
      * only sees them while it has focus, and nothing else picks them up since the app has no media session.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Left and right stay in the open Up next panel instead of wandering onto the hidden player controls.
+        if (upNextOpen.value && isTv && event.keyCode in setOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            super.dispatchKeyEvent(event)
+            return true
+        }
         if (showsControlsFirst(event)) {
             playerView.showController()
             return true
@@ -304,7 +324,7 @@ class RoomActivity : ComponentActivity() {
      */
     private fun showsControlsFirst(event: KeyEvent): Boolean =
         !companion && event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS &&
-            !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE
+            !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE && !upNextOpen.value
 
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
@@ -387,8 +407,10 @@ class RoomActivity : ComponentActivity() {
     private fun applyState(state: PlaybackState, media: MediaItem?, mine: Boolean = false) {
         lastState = state
         lastMedia = media
+        upNextMedia.value = media
+        if (link != null) PartyLink.playing = media?.id
         titleText.text = media?.let { playerTitle(it) }
-            ?: if (host) "Nothing playing. Use Change video to pick something. Friends join with code $roomCode."
+            ?: if (host) "Nothing playing. Use Up next to pick something. Friends join with code $roomCode."
             else "Waiting for the host to pick something."
         companionTitle.text = media?.title ?: "Nothing playing"
         if (media?.id != posterFor) loadPoster(media)
@@ -535,6 +557,8 @@ class RoomActivity : ComponentActivity() {
         companionView = buildCompanionView()
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
+        root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
         statusText = text(14f, ON_SURFACE).apply {
             background = pill(Color.argb(220, 0x18, 0x13, 0x1F))
             setPadding(dp(20), dp(10), dp(20), dp(10))
@@ -619,7 +643,7 @@ class RoomActivity : ComponentActivity() {
             voiceButton,
             muteButton,
             subtitles,
-            if (host) phoneButton("Change video", R.drawable.ic_video) { pickVideo() } else null,
+            phoneButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             phoneButton("Settings", R.drawable.ic_settings) { showSettings() },
             // One button for both: leave alone, or (the host) end it for everyone.
             phoneButton("Leave", R.drawable.ic_leave) { confirmLeave() },
@@ -778,7 +802,7 @@ class RoomActivity : ComponentActivity() {
             voiceButton,
             muteButton,
             subtitles,
-            if (host) tvButton("Change video", R.drawable.ic_video) { pickVideo() } else null,
+            tvButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             tvButton("Settings", R.drawable.ic_settings) { showSettings() },
             tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
             playerSettings,
@@ -1311,6 +1335,7 @@ class RoomActivity : ComponentActivity() {
             setOnClickListener { popup.dismiss(); onClick() }
         }, LinearLayout.LayoutParams(MATCH_PARENT, dp(48)))
         item("Watch on this phone", R.drawable.ic_phone) { exitCompanion() }
+        if (host || upNextQueue.value?.upcoming(lastMedia?.id)?.isNotEmpty() == true) item("Up next", R.drawable.ic_list_video) { openUpNext() }
         if (voice != null) item("Leave voice", R.drawable.ic_mic_off) { stopVoice() }
         item("Leave party", R.drawable.ic_leave) { confirmLeave() }
         popup.showAsDropDown(anchor, 0, dp(4), Gravity.END)
@@ -1462,6 +1487,8 @@ class RoomActivity : ComponentActivity() {
 
     private fun setQueue(q: Queue?) {
         queue = q
+        upNextQueue.value = q
+        if (link != null) PartyLink.queue = q
         updateBingeButtons()
         showMembers(members)
         val advance = q?.advance
@@ -1497,6 +1524,7 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun updateBingeButtons() {
+        updateListButtons()
         if (!::prevButton.isInitialized) return
         val inBinge = host && queue != null && !companion
         prevButton.visibility = if (inBinge) View.VISIBLE else View.GONE
@@ -1507,34 +1535,47 @@ class RoomActivity : ComponentActivity() {
         nextButton.alpha = if (nextButton.isEnabled) 1f else 0.4f
     }
 
-    private fun pickVideo() {
-        lifecycleScope.launch {
-            val items = try {
-                api.library()
-            } catch (e: Exception) {
-                Toast.makeText(this@RoomActivity, e.message ?: "Couldn't load the library.", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            if (items.isEmpty()) {
-                Toast.makeText(this@RoomActivity, "The library is empty.", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            // Rows like Settings', rather than the platform list with its square highlight.
-            val list = LinearLayout(this@RoomActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(8)) }
-            val picker = present(
-                dialog()
-                    .setTitle("Play for everyone")
-                    .setView(ScrollView(this@RoomActivity).apply { addView(list) })
-                    .setNegativeButton("Cancel", null),
-            )
-            for (item in items) {
-                list.addView(dialogRow(if (item.folder.isEmpty()) item.title else "${item.folder} / ${item.title}", null) {
-                    picker.dismiss()
-                    connection.send(Protocol.select(item.id))
-                })
-            }
-            list.getChildAt(0)?.requestFocus()
+    /**
+     * Up next over the video (see ui-redesign/queue): a panel on the right of a TV, a bottom sheet on a phone. The
+     * host plays, moves and removes videos there, and Add videos opens the library; guests just see what's coming.
+     */
+    private fun buildUpNextView() = ComposeView(this).also { upNextView = it }.apply {
+        // Hidden while closed, so a TV remote can't land on it.
+        visibility = View.GONE
+        val screen = UpNextScreen(
+            api = api,
+            tv = isTv,
+            code = roomCode,
+            edit = if (host) ({ message: String -> connection.send(message) }) else null,
+            position = {
+                if (companion) lastState?.expectedPosition(sync.clock.serverNow(System.currentTimeMillis())) ?: 0.0
+                else player.currentPosition / 1000.0
+            },
+            onPlay = { item -> closeUpNext(); playForEveryone(item) },
+            onAddVideos = { startActivity(Intent(this@RoomActivity, AddVideosActivity::class.java)) },
+            onClose = ::closeUpNext,
+        )
+        setContent {
+            if (upNextOpen.value) PopcornTheme { UpNext(screen, upNextQueue.value, upNextMedia.value) }
         }
+    }
+
+    private fun openUpNext() {
+        playerView.hideController()
+        upNextView.visibility = View.VISIBLE
+        upNextOpen.value = true
+    }
+
+    private fun closeUpNext() {
+        upNextOpen.value = false
+        upNextView.visibility = View.GONE
+        if (isTv && !companion) playerView.requestFocus()
+    }
+
+    /** Guests get the Up next button only when something is lined up; the host always has it, to add videos. */
+    private fun updateListButtons() {
+        val show = host || queue?.upcoming(lastMedia?.id)?.isNotEmpty() == true
+        listButtons.forEach { it.visibility = if (show) View.VISIBLE else View.GONE }
     }
 
     // --- view helpers ---
