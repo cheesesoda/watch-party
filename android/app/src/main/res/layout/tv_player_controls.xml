@@ -72,7 +72,6 @@
                 <ImageButton
                     android:id="@id/exo_play_pause"
                     style="@style/TvPlayerButton"
-                    android:padding="13dp"
                     android:contentDescription="@string/exo_controls_play_description" />
 
             </LinearLayout>
@@ -93,7 +92,7 @@
                     android:id="@id/exo_subtitle"
                     style="@style/TvPlayerButton"
                     android:contentDescription="@string/exo_controls_cc_disabled_description"
-                    android:src="@drawable/exo_styled_controls_subtitle_off" />
+                    android:src="@drawable/ic_tv_cc_off" />
 
                 <!--
                     Media3's audio track and speed menu opens from here. Never shown: the Settings button offers it,

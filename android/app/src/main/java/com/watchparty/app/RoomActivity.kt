@@ -612,6 +612,8 @@ class RoomActivity : ComponentActivity() {
      */
     private fun tvButton(label: String, icon: Int, onClick: () -> Unit) = barButton(label, icon, iconOnly = true, onClick).apply {
         id = View.generateViewId()
+        tvButtons.add(this)
+        label(this, label, icon)
         val focused = intArrayOf(android.R.attr.state_focused)
         background = StateListDrawable().apply {
             addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(FOCUS_FILL) })
@@ -999,10 +1001,14 @@ class RoomActivity : ComponentActivity() {
                 cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
             }
             visibility = View.GONE
+            clipChildren = false
+            clipToPadding = false
             val header = LinearLayout(this@RoomActivity).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(text(22f, ON_SURFACE).apply { text = "Chat"; typeface = MEDIUM }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
                 addView(barButton("Close", R.drawable.ic_close, iconOnly = true) { closeChat() })
+                // Room for the focused button to grow without its circle being cut off.
+                clipChildren = false
             }
             addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = dp(4) })
             addView(ScrollView(this@RoomActivity).apply { isVerticalScrollBarEnabled = false; addView(chatPanelHistory) }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
@@ -1520,12 +1526,15 @@ class RoomActivity : ComponentActivity() {
         layoutParams = LinearLayout.LayoutParams(if (iconOnly) dp(48) else WRAP_CONTENT, dp(if (iconOnly) 48 else 40)).apply { marginStart = dp(8) }
     }
 
+    /** The TV player's buttons, which draw their icons as lines like the mockup (see [TV_ICONS]). */
+    private val tvButtons = mutableSetOf<View>()
+
     /** Sets a bar button's name and icon (voice and mute change theirs). */
     private fun label(button: Button, label: String, icon: Int) {
         val iconOnly = button.tag == true
         button.contentDescription = label
         button.tooltipText = label
-        val drawable = getDrawable(icon)!!.mutate().apply { setBounds(0, 0, dp(20), dp(20)) }
+        val drawable = getDrawable(if (button in tvButtons) TV_ICONS[icon] ?: icon else icon)!!.mutate().apply { setBounds(0, 0, dp(20), dp(20)) }
         button.setCompoundDrawablesRelative(drawable, null, null, null)
         if (iconOnly) {
             button.text = ""
@@ -1601,6 +1610,18 @@ class RoomActivity : ComponentActivity() {
         const val EXTRA_ROOM = "room"
         const val EXTRA_HOST = "host"
         private const val CHAT_FADE_MS = 10_000L
+        /** The TV player's line icons in place of the phone's filled ones; voice and mute keep switching through these. */
+        private val TV_ICONS = mapOf(
+            R.drawable.ic_chat to R.drawable.ic_tv_chat,
+            R.drawable.ic_mic to R.drawable.ic_tv_mic,
+            R.drawable.ic_mic_off to R.drawable.ic_tv_mic_off,
+            R.drawable.ic_video to R.drawable.ic_list_video,
+            R.drawable.ic_settings to R.drawable.ic_gear,
+            R.drawable.ic_leave to R.drawable.ic_tv_power,
+            R.drawable.ic_skip_previous to R.drawable.ic_tv_prev,
+            R.drawable.ic_skip_next to R.drawable.ic_tv_next,
+        )
+
         /** How far the remote's fast-forward and rewind buttons jump. */
         private const val SKIP_MS = 10_000L
         /** The on-screen skip buttons, labelled 5 and 15 by Media3. */
