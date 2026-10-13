@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.core.content.res.ResourcesCompat
 import androidx.media3.common.util.UnstableApi
@@ -56,6 +57,15 @@ class PhoneTimeBar(context: Context, attrs: AttributeSet? = null) : DefaultTimeB
                 invalidate()
             }
         })
+    }
+
+    /**
+     * Media3's controls give the bar a bottom margin to clear the row of buttons in its own layout, whenever its
+     * compact mode switches; this layout has no such row, so the bar keeps its place under the time.
+     */
+    override fun setLayoutParams(params: ViewGroup.LayoutParams?) {
+        (params as? ViewGroup.MarginLayoutParams)?.bottomMargin = 0
+        super.setLayoutParams(params)
     }
 
     override fun setPosition(position: Long) {
