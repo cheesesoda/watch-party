@@ -324,7 +324,7 @@ export function createApp(config: Config): App {
     if (!entry) return void res.status(404).json({ error: "Not found." });
     const probe = await transcoder.probe(entry.absPath);
     if (!probe) return void res.json({ info: null });
-    const { videoIndex: _v, audioIndex: _a, ...info } = probe;
+    const { videoIndex: _v, audioIndex: _a, subtitleIndexes: _s, ...info } = probe;
     res.json({ info });
   });
 
@@ -361,6 +361,15 @@ export function createApp(config: Config): App {
 
   app.get("/api/media/:id/subtitles/:index", async (req, res) => {
     const entry = await library.get(req.params.id);
+    // "e2.vtt" is the third subtitle track inside the file itself (see MediaInfo.subtitles).
+    const embedded = /^e(\d{1,3})(\.vtt)?$/.exec(req.params.index);
+    if (embedded) {
+      const vtt = entry && (await transcoder.subtitle(entry.absPath, Number(embedded[1])));
+      if (!vtt) return void res.status(404).json({ error: "Not found." });
+      res.setHeader("Content-Type", "text/vtt; charset=utf-8");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      return void res.send(vtt);
+    }
     const file = entry?.subtitlePaths[Number(req.params.index.replace(/\.vtt$/, ""))];
     if (!file) return void res.status(404).json({ error: "Not found." });
     const text = await fsp.readFile(file, "utf8");

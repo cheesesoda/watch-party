@@ -79,3 +79,43 @@ test("converts HEVC + AC3 into segments that line up across restarts", { skip: !
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("parseProbe lists text subtitles inside the file, skipping picture-based ones", () => {
+  const info = parseProbe({
+    format: { format_name: "matroska", duration: "60" },
+    streams: [
+      { index: 0, codec_type: "video", codec_name: "h264" },
+      { index: 1, codec_type: "subtitle", codec_name: "hdmv_pgs_subtitle", tags: { language: "eng" } },
+      { index: 2, codec_type: "subtitle", codec_name: "subrip", tags: { language: "dut" }, disposition: { default: 1 } },
+      { index: 3, codec_type: "subtitle", codec_name: "ass", tags: { language: "eng", title: "SDH" } },
+      { index: 4, codec_type: "subtitle", codec_name: "subrip", tags: { language: "eng" }, disposition: { forced: 1 } },
+      { index: 5, codec_type: "subtitle", codec_name: "subrip", tags: { language: "und" } },
+    ],
+  });
+  assert.deepEqual(
+    info.subtitles.map((s) => s.label),
+    ["Dutch", "English (SDH)", "English, forced", "Unknown language"],
+  );
+  assert.deepEqual(info.subtitleIndexes, [2, 3, 4, 5]);
+  assert.equal(info.subtitles[3].lang, null);
+});
+
+test("pulls a subtitle track out of the file as WebVTT", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-sub-"));
+  try {
+    const srt = path.join(dir, "nl.srt");
+    await fs.writeFile(srt, "1\n00:00:01,000 --> 00:00:02,500\nHallo daar, één\n\n");
+    const input = path.join(dir, "in.mkv");
+    const made = spawnSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=4", "-i", srt, "-map", "0", "-map", "1", "-c:v", "mpeg4", "-c:s", "srt", "-metadata:s:s:0", "language=dut", input]);
+    if (made.status !== 0) return;
+    const tc = new Transcoder({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: path.join(dir, "out"), encoder: "off" });
+    const probe = await tc.probe(input);
+    assert.deepEqual(probe?.subtitles, [{ index: 0, label: "Dutch", lang: "dut" }]);
+    const vtt = await tc.subtitle(input, 0);
+    assert.match(vtt ?? "", /^WEBVTT/);
+    assert.match(vtt ?? "", /00:0?0?:?01\.000 --> 00:0?0?:?02\.500\nHallo daar, één/);
+    assert.equal(await tc.subtitle(input, 1), null);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

@@ -82,6 +82,8 @@ data class MediaInfo(
     val audio: Audio? = null,
     /** The server can convert this file (ffmpeg is installed). */
     val convert: Boolean = false,
+    /** Text subtitles inside the file, served as WebVTT at [Api.subtitleUrl] with "e" + index. */
+    val subtitles: List<SubtitleTrack> = emptyList(),
 ) {
     @Serializable data class Video(val codec: String, val width: Int = 0, val height: Int = 0, val pixFmt: String = "")
     @Serializable data class Audio(val codec: String, val channels: Int = 0)

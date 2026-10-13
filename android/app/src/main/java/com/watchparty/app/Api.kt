@@ -148,7 +148,8 @@ class Api(private val baseUrl: String, private val token: String) {
 
     fun streamUrl(mediaId: String): String = withToken("$baseUrl/api/media/$mediaId/stream")
 
-    fun subtitleUrl(mediaId: String, index: Int): String = withToken("$baseUrl/api/media/$mediaId/subtitles/$index.vtt")
+    /** [index] is a sidecar file's number, or "e2" for the third subtitle track inside the video file. */
+    fun subtitleUrl(mediaId: String, index: Any): String = withToken("$baseUrl/api/media/$mediaId/subtitles/$index.vtt")
 
     fun socketUrl(roomId: String, name: String, device: String): String {
         val url = "$baseUrl/ws".toHttpUrl().newBuilder()

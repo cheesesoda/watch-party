@@ -122,6 +122,7 @@ class RoomActivity : ComponentActivity() {
     private var skipSide = 0
     private var skipSeconds = 0
     private var skipUntil = 0L
+    private var skipTo = 0L
 
     private val main = Handler(Looper.getMainLooper())
     /** The player control a TV remote was last on, so it's there again when the controls come back. */
@@ -209,6 +210,11 @@ class RoomActivity : ComponentActivity() {
         // The token goes in a header too: HLS segment links can't carry it in the URL.
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(api.authHeaders())
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(http)).build()
+        // Subtitles start off, even when the file marks a track as the default; the subtitle button turns them on.
+        // Forced ones (signs, lines in another language) still show when they match the sound's language.
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (!switchToConverted()) Toast.makeText(this@RoomActivity, "Can't play this video: ${error.errorCodeName}", Toast.LENGTH_LONG).show()
@@ -332,7 +338,7 @@ class RoomActivity : ComponentActivity() {
                 renderChat()
             }
             is ServerMessage.QueueChanged -> setQueue(msg.queue)
-            is ServerMessage.State -> applyState(msg.state, msg.media)
+            is ServerMessage.State -> applyState(msg.state, msg.media, mine = msg.by != null && msg.by == me?.name)
             is ServerMessage.Members -> {
                 voice?.syncMembers(msg.members)
                 showMembers(msg.members)
@@ -374,7 +380,7 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
-    private fun applyState(state: PlaybackState, media: MediaItem?) {
+    private fun applyState(state: PlaybackState, media: MediaItem?, mine: Boolean = false) {
         lastState = state
         lastMedia = media
         titleText.text = media?.let { playerTitle(it) }
@@ -399,20 +405,21 @@ class RoomActivity : ComponentActivity() {
                 load(media, converted = !direct)
             }
         }
-        sync.setState(state)
+        sync.setState(state, mine)
     }
 
     /** Plays [media], either the original file or the server's converted copy. */
     private fun load(media: MediaItem, converted: Boolean) {
         this.converted = converted
-        val subs = media.subtitles.map { track ->
-            ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, track.index)))
+        fun sub(index: Any, track: SubtitleTrack) =
+            ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, index)))
                 .setMimeType(MimeTypes.TEXT_VTT)
                 .setLanguage(track.lang)
                 .setLabel(track.label)
-                .setSelectionFlags(if (track.index == 0) C.SELECTION_FLAG_DEFAULT else 0)
                 .build()
-        }
+        // The converted copy drops the subtitles inside the file, so the server's copies of them come along.
+        val inside = if (converted) mediaInfo?.subtitles.orEmpty().map { sub("e${it.index}", it) } else emptyList()
+        val subs = media.subtitles.map { sub(it.index, it) } + inside
         val item = ExoMediaItem.Builder()
             .setUri(if (converted) api.hlsUrl(media.id) else api.streamUrl(media.id))
             .setMimeType(if (converted) MimeTypes.APPLICATION_M3U8 else null)
@@ -699,9 +706,12 @@ class RoomActivity : ComponentActivity() {
     private fun skipBy(side: Int, adding: Boolean) {
         if (player.currentMediaItem == null) return
         skipSeconds = if (adding && side == skipSide) skipSeconds + (SKIP_MS / 1000).toInt() else (SKIP_MS / 1000).toInt()
+        // A streak builds on where the last tap was headed, so each tap is exactly 10 s more.
+        val from = if (adding && side == skipSide) skipTo else player.currentPosition
         skipSide = side
         skipUntil = SystemClock.uptimeMillis() + SKIP_STREAK_MS
-        sync.seekTo(player.currentPosition + side * SKIP_MS)
+        skipTo = (from + side * SKIP_MS).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
+        sync.seekTo(skipTo)
         skipRipple.show(forward = side > 0, seconds = skipSeconds, holdMs = SKIP_STREAK_MS)
     }
 

@@ -25,6 +25,30 @@ export interface TranscodeConfig {
 export interface ProbeResult extends MediaInfo {
   videoIndex: number | null;
   audioIndex: number | null;
+  /** The stream index of each entry in `subtitles`. */
+  subtitleIndexes: number[];
+}
+
+/** Subtitle formats ffmpeg can turn into WebVTT. Picture-based ones (Blu-ray PGS, DVD VobSub) can't be. */
+const TEXT_SUBTITLES = new Set(["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"]);
+const languageNames = new Intl.DisplayNames(["en"], { type: "language" });
+
+/** "Dutch", "English (SDH)", "German, forced": the language, then the file's own title for the track when it adds something. */
+export function subtitleLabel(lang: string | null, title: string, forced: boolean): string {
+  let name = "";
+  if (lang) {
+    try {
+      name = languageNames.of(lang) ?? "";
+    } catch {
+      // not a language code
+    }
+    if (name.toLowerCase() === lang.toLowerCase() || name === "root") name = "";
+  }
+  // Short tags from file names ("sdh", "cc") read better in capitals.
+  const extra = title && title.toLowerCase() !== name.toLowerCase() ? (title.length <= 3 ? title.toUpperCase() : title) : "";
+  const code = lang && lang.length <= 3 ? lang.toUpperCase() : lang;
+  const label = name && extra ? `${name} (${extra})` : name || extra || code || "Unknown language";
+  return forced && !/forced/i.test(label) ? `${label}, forced` : label;
 }
 
 /** Reads codecs and duration from ffprobe's JSON output. */
@@ -34,6 +58,12 @@ export function parseProbe(json: any): ProbeResult {
   const audios = streams.filter((s) => s.codec_type === "audio");
   const audio = audios.find((s) => s.disposition?.default) ?? audios[0];
   const duration = Number(json?.format?.duration ?? video?.duration ?? 0);
+  const texts = streams.filter((s) => s.codec_type === "subtitle" && TEXT_SUBTITLES.has(String(s.codec_name)));
+  const subtitles = texts.map((s, index) => {
+    const lang = typeof s.tags?.language === "string" && s.tags.language !== "und" ? s.tags.language : null;
+    const title = typeof s.tags?.title === "string" ? s.tags.title.trim() : "";
+    return { index, label: subtitleLabel(lang, title, Boolean(s.disposition?.forced)), lang };
+  });
   return {
     container: String(json?.format?.format_name ?? ""),
     duration: Number.isFinite(duration) ? duration : 0,
@@ -42,6 +72,8 @@ export function parseProbe(json: any): ProbeResult {
     videoIndex: video ? Number(video.index) : null,
     audioIndex: audio ? Number(audio.index) : null,
     convert: false,
+    subtitles,
+    subtitleIndexes: texts.map((s) => Number(s.index)),
   };
 }
 
@@ -129,6 +161,32 @@ function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: nu
   });
 }
 
+/** Runs ffmpeg to pull one subtitle stream out of a file as WebVTT. */
+function extractSubtitle(ffmpeg: string, file: string, stream: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    let proc: ChildProcess;
+    try {
+      proc = spawn(ffmpeg, ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file, "-map", `0:${stream}`, "-c:s", "webvtt", "-f", "webvtt", "pipe:1"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      });
+    } catch {
+      return resolve(null);
+    }
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => proc.kill(), 5 * 60_000);
+    proc.stdout!.on("data", (d: Buffer) => chunks.push(d));
+    proc.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : null);
+    });
+  });
+}
+
 interface Job {
   proc: ChildProcess;
   start: number;
@@ -149,6 +207,8 @@ interface Session {
 /** Probes files and converts the ones browsers can't play into HLS on demand. */
 export class Transcoder {
   private probes = new Map<string, { key: string; result: ProbeResult }>();
+  /** Subtitles taken out of files, newest last. Reading one means reading the whole file, so they're kept. */
+  private extracted = new Map<string, Promise<string | null>>();
   private sessions = new Map<string, Session>();
   private encoder: Promise<string | null>;
   private encoderUsed: string | null = null;
@@ -207,6 +267,30 @@ export class Transcoder {
     }
     result.convert = (await this.encoder) !== null && result.duration > 0;
     this.probes.set(file, { key, result });
+    return result;
+  }
+
+  /**
+   * Subtitle track `n` from inside the file as WebVTT, or null when there isn't one or ffmpeg fails.
+   * ffmpeg reads the whole file to collect it, so the result is cached until the file changes.
+   */
+  async subtitle(file: string, n: number): Promise<string | null> {
+    const probe = await this.probe(file);
+    const stream = probe?.subtitleIndexes[n];
+    if (stream === undefined) return null;
+    const cached = this.probes.get(file)!.key;
+    const key = `${file}|${cached}|${stream}`;
+    let result = this.extracted.get(key);
+    if (!result) {
+      result = extractSubtitle(this.config.ffmpeg, file, stream);
+      this.extracted.set(key, result);
+      if (this.extracted.size > 40) this.extracted.delete(this.extracted.keys().next().value!);
+      result.then((text) => text === null && this.extracted.delete(key));
+    } else {
+      // Keep recently used ones.
+      this.extracted.delete(key);
+      this.extracted.set(key, result);
+    }
     return result;
   }
 
