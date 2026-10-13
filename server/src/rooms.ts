@@ -86,9 +86,11 @@ export class Room {
   /** After a jump, the longest everyone waits for slower screens to load the new spot before playing anyway. */
   holdMs = 4_000;
   /** Waiting for screens to load the spot someone jumped to: who has. */
-  private hold: { ready: Set<string>; timer: NodeJS.Timeout } | null = null;
+  private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number } | null = null;
   /** Members whose screen plays the video and says when it has loaded a spot (newer apps only). */
   private players = new Set<string>();
+  /** Where jump waits are noted, so the server log shows who was waited for and how long. */
+  log: (line: string) => void = (line) => console.log(`party ${this.id}: ${line}`);
 
   constructor(
     readonly id: string,
@@ -204,6 +206,7 @@ export class Room {
         if (this.hold && this.state.hold && validPosition(msg.position) && Math.abs(msg.position - this.state.position) < 1) {
           this.players.add(member.id);
           this.hold.ready.add(member.id);
+          this.log(`${this.who([member.id])} loaded it after ${now - this.hold.since} ms`);
           this.resumeIfAllReady();
         }
         return;
@@ -303,9 +306,11 @@ export class Room {
           this.state = { mediaId: this.state.mediaId, paused: true, position: msg.position, updatedAt: now, hold: true };
           const timer = setTimeout(() => this.resumeHold(), this.holdMs);
           timer.unref?.();
-          this.hold = { ready: new Set(), timer };
+          this.hold = { ready: new Set(), timer, since: now };
+          this.log(`${member.name} jumped to ${fmtTime(msg.position)}; waiting for ${this.who(this.players) || "nobody"}`);
         } else {
           this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
+          if (msg.type === "seek") this.log(`${member.name} jumped to ${fmtTime(msg.position)}; no wait (${paused ? "paused" : "no screens say when they've loaded"})`);
         }
         this.broadcastState(member.name);
         if (msg.type === "seek") this.notice(`${member.name} jumped to ${fmtTime(msg.position)}`);
@@ -347,10 +352,18 @@ export class Room {
   /** Everyone has loaded the spot (or the wait ran out): play from it together. */
   private resumeHold(): void {
     if (!this.hold) return;
+    const { ready, since } = this.hold;
     this.cancelHold();
     if (this.ended || !this.state.hold) return;
+    const late = [...this.players].filter((id) => this.members.has(id) && !ready.has(id));
+    this.log(`playing after ${this.now() - since} ms${late.length ? `; gave up waiting for ${this.who(late)}` : ""}`);
     this.state = { mediaId: this.state.mediaId, paused: false, position: this.state.position, updatedAt: this.now() };
     this.broadcastState(null);
+  }
+
+  /** Names and devices, like "Jake (tv), Jake (web)". */
+  private who(ids: Iterable<string>): string {
+    return [...ids].map((id) => this.members.get(id)?.member).filter((m) => m).map((m) => `${m!.name} (${m!.device})`).join(", ");
   }
 
   private resumeIfAllReady(): void {
