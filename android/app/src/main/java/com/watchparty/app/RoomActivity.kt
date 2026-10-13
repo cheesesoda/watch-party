@@ -1034,19 +1034,9 @@ class RoomActivity : ComponentActivity() {
      * take extra items, so this is a separate button.
      */
     private fun showSettings() {
-        val popups = switch(prefs.chatPopups)
-        val row = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(24), dp(8), dp(24), dp(8))
-            addView(LinearLayout(this@RoomActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(text(16f, ON_SURFACE).apply { text = "Chat pop-ups" })
-                addView(text(14f, ON_SURFACE_VARIANT).apply { text = "Show new messages over the video on this device." })
-            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            addView(popups, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = dp(16) })
-            isFocusable = false
-            setOnClickListener { popups.toggle() }
-        }
+        // The whole row takes focus and toggles, so the remote highlights it like the other rows.
+        val popups = switch(prefs.chatPopups).apply { isFocusable = false }
+        val row = dialogRow("Chat pop-ups", "Show new messages over the video on this device.", popups) { popups.toggle() }
         val save = {
             if (prefs.chatPopups != popups.isChecked) {
                 prefs.chatPopups = popups.isChecked
@@ -1064,39 +1054,19 @@ class RoomActivity : ComponentActivity() {
                 .setPositiveButton("Done") { _, _ -> save() }
                 .setNegativeButton("Cancel", null),
         )
-        /** A row that does something and closes Settings: white with dark text while a remote is on it. */
-        fun action(label: String, detail: String?, onClick: () -> Unit) = content.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(14), dp(24), dp(14))
-            isFocusable = true
-            val focused = intArrayOf(android.R.attr.state_focused)
-            val pressed = intArrayOf(android.R.attr.state_pressed)
-            background = StateListDrawable().apply {
-                addState(focused, GradientDrawable().apply { setColor(FOCUS_FILL); cornerRadius = dp(12).toFloat() })
-                addState(pressed, GradientDrawable().apply { setColor(Color.argb(31, 255, 255, 255)); cornerRadius = dp(12).toFloat() })
-                addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
-            }
-            addView(text(16f, ON_SURFACE).apply {
-                text = label
-                isDuplicateParentStateEnabled = true
-                setTextColor(ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE)))
-            })
-            if (detail != null) addView(text(14f, ON_SURFACE_VARIANT).apply {
-                text = detail
-                isDuplicateParentStateEnabled = true
-                setTextColor(ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE_VARIANT)))
-            })
-            setOnClickListener {
+        /** A row that does something and closes Settings. */
+        fun action(label: String, detail: String?, onClick: () -> Unit) = content.addView(
+            dialogRow(label, detail) {
                 save()
                 settings.dismiss()
                 onClick()
-            }
-        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { setMargins(dp(8), dp(4), dp(8), 0) })
+            },
+        )
         // The player's controls have one gear, so Media3's own menu (audio track, playback speed) opens from here.
         action("Audio track and playback speed", null) { openPlayerSettings() }
         // The phone's top row keeps to the essentials, so switching to chat only lives here.
         if (!isTv) action("Chat only", "Just chat on this phone, for when you're watching on a TV.") { enterCompanion(auto = false) }
-        popups.requestFocus()
+        row.requestFocus()
     }
 
     /** Media3's audio track and speed menu, from its hidden button in the player's controls. */
@@ -1472,6 +1442,7 @@ class RoomActivity : ComponentActivity() {
                 .setPositiveButton("Leave") { _, _ -> finish() }
                 .setNeutralButton("End party") { _, _ -> connection.send(Protocol.end()) }
                 .setNegativeButton("Cancel", null),
+            danger = AlertDialog.BUTTON_NEUTRAL,
         )
     }
 
@@ -1546,13 +1517,21 @@ class RoomActivity : ComponentActivity() {
                 Toast.makeText(this@RoomActivity, "The library is empty.", Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val labels = items.map { if (it.folder.isEmpty()) it.title else "${it.folder} / ${it.title}" }.toTypedArray()
-            present(
+            // Rows like Settings', rather than the platform list with its square highlight.
+            val list = LinearLayout(this@RoomActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(8)) }
+            val picker = present(
                 dialog()
                     .setTitle("Play for everyone")
-                    .setItems(labels) { _, which -> connection.send(Protocol.select(items[which].id)) }
+                    .setView(ScrollView(this@RoomActivity).apply { addView(list) })
                     .setNegativeButton("Cancel", null),
             )
+            for (item in items) {
+                list.addView(dialogRow(if (item.folder.isEmpty()) item.title else "${item.folder} / ${item.title}", null) {
+                    picker.dismiss()
+                    connection.send(Protocol.select(item.id))
+                })
+            }
+            list.getChildAt(0)?.requestFocus()
         }
     }
 
@@ -1732,18 +1711,87 @@ class RoomActivity : ComponentActivity() {
 
     private fun dialog() = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
 
-    /** Shows a dialog in Material 3 dress: rounded 28dp surface and amber buttons. */
-    private fun present(builder: AlertDialog.Builder): AlertDialog = builder.show().apply {
+    /**
+     * Shows a dialog in Material 3 dress (see ui-redesign/android/dialogs): a rounded 28dp surface, a 24sp headline,
+     * and pill-shaped text buttons that turn white with dark text while a remote is on them, like the player's
+     * controls. [danger] is a button (say, End party) that affects everyone, shown in a warm red.
+     */
+    private fun present(builder: AlertDialog.Builder, danger: Int? = null): AlertDialog = builder.show().apply {
         window?.setBackgroundDrawable(GradientDrawable().apply {
             setColor(SURFACE_HIGH)
             cornerRadius = dp(28).toFloat()
         })
+        findViewById<TextView>(resources.getIdentifier("alertTitle", "id", "android"))?.apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            setTextColor(ON_SURFACE)
+        }
+        findViewById<TextView>(android.R.id.message)?.apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(ON_SURFACE_VARIANT)
+            setLineSpacing(0f, 1.15f)
+        }
         for (which in listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)) {
-            getButton(which)?.apply {
-                setTextColor(ACCENT)
-                isAllCaps = false
-                typeface = MEDIUM
-            }
+            getButton(which)?.let { dialogButton(it, danger = which == danger) }
+        }
+        getButton(AlertDialog.BUTTON_POSITIVE)?.takeIf { it.visibility == View.VISIBLE }?.requestFocus()
+    }
+
+    private fun focusPill(radiusDp: Int) = StateListDrawable().apply {
+        val pill = { color: Int -> GradientDrawable().apply { setColor(color); cornerRadius = dp(radiusDp).toFloat() } }
+        addState(intArrayOf(android.R.attr.state_focused), pill(FOCUS_FILL))
+        addState(intArrayOf(android.R.attr.state_pressed), pill(Color.argb(31, 255, 255, 255)))
+        addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+    }
+
+    /** A dialog's text button: a 40dp pill that grows a little and turns white while focused. */
+    private fun dialogButton(b: Button, danger: Boolean) = b.apply {
+        isAllCaps = false
+        typeface = MEDIUM
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        minWidth = 0
+        minimumWidth = 0
+        minHeight = dp(40)
+        minimumHeight = dp(40)
+        setPadding(dp(16), 0, dp(16), 0)
+        stateListAnimator = null
+        background = focusPill(20)
+        setTextColor(ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()), intArrayOf(ON_ACCENT, if (danger) DANGER else ACCENT)))
+        setOnFocusChangeListener { v, has -> v.animate().scaleX(if (has) 1.06f else 1f).scaleY(if (has) 1.06f else 1f).setDuration(120).start() }
+        (layoutParams as? ViewGroup.MarginLayoutParams)?.let { it.marginStart = dp(8); layoutParams = it }
+        // The grown pill must not be cut off by the button bar or the dialog around it.
+        var p = parent as? ViewGroup
+        repeat(4) {
+            p?.clipChildren = false
+            p?.clipToPadding = false
+            p = p?.parent as? ViewGroup
+        }
+    }
+
+    /** A row in a dialog's list (Settings, Play for everyone): a rounded pill, white with dark text while focused. */
+    private fun dialogRow(label: String, detail: String?, trailing: View? = null, onClick: () -> Unit): LinearLayout {
+        val focused = intArrayOf(android.R.attr.state_focused)
+        return LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            isFocusable = true
+            background = focusPill(16)
+            addView(LinearLayout(this@RoomActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                isDuplicateParentStateEnabled = true
+                addView(text(16f, ON_SURFACE).apply {
+                    text = label
+                    isDuplicateParentStateEnabled = true
+                    setTextColor(ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE)))
+                })
+                if (detail != null) addView(text(14f, ON_SURFACE_VARIANT).apply {
+                    text = detail
+                    isDuplicateParentStateEnabled = true
+                    setTextColor(ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_FOCUS_MUTED, ON_SURFACE_VARIANT)))
+                })
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            if (trailing != null) addView(trailing, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = dp(16) })
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(2)) }
         }
     }
 
@@ -1789,6 +1837,10 @@ class RoomActivity : ComponentActivity() {
         private val ON_ACCENT = Color.rgb(0x18, 0x13, 0x1F)
         /** What a TV remote is on: white, with dark text or icon (ON_ACCENT), as on Google TV. */
         private val FOCUS_FILL = Color.rgb(0xF2, 0xEE, 0xF7)
+        /** Secondary text on a focused (white) row. */
+        private val ON_FOCUS_MUTED = Color.rgb(0x5B, 0x50, 0x68)
+        /** Buttons that affect everyone, such as End party. */
+        private val DANGER = Color.rgb(0xF2, 0xA0, 0x8E)
         private val SURFACE = Color.rgb(0x18, 0x13, 0x1F)
         private val SURFACE_HIGH = Color.rgb(0x31, 0x28, 0x3E)
         private val TONAL = Color.argb(200, 0x23, 0x1C, 0x2D)

@@ -10,6 +10,7 @@ import android.widget.Toast
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.ImageBitmap
@@ -800,6 +801,30 @@ internal fun Modifier.focusRing(): Modifier = composed {
         // Material pads a 40 dp button out to a 48 dp touch target; making the button itself 48 dp tall
         // keeps the white fill the same size as the button's touch area.
         .heightIn(min = 48.dp)
+}
+
+/** Dialog colors, the same as the player's dialogs. */
+internal val DialogSurface = PanelFocused
+internal val DangerText = Color(0xFFF2A08E)
+
+/**
+ * A Material 3 dialog's text button: a pill that turns white with dark text while a remote is on it, like every
+ * other focused control. [danger] (warm red) is for actions that affect everyone, such as ending a party.
+ */
+@Composable
+internal fun DialogButton(label: String, danger: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    TextButton(
+        onClick = onClick,
+        interactionSource = interaction,
+        shape = RoundedCornerShape(20.dp),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = if (focused) FocusFill else Color.Transparent,
+            contentColor = if (focused) OnFocus else if (danger) DangerText else Accent,
+        ),
+        modifier = modifier.focusRing(),
+    ) { Text(label, fontWeight = FontWeight.SemiBold) }
 }
 
 internal fun clock(seconds: Double): String {

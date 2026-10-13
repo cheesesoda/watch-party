@@ -297,7 +297,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
             title = { Text("End this party?") },
             text = { Text("${room.media?.title ?: "This party"} ends for everyone. Anyone watching goes back to the start screen.") },
             confirmButton = {
-                Button(onClick = {
+                DialogButton("End party", danger = true) {
                     ending = null
                     scope.launch {
                         guard { api.endRoom(room.id, prefs.name) }?.let {
@@ -305,9 +305,10 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit) {
                             if (started?.id == room.id) started = null
                         }
                     }
-                }, modifier = Modifier.focusRing()) { Text("End party") }
+                }
             },
-            dismissButton = { OutlinedButton(onClick = { ending = null }, modifier = Modifier.focusRing()) { Text("Cancel") } },
+            dismissButton = { DialogButton("Cancel") { ending = null } },
+            containerColor = DialogSurface,
         )
     }
     val lib = library
@@ -1140,8 +1141,9 @@ private fun JoinCodeDialog(onDismiss: () -> Unit, onJoin: (String) -> Unit) {
                 modifier = Modifier.focusRequester(field),
             )
         },
-        confirmButton = { Button(onClick = { onJoin(code) }, modifier = Modifier.focusRing()) { Text("Join") } },
-        dismissButton = { OutlinedButton(onClick = onDismiss, modifier = Modifier.focusRing()) { Text("Cancel") } },
+        confirmButton = { DialogButton("Join") { onJoin(code) } },
+        dismissButton = { DialogButton("Cancel", onClick = onDismiss) },
+        containerColor = DialogSurface,
     )
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 }
