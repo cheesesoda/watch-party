@@ -234,6 +234,7 @@ class RoomActivity : ComponentActivity() {
                 if (unplayable) switchToConverted()
             }
         })
+        PlayerSync.startLag = prefs.startLag
         sync = PlayerSync(player) { type, position, at -> connection.send(Protocol.position(type, position, at)) }
         buildLayout()
         playerView.player = player
@@ -264,6 +265,7 @@ class RoomActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        prefs.startLag = PlayerSync.startLag
         stopVoice()
         if (::connection.isInitialized) connection.close()
         if (::player.isInitialized) player.release()
