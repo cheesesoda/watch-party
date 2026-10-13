@@ -164,6 +164,27 @@ fun PhoneSpotCard(api: Api, details: Boolean, s: Spot, width: Dp, onOpen: () -> 
     }
 }
 
+/** On a show page with a saved spot: the episode's picture with how far in, and "S2 E3 Who Is Alive? · 31 m in · 4 more lined up · saved Tue". */
+@Composable
+fun SpotLine(api: Api, details: Boolean, s: Spot, tv: Boolean) {
+    val m = s.media
+    val name = m.episode?.let { e -> "S${e.season} E${e.episode}" + ((m.meta?.title ?: e.title)?.let { " $it" } ?: "") } ?: m.meta?.title ?: m.title
+    val saved = savedWhen(s.savedAt).let { if (it == "Today" || it == "Yesterday") it.lowercase() else it }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (details) Thumb(api, m, progress(m, s.position))
+        Column(Modifier.padding(start = if (details) 14.dp else 0.dp)) {
+            Text("Pick up where you left off", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = if (tv) 16.sp else 15.sp)
+            Text(
+                listOfNotNull(name, howFar(s.position), linedUp(s.next.size), "saved $saved").joinToString(" · "),
+                color = Muted,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 /** OK on a TV spot card: start a party there, go to its page, or forget it. */
 @Composable
 fun SpotOptions(api: Api, s: Spot, onStart: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit, onClose: () -> Unit) {
