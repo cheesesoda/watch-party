@@ -9,12 +9,16 @@ import android.content.res.Configuration
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.content.res.ColorStateList
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.RectShape
 import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -40,6 +44,7 @@ import android.widget.PopupWindow
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -50,6 +55,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import android.text.TextUtils
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
@@ -69,6 +75,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TimeBar
 import kotlinx.coroutines.launch
 import androidx.media3.common.MediaItem as ExoMediaItem
 
@@ -104,6 +111,10 @@ class RoomActivity : ComponentActivity() {
     private lateinit var companionProgress: View
     private lateinit var companionTime: TextView
     private lateinit var companionLength: TextView
+    /** The TV's round thumbnail by the title, and its "Up next" line under the seek bar. */
+    private var posterView: ImageView? = null
+    private var upNextText: TextView? = null
+    private var posterFor: String? = null
 
     private val main = Handler(Looper.getMainLooper())
     /** The player control a TV remote was last on, so it's there again when the controls come back. */
@@ -359,10 +370,11 @@ class RoomActivity : ComponentActivity() {
     private fun applyState(state: PlaybackState, media: MediaItem?) {
         lastState = state
         lastMedia = media
-        titleText.text = media?.title
+        titleText.text = media?.let { if (isTv) tvTitle(it) else it.title }
             ?: if (host) "Nothing playing. Use Change video to pick something. Friends join with code $roomCode."
             else "Waiting for the host to pick something."
         companionTitle.text = media?.title ?: "Nothing playing"
+        if (isTv && media?.id != posterFor) loadPoster(media)
         renderCompanionStatus()
         updateBingeButtons()
         if (::membersText.isInitialized) showMembers(members)
@@ -418,7 +430,8 @@ class RoomActivity : ComponentActivity() {
     private fun buildLayout() {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
-        playerView = PlayerView(this).apply {
+        // The TV gets its own controls (tv_player_controls), which Media3 only takes from a layout file.
+        playerView = (if (isTv) layoutInflater.inflate(R.layout.tv_player_view, root, false) as PlayerView else PlayerView(this)).apply {
             useController = true
             controllerShowTimeoutMs = 4000
             setShowSubtitleButton(true)
@@ -426,9 +439,13 @@ class RoomActivity : ComponentActivity() {
             setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                 topBar.visibility = visibility
                 hideControlsOnBack.isEnabled = visibility == View.VISIBLE
+                // Chat pop-ups move up out of the way of the TV's seek bar while the controls show.
+                if (isTv) chatOverlay.animate().translationY(if (visibility == View.VISIBLE) -dp(80).toFloat() else 0f).setDuration(150).start()
                 // Media3 puts the remote back on play/pause each time the controls appear; go back to where it was.
                 if (visibility == View.VISIBLE) lastControlFocus?.let { id -> post { findViewById<View>(id)?.takeIf { it.isShown }?.requestFocus() } }
             })
+            // Media3 slides its own bars away in steps; the TV controls aren't laid out for that, so they just go.
+            if (isTv) setControllerAnimationEnabled(false)
         }
         highlightControlFocus()
         skipButtons()
@@ -449,28 +466,8 @@ class RoomActivity : ComponentActivity() {
         titles.addView(titleText)
         titles.addView(membersText)
         topBar.addView(titles, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        // TVs show icon and label; phones show icons (long-press for the name) so the bar fits.
-        val iconOnly = !isTv
-        val chatButton = barButton("Chat", R.drawable.ic_chat, iconOnly) { openChat() }
-        topBar.addView(chatButton)
-        // Previous and next in a binge, only while there is one.
-        prevButton = barButton("Previous", R.drawable.ic_skip_previous, iconOnly) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
-        nextButton = barButton("Next", R.drawable.ic_skip_next, iconOnly) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
-        if (host) {
-            topBar.addView(prevButton)
-            topBar.addView(nextButton)
-            topBar.addView(barButton("Change video", R.drawable.ic_video, iconOnly) { pickVideo() })
-        }
-        voiceButton = barButton("Join voice", R.drawable.ic_mic, iconOnly) { toggleVoice() }
-        topBar.addView(voiceButton)
-        muteButton = barButton("Mute", R.drawable.ic_mic_off, iconOnly) { toggleMute() }.apply { visibility = View.GONE }
-        topBar.addView(muteButton)
-        if (!isTv) topBar.addView(barButton("Chat only", R.drawable.ic_phone, iconOnly) { enterCompanion(auto = false) })
-        topBar.addView(barButton("Settings", R.drawable.ic_settings, iconOnly) { showSettings() })
-        // One button for both, so the bar still fits on a phone: leave alone, or end it for everyone.
-        topBar.addView(barButton("Leave", R.drawable.ic_leave, iconOnly) { confirmLeave() })
+        if (isTv) buildTvControls() else buildPhoneBar()
         root.addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
-        wireControlFocus(chatButton)
 
         chatOverlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -492,7 +489,7 @@ class RoomActivity : ComponentActivity() {
         root.addView(
             voiceStrip,
             FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
-                setMargins(dp(24), dp(84), dp(16), 0)
+                if (isTv) setMargins(dp(48), dp(100), dp(48), 0) else setMargins(dp(24), dp(84), dp(16), 0)
             },
         )
 
@@ -512,6 +509,167 @@ class RoomActivity : ComponentActivity() {
         setContentView(root)
     }
 
+    /** The phone's buttons, in the top bar beside the title: icons (long-press for the name) so the bar fits. */
+    private fun buildPhoneBar() {
+        val iconOnly = true
+        val chatButton = barButton("Chat", R.drawable.ic_chat, iconOnly) { openChat() }
+        topBar.addView(chatButton)
+        // Previous and next in a binge, only while there is one.
+        prevButton = barButton("Previous", R.drawable.ic_skip_previous, iconOnly) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        nextButton = barButton("Next", R.drawable.ic_skip_next, iconOnly) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        if (host) {
+            topBar.addView(prevButton)
+            topBar.addView(nextButton)
+            topBar.addView(barButton("Change video", R.drawable.ic_video, iconOnly) { pickVideo() })
+        }
+        voiceButton = barButton("Join voice", R.drawable.ic_mic, iconOnly) { toggleVoice() }
+        topBar.addView(voiceButton)
+        muteButton = barButton("Mute", R.drawable.ic_mic_off, iconOnly) { toggleMute() }.apply { visibility = View.GONE }
+        topBar.addView(muteButton)
+        topBar.addView(barButton("Chat only", R.drawable.ic_phone, iconOnly) { enterCompanion(auto = false) })
+        topBar.addView(barButton("Settings", R.drawable.ic_settings, iconOnly) { showSettings() })
+        // One button for both, so the bar still fits on a phone: leave alone, or end it for everyone.
+        topBar.addView(barButton("Leave", R.drawable.ic_leave, iconOnly) { confirmLeave() })
+        wireControlFocus(chatButton)
+    }
+
+    /**
+     * The TV's controls, laid out like YouTube on TV: what's on and who's watching at the top left, and along the
+     * bottom the seek bar, the time and what's next, and one row of round icon buttons, playback on the left and the
+     * party on the right. The buttons sit inside the player's controls, so they show and hide with them.
+     */
+    private fun buildTvControls() {
+        topBar.setPadding(dp(48), dp(28), dp(48), dp(56))
+        topBar.background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(150, 0, 0, 0), Color.TRANSPARENT))
+        posterView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SURFACE_HIGH) }
+            clipToOutline = true
+            visibility = View.GONE
+        }
+        topBar.addView(posterView, 0, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(16) })
+        titleText.apply {
+            typeface = ResourcesCompat.getFont(this@RoomActivity, R.font.barlow_semibold)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+        }
+        membersText.apply {
+            typeface = ResourcesCompat.getFont(this@RoomActivity, R.font.barlow_regular)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            setTextColor(Color.argb(200, 0xFF, 0xFF, 0xFF))
+        }
+
+        // Dark along the bottom 45% or so, so the controls read over a bright picture.
+        playerView.findViewById<View>(R.id.tv_shade).background = ShapeDrawable(RectShape()).apply {
+            shaderFactory = object : ShapeDrawable.ShaderFactory() {
+                override fun resize(width: Int, height: Int) = LinearGradient(
+                    0f, 0f, 0f, height.toFloat(),
+                    intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(150, 0, 0, 0), Color.argb(235, 0, 0, 0)),
+                    floatArrayOf(0f, 0.55f, 0.75f, 1f),
+                    Shader.TileMode.CLAMP,
+                )
+            }
+        }
+        upNextText = playerView.findViewById(R.id.tv_up_next)
+
+        val left = playerView.findViewById<LinearLayout>(R.id.tv_left_buttons)
+        left.addView(skipButton("Back 5 seconds", -REWIND_MS))
+        left.addView(skipButton("Ahead 15 seconds", FORWARD_MS))
+        // Previous and next in a binge, only while there is one.
+        prevButton = tvButton("Previous", R.drawable.ic_skip_previous) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        nextButton = tvButton("Next", R.drawable.ic_skip_next) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
+        if (host) {
+            left.addView(prevButton)
+            left.addView(nextButton)
+        }
+
+        // Media3's subtitle button joins the party's buttons; its audio and speed menu stays hidden at the end.
+        val right = playerView.findViewById<LinearLayout>(R.id.tv_right_buttons)
+        val subtitles = right.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)
+        val playerSettings = right.findViewById<View>(androidx.media3.ui.R.id.exo_settings)
+        right.removeAllViews()
+        voiceButton = tvButton("Join voice", R.drawable.ic_mic) { toggleVoice() }
+        muteButton = tvButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
+        listOfNotNull(
+            tvButton("Chat", R.drawable.ic_chat) { openChat() },
+            voiceButton,
+            muteButton,
+            subtitles,
+            if (host) tvButton("Change video", R.drawable.ic_video) { pickVideo() } else null,
+            tvButton("Settings", R.drawable.ic_settings) { showSettings() },
+            tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
+            playerSettings,
+        ).forEach { right.addView(it) }
+
+        // Top to bottom: the seek bar, then the buttons. Up from any button goes to the bar; left and right on the bar move it.
+        val progress = androidx.media3.ui.R.id.exo_progress
+        playerView.findViewById<View>(progress)?.nextFocusDownId = androidx.media3.ui.R.id.exo_play_pause
+        for (group in listOf(left, right)) {
+            for (i in 0 until group.childCount) group.getChildAt(i).nextFocusUpId = progress
+        }
+    }
+
+    /**
+     * A round icon button for the TV's control row: just the icon, and while the remote is on it a white circle with
+     * the icon dark, a little larger, as on Google TV. No label on screen; the name is for screen readers.
+     */
+    private fun tvButton(label: String, icon: Int, onClick: () -> Unit) = barButton(label, icon, iconOnly = true, onClick).apply {
+        id = View.generateViewId()
+        val focused = intArrayOf(android.R.attr.state_focused)
+        background = StateListDrawable().apply {
+            addState(focused, GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(FOCUS_FILL) })
+            addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+        }
+        compoundDrawableTintList = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
+        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        }
+    }
+
+    /** The TV's 5 s back and 15 s ahead buttons. They seek through [PlayerSync.seekTo], so the room hears about the jump at once. */
+    private fun skipButton(label: String, deltaMs: Long) = tvButton(label, R.drawable.ic_skip_next) { sync.seekTo(player.currentPosition + deltaMs) }.apply {
+        val focused = intArrayOf(android.R.attr.state_focused)
+        val colors = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
+        val icon = SkipIcon(this@RoomActivity, Math.abs(deltaMs) / 1000, forward = deltaMs > 0, colors).apply { setBounds(0, 0, dp(24), dp(24)) }
+        setCompoundDrawablesRelative(icon, null, null, null)
+        setPadding(dp(12), 0, dp(12), 0)
+    }
+
+    /** The TV's line under the title (show, episode, party code, who's watching) and, in a binge, what's next. */
+    private fun renderTvInfo() {
+        val media = lastMedia
+        val episode = media?.episode
+        val names = members.map { it.name }.distinct().joinToString(", ")
+        membersText.text = listOfNotNull(
+            episode?.let { media?.meta?.show ?: it.show },
+            episode?.let { "S${it.season} E${it.episode}" },
+            "Party $roomCode",
+            names.ifEmpty { null },
+        ).joinToString(" · ")
+        val items = queue?.items.orEmpty()
+        val at = items.indexOfFirst { it.id == media?.id }
+        val next = if (at < 0) null else items.getOrNull(at + 1)
+        upNextText?.text = next?.let { "Up next: ${it.episode?.episode ?: (at + 2)}. ${tvTitle(it)}" } ?: ""
+    }
+
+    /** The name the TV shows: the episode's own name for an episode, when it's known. */
+    private fun tvTitle(media: MediaItem): String = media.meta?.title ?: media.episode?.title ?: media.title
+
+    /** The round thumbnail by the TV's title: the episode's still, or the poster. */
+    private fun loadPoster(media: MediaItem?) {
+        val view = posterView ?: return
+        posterFor = media?.id
+        view.visibility = View.GONE
+        val id = media?.id ?: return
+        val path = media.meta?.let { it.stillPath ?: it.posterPath ?: it.showPosterPath } ?: return
+        lifecycleScope.launch {
+            val image = api.image(path, "w185") ?: return@launch
+            if (posterFor != id) return@launch
+            view.setImageBitmap(image.asAndroidBitmap())
+            view.visibility = View.VISIBLE
+        }
+    }
+
     private fun showStatus(text: String) {
         statusText.text = text
         statusText.visibility = View.VISIBLE
@@ -519,7 +677,7 @@ class RoomActivity : ComponentActivity() {
 
     private fun showMembers(members: List<Member>) {
         this.members = members
-        membersText.text = bingeLabel() + members.map { it.name }.distinct().joinToString(", ")
+        if (isTv) renderTvInfo() else membersText.text = bingeLabel() + members.map { it.name }.distinct().joinToString(", ")
         renderVoice()
         val self = me ?: return
         val ownTv = members.any { it.id != self.id && it.device == "tv" && it.name.equals(self.name, ignoreCase = true) }
@@ -714,19 +872,49 @@ class RoomActivity : ComponentActivity() {
             isFocusable = false
             setOnClickListener { popups.toggle() }
         }
-        present(
+        val save = {
+            if (prefs.chatPopups != popups.isChecked) {
+                prefs.chatPopups = popups.isChecked
+                renderChatOverlay()
+            }
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(row)
+        }
+        val settings = present(
             dialog()
                 .setTitle("Settings")
-                .setView(row)
-                .setPositiveButton("Done") { _, _ ->
-                    if (prefs.chatPopups != popups.isChecked) {
-                        prefs.chatPopups = popups.isChecked
-                        renderChatOverlay()
-                    }
-                }
+                .setView(content)
+                .setPositiveButton("Done") { _, _ -> save() }
                 .setNegativeButton("Cancel", null),
         )
+        // The TV's control row has one gear, so Media3's own menu (audio track, playback speed) opens from here.
+        if (isTv) {
+            content.addView(text(16f, ON_SURFACE).apply {
+                text = "Audio track and playback speed"
+                setPadding(dp(24), dp(14), dp(24), dp(14))
+                isFocusable = true
+                val focused = intArrayOf(android.R.attr.state_focused)
+                background = StateListDrawable().apply {
+                    addState(focused, GradientDrawable().apply { setColor(FOCUS_FILL); cornerRadius = dp(12).toFloat() })
+                    addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+                }
+                setTextColor(ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE)))
+                setOnClickListener {
+                    save()
+                    settings.dismiss()
+                    openPlayerSettings()
+                }
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { setMargins(dp(8), dp(4), dp(8), 0) })
+        }
         popups.requestFocus()
+    }
+
+    /** Media3's audio track and speed menu, from its hidden button at the end of the TV's control row. */
+    private fun openPlayerSettings() {
+        playerView.showController()
+        playerView.post { playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.performClick() }
     }
 
     /** Shows the last few messages for 10 seconds each, like a game chat. */
@@ -1212,7 +1400,7 @@ class RoomActivity : ComponentActivity() {
             growOnFocus(button)
         }
         // Like YouTube on TV: the bar has no box around it; a dot appears on it while it's selected.
-        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
+        (playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress) as? DefaultTimeBar)?.apply {
             setPlayedColor(ACCENT)
             setScrubberColor(ACCENT)
             setBufferedColor(Color.argb(110, 0xFF, 0xFF, 0xFF))
@@ -1237,9 +1425,14 @@ class RoomActivity : ComponentActivity() {
      * controls appear.
      */
     private fun skipButtons() {
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_rew)?.setOnClickListener { sync.seekTo(player.currentPosition - REWIND_MS) }
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_ffwd)?.setOnClickListener { sync.seekTo(player.currentPosition + FORWARD_MS) }
-        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(SEEK_BAR_STEP_MS)
+        // Media3's own layout (the phone's) has the buttons that show the seconds.
+        for (id in listOf(androidx.media3.ui.R.id.exo_rew, androidx.media3.ui.R.id.exo_rew_with_amount)) {
+            playerView.findViewById<View>(id)?.setOnClickListener { sync.seekTo(player.currentPosition - REWIND_MS) }
+        }
+        for (id in listOf(androidx.media3.ui.R.id.exo_ffwd, androidx.media3.ui.R.id.exo_ffwd_with_amount)) {
+            playerView.findViewById<View>(id)?.setOnClickListener { sync.seekTo(player.currentPosition + FORWARD_MS) }
+        }
+        (playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress) as? TimeBar)?.setKeyTimeIncrement(SEEK_BAR_STEP_MS)
         playerView.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused ->
             if (focused != null && focused.id != View.NO_ID && focused !== playerView && isInside(focused, playerView)) {
                 lastControlFocus = focused.id

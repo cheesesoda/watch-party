@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The TV's player controls, like YouTube on TV: the seek bar across the bottom, the time and what's next under it,
+    and one row of round buttons (playback on the left, the party on the right). Media3 runs the views with exo_ ids;
+    RoomActivity adds the other buttons and draws the shade.
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <View
+        android:id="@+id/tv_shade"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="36dp"
+        android:paddingEnd="36dp"
+        android:paddingBottom="22dp">
+
+        <com.watchparty.app.TvTimeBar
+            android:id="@id/exo_progress"
+            android:layout_width="match_parent"
+            android:layout_height="52dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:gravity="center_vertical">
+
+            <TextView android:id="@id/exo_position" style="@style/TvPlayerTime" />
+
+            <TextView style="@style/TvPlayerTime" android:text=" / " />
+
+            <TextView android:id="@id/exo_duration" style="@style/TvPlayerTime" />
+
+            <TextView
+                android:id="@+id/tv_up_next"
+                style="@style/TvPlayerTime"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginStart="24dp"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="1" />
+
+        </LinearLayout>
+
+        <!-- 56dp tall and not clipped, so a selected button has room to grow. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginEnd="8dp"
+            android:clipChildren="false"
+            android:gravity="center_vertical">
+
+            <LinearLayout
+                android:id="@+id/tv_left_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:gravity="center_vertical">
+
+                <ImageButton
+                    android:id="@id/exo_play_pause"
+                    style="@style/TvPlayerButton"
+                    android:padding="13dp"
+                    android:contentDescription="@string/exo_controls_play_description" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <LinearLayout
+                android:id="@+id/tv_right_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:gravity="center_vertical">
+
+                <ImageButton
+                    android:id="@id/exo_subtitle"
+                    style="@style/TvPlayerButton"
+                    android:contentDescription="@string/exo_controls_cc_disabled_description"
+                    android:src="@drawable/exo_styled_controls_subtitle_off" />
+
+                <!--
+                    Media3's audio track and speed menu opens from here. Never shown: the Settings button offers it,
+                    so the row has one gear.
+                -->
+                <View
+                    android:id="@id/exo_settings"
+                    android:layout_width="1dp"
+                    android:layout_height="48dp"
+                    android:visibility="invisible" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</merge>
