@@ -572,8 +572,6 @@ class RoomActivity : ComponentActivity() {
         upNextText = playerView.findViewById(R.id.tv_up_next)
 
         val left = playerView.findViewById<LinearLayout>(R.id.tv_left_buttons)
-        left.addView(skipButton("Back 5 seconds", -REWIND_MS))
-        left.addView(skipButton("Ahead 15 seconds", FORWARD_MS))
         // Previous and next in a binge, only while there is one.
         prevButton = tvButton("Previous", R.drawable.ic_skip_previous) { bingeStep(-1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
         nextButton = tvButton("Next", R.drawable.ic_skip_next) { bingeStep(1)?.let { playForEveryone(it) } }.apply { visibility = View.GONE }
@@ -624,15 +622,6 @@ class RoomActivity : ComponentActivity() {
             marginStart = dp(4)
             marginEnd = dp(4)
         }
-    }
-
-    /** The TV's 5 s back and 15 s ahead buttons. They seek through [PlayerSync.seekTo], so the room hears about the jump at once. */
-    private fun skipButton(label: String, deltaMs: Long) = tvButton(label, R.drawable.ic_skip_next) { sync.seekTo(player.currentPosition + deltaMs) }.apply {
-        val focused = intArrayOf(android.R.attr.state_focused)
-        val colors = ColorStateList(arrayOf(focused, intArrayOf()), intArrayOf(ON_ACCENT, Color.WHITE))
-        val icon = SkipIcon(this@RoomActivity, Math.abs(deltaMs) / 1000, forward = deltaMs > 0, colors).apply { setBounds(0, 0, dp(24), dp(24)) }
-        setCompoundDrawablesRelative(icon, null, null, null)
-        setPadding(dp(12), 0, dp(12), 0)
     }
 
     /** The TV's line under the title (show, episode, party code, who's watching) and, in a binge, what's next. */
