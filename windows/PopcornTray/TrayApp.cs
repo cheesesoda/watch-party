@@ -193,9 +193,13 @@ sealed class TrayApp : ApplicationContext
         }
 
         // What's new: the titles of the PRs merged since the last update.
-        var changes = before.Length == 0 ? "" : (await Commands.Output(
-            Commands.Info("git", $"log --first-parent --merges --format=%b {before}..HEAD", repo))).Trim();
-        var changeList = changes.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // Squash merges carry the PR title as their subject ("Title (#88)"); older merge commits carry it in the body.
+        var changes = before.Length == 0 ? "" : await Commands.Output(
+            Commands.Info("git", $"log --first-parent --format=%s%x1f%b%x1e {before}..HEAD", repo));
+        var changeList = changes.Split('\u001e', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(ChangeTitle)
+            .Where(title => title.Length > 0)
+            .ToArray();
         log.Add(changeList.Length == 0 ? "What's new: nothing since the last update." : "What's new:");
         foreach (var change in changeList) log.Add($"  - {change}");
 
@@ -230,6 +234,16 @@ sealed class TrayApp : ApplicationContext
     }
 
     static string NewsPath => Path.Combine(Settings.Dir, "whatsnew.txt");
+
+    // One commit's "subject, body" as the title of the PR it came from, without its "(#88)".
+    static string ChangeTitle(string commit)
+    {
+        var parts = commit.Split('\u001f');
+        var subject = parts[0].Trim();
+        if (subject.StartsWith("Merge pull request"))
+            return (parts.Length > 1 ? parts[1] : "").Split('\n').Select(line => line.Trim()).FirstOrDefault(line => line.Length > 0) ?? "";
+        return System.Text.RegularExpressions.Regex.Replace(subject, @" \(#\d+\)$", "");
+    }
 
     static string News(string[] changes) => changes.Length == 0
         ? "Popcorn Club is up to date. Nothing new since the last update."

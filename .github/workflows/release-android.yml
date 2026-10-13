@@ -54,7 +54,14 @@ jobs:
           prev=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-android.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
           notes=""
           if [ -n "$prev" ] && git cat-file -e "$prev" 2>/dev/null; then
-            notes=$(git log --first-parent --merges --format='%b' "$prev..HEAD" -- . | sed '/^$/d' | head -n 12 | sed 's/^/- /')
+            # Squash merges carry the PR title as their subject ("Title (#88)"); older merge commits carry it in the body.
+            notes=$(git log --first-parent --format='%H' "$prev..HEAD" -- . | while read -r sha; do
+              subject=$(git log -1 --format='%s' "$sha")
+              case "$subject" in
+                "Merge pull request"*) git log -1 --format='%b' "$sha" | sed '/^$/d' | head -n 1 ;;
+                *) printf '%s\n' "$subject" | sed -E 's/ \(#[0-9]+\)$//' ;;
+              esac
+            done | sed '/^$/d' | head -n 12 | sed 's/^/- /')
           fi
           [ -n "$notes" ] || notes="- Fixes and improvements"
           printf '%s\n' "$notes" | cut -c1-120 | head -c 500 > "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
