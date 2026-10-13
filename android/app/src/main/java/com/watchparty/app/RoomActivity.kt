@@ -122,6 +122,7 @@ class RoomActivity : ComponentActivity() {
     private var skipSide = 0
     private var skipSeconds = 0
     private var skipUntil = 0L
+    private var skipTo = 0L
 
     private val main = Handler(Looper.getMainLooper())
     /** The player control a TV remote was last on, so it's there again when the controls come back. */
@@ -332,7 +333,7 @@ class RoomActivity : ComponentActivity() {
                 renderChat()
             }
             is ServerMessage.QueueChanged -> setQueue(msg.queue)
-            is ServerMessage.State -> applyState(msg.state, msg.media)
+            is ServerMessage.State -> applyState(msg.state, msg.media, mine = msg.by != null && msg.by == me?.name)
             is ServerMessage.Members -> {
                 voice?.syncMembers(msg.members)
                 showMembers(msg.members)
@@ -374,7 +375,7 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
-    private fun applyState(state: PlaybackState, media: MediaItem?) {
+    private fun applyState(state: PlaybackState, media: MediaItem?, mine: Boolean = false) {
         lastState = state
         lastMedia = media
         titleText.text = media?.let { playerTitle(it) }
@@ -399,7 +400,7 @@ class RoomActivity : ComponentActivity() {
                 load(media, converted = !direct)
             }
         }
-        sync.setState(state)
+        sync.setState(state, mine)
     }
 
     /** Plays [media], either the original file or the server's converted copy. */
@@ -699,9 +700,12 @@ class RoomActivity : ComponentActivity() {
     private fun skipBy(side: Int, adding: Boolean) {
         if (player.currentMediaItem == null) return
         skipSeconds = if (adding && side == skipSide) skipSeconds + (SKIP_MS / 1000).toInt() else (SKIP_MS / 1000).toInt()
+        // A streak builds on where the last tap was headed, so each tap is exactly 10 s more.
+        val from = if (adding && side == skipSide) skipTo else player.currentPosition
         skipSide = side
         skipUntil = SystemClock.uptimeMillis() + SKIP_STREAK_MS
-        sync.seekTo(player.currentPosition + side * SKIP_MS)
+        skipTo = (from + side * SKIP_MS).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
+        sync.seekTo(skipTo)
         skipRipple.show(forward = side > 0, seconds = skipSeconds, holdMs = SKIP_STREAK_MS)
     }
 
