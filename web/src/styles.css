@@ -1758,17 +1758,31 @@ button.link:focus-visible {
   font-weight: 600;
   backdrop-filter: blur(8px);
 }
+/* A long title is cut short with an ellipsis so the year after it stays visible. */
 .pcard-title {
+  display: flex;
   margin-top: 8px;
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
+}
+.pcard-title .pcard-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.pcard-title .year {
+  flex: none;
+  white-space: pre;
 }
 .pcard-sub {
   color: var(--muted);
   font-size: 13px;
+}
+.pcard-title .year,
+.pcard-fallback .year {
+  color: var(--muted);
+  font-weight: 400;
 }
 /* The play button shows on hover or keyboard focus, in the poster's corner. */
 .pcard-start {

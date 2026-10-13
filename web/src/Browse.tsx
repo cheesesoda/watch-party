@@ -52,10 +52,17 @@ function showFacts(show: Show): string[] {
   ].filter(Boolean);
 }
 
-/** A 2:3 poster with the title under it. Without a poster, the title sits on a plain card instead (not repeated below). The play button starts a party. */
-export function PosterCard(props: { title: string; sub?: string; poster?: string | null; badge?: string; details: boolean; onOpen: () => void; onStart?: () => void; startLabel?: string }) {
+/** A 2:3 poster with the title and year under it. Without a poster, they sit on a plain card instead (not repeated below). The play button starts a party. */
+export function PosterCard(props: { title: string; year?: number | string | null; sub?: string; poster?: string | null; badge?: string; details: boolean; onOpen: () => void; onStart?: () => void; startLabel?: string }) {
   const [failed, setFailed] = useState(false);
   const art = props.details && props.poster && !failed;
+  // The year after the title in muted text, as in search results and the Details window.
+  const name = (
+    <>
+      <span className="pcard-name">{props.title}</span>
+      {props.year ? <span className="year"> {props.year}</span> : null}
+    </>
+  );
   return (
     <div className="pcard-poster">
       <button className="pcard-open" onClick={props.onOpen}>
@@ -63,11 +70,11 @@ export function PosterCard(props: { title: string; sub?: string; poster?: string
           {art ? (
             <img src={imageUrl(props.poster!, "w342")} alt="" loading="lazy" onError={() => setFailed(true)} />
           ) : (
-            <span className="pcard-fallback">{props.title}</span>
+            <span className="pcard-fallback">{name}</span>
           )}
           {props.badge && <span className="pcard-badge">{props.badge}</span>}
         </span>
-        {art && <span className="pcard-title">{props.title}</span>}
+        {art && <span className="pcard-title">{name}</span>}
         {props.sub && <span className="pcard-sub">{props.sub}</span>}
       </button>
       {props.onStart && (
@@ -84,7 +91,7 @@ export function MovieCard(props: { item: MediaItem; b: Browse }) {
   return (
     <PosterCard
       title={item.meta?.title ?? item.title}
-      sub={String(item.meta?.year ?? item.year ?? "") || undefined}
+      year={item.meta?.year ?? item.year}
       poster={item.meta?.posterPath}
       details={b.details}
       onOpen={() => go(b, movieLink(item))}
@@ -99,6 +106,7 @@ export function ShowCard(props: { show: Show; b: Browse }) {
   return (
     <PosterCard
       title={show.name}
+      year={show.meta?.year}
       sub={plural(show.episodes.length, "episode")}
       poster={show.meta?.showPosterPath}
       badge={plural(show.seasons.length, "season")}
