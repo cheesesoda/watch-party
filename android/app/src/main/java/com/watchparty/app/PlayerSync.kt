@@ -27,6 +27,23 @@ class PlayerSync(
     private var lastSentAt = 0L
     private val main = Handler(Looper.getMainLooper())
 
+    /**
+     * A seek the player hasn't shown yet. ExoPlayer reports the new position, and often still "ready", the moment
+     * it's asked to seek, so without this the TV told the room it had loaded a jump before it had.
+     */
+    private var seekPending = false
+    private val seekTimeout = Runnable { seekLoaded() }
+
+    /**
+     * Paused on our own, ahead of the room, until the room reaches this spot (seconds). Used instead of seeking
+     * straight to the room's spot, which leaves the player behind by however long it took to load.
+     */
+    private var waitUntil: Double? = null
+    /** How far ahead to jump when catching up; grows if loading takes longer. */
+    private var lead = 2.0
+    private val nudge = NudgeWatch()
+    private val check = Runnable { reconcile() }
+
     private val ticker = object : Runnable {
         override fun run() {
             reconcile()
@@ -37,6 +54,7 @@ class PlayerSync(
     private val listener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             val s = state ?: return
+            if (waitUntil != null) return
             if (playWhenReady && s.paused) local("play")
             else if (!playWhenReady && !s.paused && player.playbackState != Player.STATE_ENDED) local("pause")
         }
@@ -47,11 +65,17 @@ class PlayerSync(
             reason: Int,
         ) {
             if (reason != Player.DISCONTINUITY_REASON_SEEK || state == null) return
+            seekStarted()
+            if (waitUntil != null) return
             if (abs(newPosition.positionMs / 1000.0 - target()) > Drift.USER_SEEK) local("seek")
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) reconcile()
+        }
+
+        override fun onRenderedFirstFrame() {
+            if (seekPending) seekLoaded()
         }
     }
 
@@ -63,6 +87,8 @@ class PlayerSync(
     fun stop() {
         player.removeListener(listener)
         main.removeCallbacks(ticker)
+        main.removeCallbacks(seekTimeout)
+        main.removeCallbacks(check)
     }
 
     /**
@@ -78,6 +104,8 @@ class PlayerSync(
         } else {
             unechoed = 0
         }
+        waitUntil = null
+        nudge.reset()
         state = newState
         reconcile()
     }
@@ -99,13 +127,31 @@ class PlayerSync(
             state = held(s).copy(position = to / 1000.0, updatedAt = clock.serverNow())
             sent("seek", to / 1000.0)
         }
-        player.seekTo(to)
+        waitUntil = null
+        seek(to)
         reconcile()
     }
 
     /** A jump while playing holds everyone at the new spot until each screen has loaded it (the server decides when). */
     private fun held(s: PlaybackState): PlaybackState =
         if (s.hold || !s.paused) s.copy(paused = true, hold = true) else s
+
+    private fun seek(ms: Long) {
+        seekStarted()
+        player.seekTo(ms)
+    }
+
+    private fun seekStarted() {
+        seekPending = true
+        main.removeCallbacks(seekTimeout)
+        main.postDelayed(seekTimeout, SEEK_LOAD_MS)
+    }
+
+    private fun seekLoaded() {
+        seekPending = false
+        main.removeCallbacks(seekTimeout)
+        reconcile()
+    }
 
     private fun sentAt(): Long? = if (clock.measured) clock.serverNow() else null
 
@@ -124,6 +170,9 @@ class PlayerSync(
     private fun reconcile() {
         val s = state ?: return
         if (s.mediaId == null) return
+        if (waitUntil != null) {
+            if (s.paused) waitUntil = null else return waitForRoom()
+        }
         // Only correct once the player is loaded; while buffering the position is stale.
         if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) {
             // Still honor pause so a paused room doesn't start playing when the buffer fills.
@@ -140,8 +189,8 @@ class PlayerSync(
             setSpeed(1f)
             if (player.playWhenReady) player.playWhenReady = false
             if (abs(current - target) > 0.25) {
-                player.seekTo((target * 1000).toLong())
-            } else if (s.hold && player.playbackState == Player.STATE_READY) {
+                seek((target * 1000).toLong())
+            } else if (s.hold && player.playbackState == Player.STATE_READY && !seekPending) {
                 // Loaded the spot everyone is waiting at. Not counted as a change of ours: the server doesn't echo it.
                 val key = "${s.updatedAt}:${s.position}"
                 if (readyFor != key) {
@@ -152,15 +201,57 @@ class PlayerSync(
             return
         }
 
+        if (!player.playWhenReady && player.playbackState != Player.STATE_ENDED) player.playWhenReady = true
+        // The position reads as the new spot before it has loaded, so there's nothing to measure yet.
+        if (seekPending) return
+        val drift = current - target
         when (val action = Drift.decide(current, target, nudging = player.playbackParameters.speed != 1f)) {
-            is DriftAction.Seek -> {
-                setSpeed(1f)
-                player.seekTo((action.toSeconds * 1000).toLong())
+            is DriftAction.Seek -> return catchUp(current, target, duration, behind = true)
+            is DriftAction.Rate -> {
+                if (action.speed == 1f) {
+                    nudge.reset()
+                } else if (nudge.stuck(drift, SystemClock.uptimeMillis())) {
+                    return catchUp(current, target, duration, behind = drift < 0)
+                }
+                setSpeed(action.speed)
             }
-            is DriftAction.Rate -> setSpeed(action.speed)
             DriftAction.None -> Unit
         }
-        if (!player.playWhenReady && player.playbackState != Player.STATE_ENDED) player.playWhenReady = true
+    }
+
+    /**
+     * Gets back in step without changing speed: when behind, jump a little past the room and pause there until
+     * it arrives; when ahead, just pause until it catches up.
+     */
+    private fun catchUp(current: Double, target: Double, duration: Double, behind: Boolean) {
+        nudge.reset()
+        setSpeed(1f)
+        if (behind && target + lead >= duration) return seek((target * 1000).toLong())
+        val at = if (behind) target + lead else current
+        waitUntil = at
+        player.playWhenReady = false
+        if (behind) seek((at * 1000).toLong())
+        waitForRoom()
+    }
+
+    private fun waitForRoom() {
+        val at = waitUntil ?: return
+        if (player.playbackState == Player.STATE_ENDED) {
+            waitUntil = null
+            return
+        }
+        if (player.playWhenReady) player.playWhenReady = false
+        if (seekPending || player.playbackState != Player.STATE_READY) return
+        val early = at - target()
+        main.removeCallbacks(check)
+        if (early > 0.02) {
+            main.postDelayed(check, (early * 1000).toLong().coerceAtMost(1000))
+            return
+        }
+        // Loading took longer than the jump ahead allowed for, so allow more next time.
+        if (-early > Drift.SOFT) lead = minOf(lead - early + 0.5, MAX_LEAD)
+        waitUntil = null
+        player.playWhenReady = true
     }
 
     private fun setSpeed(speed: Float) {
@@ -170,5 +261,8 @@ class PlayerSync(
     private companion object {
         /** After this long without an echo, stop waiting for it (the message was dropped or refused). */
         const val ECHO_WAIT_MS = 5_000L
+        /** Stop waiting for a seek to show a frame after this long (audio-only files never do). */
+        const val SEEK_LOAD_MS = 3_000L
+        const val MAX_LEAD = 6.0
     }
 }

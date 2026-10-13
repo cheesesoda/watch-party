@@ -43,6 +43,30 @@ object Drift {
     }
 }
 
+/**
+ * Notices when playing a little faster or slower isn't closing the gap. Some TVs ignore the speed (for example
+ * when the sound goes straight to a receiver), so the player would stay a second behind for good.
+ */
+class NudgeWatch(private val graceMs: Long = 4_000, private val minGain: Double = 0.1) {
+    private var since = -1L
+    private var startDrift = 0.0
+
+    /** Call on each check while nudging, with the drift in seconds. True once it hasn't shrunk by [minGain] in [graceMs]. */
+    fun stuck(drift: Double, now: Long): Boolean {
+        val gap = kotlin.math.abs(drift)
+        if (since < 0 || gap <= startDrift - minGain) {
+            since = now
+            startDrift = gap
+            return false
+        }
+        return now - since >= graceMs
+    }
+
+    fun reset() {
+        since = -1L
+    }
+}
+
 /** Turns audio levels (0..1) into who is talking, holding each person briefly so the ring doesn't flicker. */
 class SpeakingTracker(private val threshold: Double = 0.03, private val holdMs: Long = 600) {
     private val lastLoud = HashMap<String, Long>()

@@ -117,4 +117,19 @@ class LogicTest {
         assertEquals(ServerMessage.Ended("Jake"), Protocol.parse("""{"type":"ended","by":"Jake"}"""))
         assertEquals("""{"type":"end"}""", Protocol.end())
     }
+
+    @Test
+    fun nudgeWatchNoticesWhenSpeedDoesNothing() {
+        val watch = NudgeWatch()
+        assertEquals(false, watch.stuck(-1.0, 0))
+        assertEquals(false, watch.stuck(-1.0, 3_000))
+        assertEquals(true, watch.stuck(-1.0, 4_000))
+        watch.reset()
+        // Closing the gap keeps it going.
+        assertEquals(false, watch.stuck(-1.0, 10_000))
+        assertEquals(false, watch.stuck(-0.85, 13_000))
+        assertEquals(false, watch.stuck(-0.7, 16_000))
+        assertEquals(false, watch.stuck(-0.69, 19_000))
+        assertEquals(true, watch.stuck(-0.69, 20_000))
+    }
 }
