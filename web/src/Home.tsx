@@ -7,6 +7,7 @@ import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon
 import { Details, fmtSize } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
+import { useArtTone } from "./artTone.ts";
 import { SaveSpotDialog, spotPreview, SpotRow } from "./Spots.tsx";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
@@ -204,6 +205,8 @@ export function Home(props: {
   const show = showKey ? cat.shows.find((s) => s.key === decodeURIComponent(showKey)) : undefined;
   const section = movie ? "/movies" : show ? "/shows" : route;
   const hero = !query.trim() && (movie || show || (route === "/" && browse.details));
+  const mainRef = useRef<HTMLElement>(null);
+  const tone = useArtTone(mainRef, !!hero);
   usePageTitle(
     query.trim() ? `Search: ${query.trim()}` : movie ? movie.title : show ? show.name : route === "/" ? null : NAV.find(([path]) => path === route)?.[1],
   );
@@ -270,8 +273,8 @@ export function Home(props: {
         </div>
       </aside>
 
-      <main className={hero ? "dash-main over-art" : "dash-main"}>
-        <header className="dash-top">
+      <main ref={mainRef} className={hero ? "dash-main over-art" : "dash-main"}>
+        <header className={["dash-top", tone.left && "light-left", tone.right && "light-right"].filter(Boolean).join(" ")}>
           <label className="search">
             <SearchIcon size={18} />
             <input

@@ -1447,6 +1447,44 @@ button.link:focus-visible {
   letter-spacing: 0.05em;
 }
 
+/* Over light art (see artTone.ts), the top bar's controls switch to frosted light glass with dark text. */
+.light-left .search,
+.light-right .join-code input {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(26, 9, 51, 0.12);
+  color: #2a2233;
+}
+.light-left .search input,
+.light-right .join-code input {
+  color: #1a1420;
+}
+.light-left .search input::placeholder,
+.light-right .join-code input::placeholder {
+  color: rgba(42, 34, 51, 0.6);
+}
+.light-right .join-code label {
+  color: #1a1420;
+  font-weight: 600;
+}
+.light-right .join-code .pill.tonal {
+  background: rgba(26, 20, 32, 0.78);
+  color: #f4f0f8;
+}
+.light-right .join-code .pill.tonal:hover {
+  background: rgba(26, 20, 32, 0.9);
+}
+.light-right .join-code .pill.tonal:disabled {
+  opacity: 1;
+  background: rgba(26, 20, 32, 0.42);
+  color: rgba(255, 255, 255, 0.82);
+}
+.dash-top .search,
+.dash-top .join-code input,
+.dash-top .join-code label,
+.dash-top .pill.tonal {
+  transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease;
+}
+
 /* Material 3 style buttons: filled (primary), tonal and text, all fully rounded. */
 .pill {
   display: inline-flex;
