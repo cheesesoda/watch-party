@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ExtraInfo, MediaItem, SubtitleTrack } from "../../shared/protocol.ts";
+import { subtitleLabel } from "./transcode.ts";
 
 export const VIDEO_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -293,8 +294,11 @@ export class Library {
         for (const sibling of byDir.get(path.dirname(f))!.sort()) {
           const tag = subtitleTag(f, sibling);
           if (tag === null) continue;
-          const lang = tag.split(".")[0] || null;
-          subtitles.push({ index: subtitlePaths.length, label: tag.replace(/\./g, " ") || "Default", lang });
+          // "Movie.en.forced.srt": a language, then anything else ("forced", "sdh") for the label.
+          const [lang = null, ...rest] = tag ? tag.split(".") : [];
+          const forced = rest.some((r) => r.toLowerCase() === "forced");
+          const extra = rest.filter((r) => r.toLowerCase() !== "forced").join(" ");
+          subtitles.push({ index: subtitlePaths.length, label: tag ? subtitleLabel(lang, extra, forced) : "Default", lang });
           subtitlePaths.push(sibling);
         }
 

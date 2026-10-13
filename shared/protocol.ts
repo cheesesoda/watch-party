@@ -94,6 +94,8 @@ export interface MediaInfo {
   audio: { codec: string; channels: number } | null;
   /** The server can convert this file for browsers (ffmpeg is installed). */
   convert: boolean;
+  /** Text subtitles inside the file, which the server serves as WebVTT (picture-based ones are left out). */
+  subtitles: SubtitleTrack[];
 }
 
 export interface PlaybackState {

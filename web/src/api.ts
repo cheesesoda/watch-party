@@ -86,7 +86,8 @@ export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
 export const hlsUrl = (id: string) => media(`/api/media/${id}/hls/index.m3u8`);
 /** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
 export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300" | "w780" | "w1280") => media(`/api/images/${size}${path}`);
-export const subtitleUrl = (id: string, index: number) => media(`/api/media/${id}/subtitles/${index}.vtt`);
+/** `index` is a sidecar file's number, or "e2" for the third subtitle track inside the video file. */
+export const subtitleUrl = (id: string, index: number | string) => media(`/api/media/${id}/subtitles/${index}.vtt`);
 
 const NAME_KEY = "wp_name";
 export function getName(): string {
