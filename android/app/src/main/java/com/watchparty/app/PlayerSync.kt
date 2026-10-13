@@ -301,7 +301,8 @@ class PlayerSync(
         const val MAX_LEAD = 6.0
         /** Paused screens should show the same frame: about two frames at 24 fps. */
         const val PAUSED_TOLERANCE = 0.08
-        const val LAG_CHECK_MS = 1_500L
+        /** Long enough for a slow start to finish before measuring it. */
+        const val LAG_CHECK_MS = 3_000L
         const val MAX_START_LAG = 4.0
         const val READY_BUFFER_MS = 3_000L
 
