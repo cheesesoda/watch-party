@@ -97,6 +97,8 @@ data class PlaybackState(
     val position: Double = 0.0,
     /** Server clock, ms since epoch. */
     val updatedAt: Long = 0,
+    /** Paused only until every screen has loaded the spot someone jumped to; this one says "ready" when it has. */
+    val hold: Boolean = false,
 ) {
     /** Where playback should be at [serverNow] (ms), in seconds. */
     fun expectedPosition(serverNow: Long): Double =
@@ -255,6 +257,12 @@ object Protocol {
         put("type", type)
         put("position", position)
         if (at != null) put("at", at)
+    }.toString()
+
+    /** Whether this device plays the video (false while it's only for chat), so jumps wait for it to load. */
+    fun player(on: Boolean): String = buildJsonObject {
+        put("type", "player")
+        put("on", on)
     }.toString()
 
     fun chat(text: String): String = buildJsonObject {

@@ -21,6 +21,9 @@ class PlayerSync(
     private var state: PlaybackState? = null
     /** Our own play/pause/seeks the server hasn't echoed back yet, and when the last one went out. */
     private var unechoed = 0
+    /** The hold this device last said it was ready for, so it says so once. */
+    private var readyFor = ""
+
     private var lastSentAt = 0L
     private val main = Handler(Looper.getMainLooper())
 
@@ -93,11 +96,16 @@ class PlayerSync(
         val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
         val to = positionMs.coerceIn(0L, duration)
         state?.let { s ->
-            state = s.copy(position = to / 1000.0, updatedAt = clock.serverNow())
+            state = held(s).copy(position = to / 1000.0, updatedAt = clock.serverNow())
             sent("seek", to / 1000.0)
         }
         player.seekTo(to)
+        reconcile()
     }
+
+    /** A jump while playing holds everyone at the new spot until each screen has loaded it (the server decides when). */
+    private fun held(s: PlaybackState): PlaybackState =
+        if (s.hold || !s.paused) s.copy(paused = true, hold = true) else s
 
     private fun sentAt(): Long? = if (clock.measured) clock.serverNow() else null
 
@@ -107,8 +115,10 @@ class PlayerSync(
         val s = state ?: return
         val position = player.currentPosition / 1000.0
         val paused = if (type == "seek") s.paused else type == "pause"
-        state = s.copy(paused = paused, position = position, updatedAt = clock.serverNow())
+        val now = if (type == "seek") held(s) else s.copy(paused = paused, hold = false)
+        state = now.copy(position = position, updatedAt = clock.serverNow())
         sent(type, position)
+        if (type == "seek") reconcile()
     }
 
     private fun reconcile() {
@@ -129,7 +139,16 @@ class PlayerSync(
         if (s.paused) {
             setSpeed(1f)
             if (player.playWhenReady) player.playWhenReady = false
-            if (abs(current - target) > 0.25) player.seekTo((target * 1000).toLong())
+            if (abs(current - target) > 0.25) {
+                player.seekTo((target * 1000).toLong())
+            } else if (s.hold && player.playbackState == Player.STATE_READY) {
+                // Loaded the spot everyone is waiting at. Not counted as a change of ours: the server doesn't echo it.
+                val key = "${s.updatedAt}:${s.position}"
+                if (readyFor != key) {
+                    readyFor = key
+                    send("ready", current, null)
+                }
+            }
             return
         }
 

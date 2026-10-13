@@ -83,6 +83,12 @@ export class Room {
   private advance: { mediaId: string; at: number; timer: NodeJS.Timeout } | null = null;
   /** How long everyone sees "Up next" before the next video starts. */
   advanceDelayMs = 10_000;
+  /** After a jump, the longest everyone waits for slower screens to load the new spot before playing anyway. */
+  holdMs = 4_000;
+  /** Waiting for screens to load the spot someone jumped to: who has. */
+  private hold: { ready: Set<string>; timer: NodeJS.Timeout } | null = null;
+  /** Members whose screen plays the video and says when it has loaded a spot (newer apps only). */
+  private players = new Set<string>();
 
   constructor(
     readonly id: string,
@@ -151,7 +157,9 @@ export class Room {
     const entry = this.members.get(memberId);
     if (!entry) return;
     this.members.delete(memberId);
+    this.players.delete(memberId);
     if (this.members.size === 0) this.emptySince = this.now();
+    this.resumeIfAllReady();
     if (this.ended) return;
     this.broadcast({ type: "members", members: this.memberList() });
     if (!this.hasName(entry.member.name)) this.notice(`${entry.member.name} left`);
@@ -167,6 +175,7 @@ export class Room {
     const media = this.lookup(mediaId);
     if (!media) return false;
     this.cancelAdvance();
+    this.cancelHold();
     // Picking something outside the binge ends it.
     if (!this.queue.includes(mediaId)) this.queue = [];
     this.media = media;
@@ -183,6 +192,20 @@ export class Room {
     switch (msg.type) {
       case "ping":
         send({ type: "pong", clientTime: Number(msg.clientTime) || 0, serverTime: now });
+        return;
+
+      case "player":
+        if (msg.on === true) this.players.add(member.id);
+        else this.players.delete(member.id);
+        this.resumeIfAllReady();
+        return;
+
+      case "ready":
+        if (this.hold && this.state.hold && validPosition(msg.position) && Math.abs(msg.position - this.state.position) < 1) {
+          this.players.add(member.id);
+          this.hold.ready.add(member.id);
+          this.resumeIfAllReady();
+        }
         return;
 
       case "chat": {
@@ -272,9 +295,18 @@ export class Room {
           send({ type: "error", message: "Invalid position." });
           return;
         }
-        const wasPaused = this.state.paused;
-        const paused = msg.type === "seek" ? this.state.paused : msg.type === "pause";
-        this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
+        const wasPaused = this.state.paused && !this.state.hold;
+        const paused = msg.type === "seek" ? wasPaused : msg.type === "pause";
+        this.cancelHold();
+        if (msg.type === "seek" && !paused && this.players.size > 0) {
+          // Jumping while playing: everyone pauses at the new spot until each screen has loaded it.
+          this.state = { mediaId: this.state.mediaId, paused: true, position: msg.position, updatedAt: now, hold: true };
+          const timer = setTimeout(() => this.resumeHold(), this.holdMs);
+          timer.unref?.();
+          this.hold = { ready: new Set(), timer };
+        } else {
+          this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
+        }
         this.broadcastState(member.name);
         if (msg.type === "seek") this.notice(`${member.name} jumped to ${fmtTime(msg.position)}`);
         else if (wasPaused !== paused) this.notice(`${member.name} ${paused ? "paused" : "resumed"} at ${fmtTime(msg.position)}`);
@@ -291,6 +323,7 @@ export class Room {
     if (this.ended) return;
     this.ended = true;
     this.cancelAdvance();
+    this.cancelHold();
     this.broadcast({ type: "ended", by });
     for (const { close } of [...this.members.values()]) close();
     this.onEnded();
@@ -309,6 +342,26 @@ export class Room {
     this.broadcastState(null);
     this.broadcastQueue();
     this.notice(`Now playing ${this.media!.title}`);
+  }
+
+  /** Everyone has loaded the spot (or the wait ran out): play from it together. */
+  private resumeHold(): void {
+    if (!this.hold) return;
+    this.cancelHold();
+    if (this.ended || !this.state.hold) return;
+    this.state = { mediaId: this.state.mediaId, paused: false, position: this.state.position, updatedAt: this.now() };
+    this.broadcastState(null);
+  }
+
+  private resumeIfAllReady(): void {
+    if (!this.hold) return;
+    const waiting = [...this.players].some((id) => this.members.has(id) && !this.hold!.ready.has(id));
+    if (!waiting) this.resumeHold();
+  }
+
+  private cancelHold(): void {
+    if (this.hold) clearTimeout(this.hold.timer);
+    this.hold = null;
   }
 
   private cancelAdvance(): void {
