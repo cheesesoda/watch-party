@@ -39,9 +39,13 @@ class PlayerSync(
      * straight to the room's spot, which leaves the player behind by however long it took to load.
      */
     private var waitUntil: Double? = null
+    /** Whether the wait followed a jump, so starting will take [startLag]; resuming from a plain pause doesn't. */
+    private var waitJumped = false
     /** How far ahead to jump when catching up; grows if loading takes longer. */
     private var lead = 2.0
     private val nudge = NudgeWatch()
+    /** When this device last started playing after a jump, until it has measured how late it got going. */
+    private var resumedAt = 0L
     private val check = Runnable { reconcile() }
 
     private val ticker = object : Runnable {
@@ -67,7 +71,8 @@ class PlayerSync(
             if (reason != Player.DISCONTINUITY_REASON_SEEK || state == null) return
             seekStarted()
             if (waitUntil != null) return
-            if (abs(newPosition.positionMs / 1000.0 - target()) > Drift.USER_SEEK) local("seek")
+            val expected = target() + (state?.let { holdLead(it) } ?: 0.0)
+            if (abs(newPosition.positionMs / 1000.0 - expected) > Drift.USER_SEEK) local("seek")
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -106,6 +111,7 @@ class PlayerSync(
         }
         waitUntil = null
         nudge.reset()
+        resumedAt = if (state?.hold == true && !newState.paused) SystemClock.uptimeMillis() else 0L
         state = newState
         reconcile()
     }
@@ -128,7 +134,7 @@ class PlayerSync(
             sent("seek", to / 1000.0)
         }
         waitUntil = null
-        seek(to)
+        seek(minOf(to + (state?.let { (holdLead(it) * 1000).toLong() } ?: 0L), duration))
         reconcile()
     }
 
@@ -152,6 +158,20 @@ class PlayerSync(
         main.removeCallbacks(seekTimeout)
         reconcile()
     }
+
+    /**
+     * While held, wait this far past the spot. Some TVs start a second or so late after a jump (inferred: the sound
+     * restarting), so waiting slightly ahead means they're in step once they get going instead of behind.
+     */
+    private fun holdLead(s: PlaybackState): Double = if (s.hold) startLag else 0.0
+
+    /**
+     * Enough loaded past the spot to keep playing once everyone starts. Showing the first frame isn't enough: the
+     * TV said it was ready, everyone started, and it fell behind while it loaded the rest.
+     */
+    private fun bufferedEnough(): Boolean =
+        player.totalBufferedDuration >= READY_BUFFER_MS ||
+            (player.duration > 0 && player.bufferedPosition >= player.duration)
 
     private fun sentAt(): Long? = if (clock.measured) clock.serverNow() else null
 
@@ -188,14 +208,20 @@ class PlayerSync(
         if (s.paused) {
             setSpeed(1f)
             if (player.playWhenReady) player.playWhenReady = false
-            if (abs(current - target) > 0.25) {
-                seek((target * 1000).toLong())
+            val spot = minOf(target + holdLead(s), duration)
+            if (abs(current - spot) > PAUSED_TOLERANCE) {
+                seek((spot * 1000).toLong())
             } else if (s.hold && player.playbackState == Player.STATE_READY && !seekPending) {
+                if (!bufferedEnough()) {
+                    main.removeCallbacks(check)
+                    main.postDelayed(check, 250)
+                    return
+                }
                 // Loaded the spot everyone is waiting at. Not counted as a change of ours: the server doesn't echo it.
                 val key = "${s.updatedAt}:${s.position}"
                 if (readyFor != key) {
                     readyFor = key
-                    send("ready", current, null)
+                    send("ready", target, null)
                 }
             }
             return
@@ -205,6 +231,12 @@ class PlayerSync(
         // The position reads as the new spot before it has loaded, so there's nothing to measure yet.
         if (seekPending) return
         val drift = current - target
+        if (resumedAt > 0) {
+            // Just started together after a jump: give it a moment to get going, then learn how late it started.
+            if (SystemClock.uptimeMillis() - resumedAt < LAG_CHECK_MS) return
+            resumedAt = 0L
+            startLag = (startLag - drift).coerceIn(0.0, MAX_START_LAG)
+        }
         when (val action = Drift.decide(current, target, nudging = player.playbackParameters.speed != 1f)) {
             is DriftAction.Seek -> return catchUp(current, target, duration, behind = true)
             is DriftAction.Rate -> {
@@ -229,6 +261,7 @@ class PlayerSync(
         if (behind && target + lead >= duration) return seek((target * 1000).toLong())
         val at = if (behind) target + lead else current
         waitUntil = at
+        waitJumped = behind
         player.playWhenReady = false
         if (behind) seek((at * 1000).toLong())
         waitForRoom()
@@ -242,7 +275,8 @@ class PlayerSync(
         }
         if (player.playWhenReady) player.playWhenReady = false
         if (seekPending || player.playbackState != Player.STATE_READY) return
-        val early = at - target()
+        // Start a little early to make up for how late this device gets going.
+        val early = at - (if (waitJumped) startLag else 0.0) - target()
         main.removeCallbacks(check)
         if (early > 0.02) {
             main.postDelayed(check, (early * 1000).toLong().coerceAtMost(1000))
@@ -251,6 +285,7 @@ class PlayerSync(
         // Loading took longer than the jump ahead allowed for, so allow more next time.
         if (-early > Drift.SOFT) lead = minOf(lead - early + 0.5, MAX_LEAD)
         waitUntil = null
+        if (waitJumped) resumedAt = SystemClock.uptimeMillis()
         player.playWhenReady = true
     }
 
@@ -264,5 +299,13 @@ class PlayerSync(
         /** Stop waiting for a seek to show a frame after this long (audio-only files never do). */
         const val SEEK_LOAD_MS = 3_000L
         const val MAX_LEAD = 6.0
+        /** Paused screens should show the same frame: about two frames at 24 fps. */
+        const val PAUSED_TOLERANCE = 0.08
+        const val LAG_CHECK_MS = 1_500L
+        const val MAX_START_LAG = 4.0
+        const val READY_BUFFER_MS = 3_000L
+
+        /** How late this device starts playing after a jump, in seconds. Kept while the app runs. */
+        var startLag = 0.0
     }
 }
