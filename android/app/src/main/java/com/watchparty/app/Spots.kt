@@ -135,8 +135,8 @@ fun TvSpotCard(api: Api, details: Boolean, s: Spot, width: Dp, onClick: () -> Un
                 .clip(shape)
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         )
-        Text(spotTitle(s.media), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
-        Text(spotFacts(s, withWhen = false), color = Muted, fontSize = 12.sp, maxLines = 1)
+        Text(spotTitle(s.media), color = Color.White, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
+        Text(spotFacts(s, withWhen = false), color = Muted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
     }
 }
 

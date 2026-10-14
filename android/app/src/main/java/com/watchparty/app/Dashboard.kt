@@ -894,8 +894,10 @@ private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, s
                 Text(it, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(CircleShape).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp))
             }
         }
-        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 10.dp else 6.dp))
-        sub?.let { Text(it, color = Muted, fontSize = 12.sp, maxLines = 1) }
+        // The body style's 24sp lines left a wide gap between the title and the line under it on the TV.
+        val tight = if (tv) 16.sp else TextUnit.Unspecified
+        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = tight, modifier = Modifier.padding(top = if (focused) 10.dp else 6.dp))
+        sub?.let { Text(it, color = Muted, fontSize = 12.sp, maxLines = 1, lineHeight = tight, modifier = Modifier.padding(top = if (tv) 2.dp else 0.dp)) }
     }
 }
 

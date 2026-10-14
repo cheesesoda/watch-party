@@ -150,8 +150,10 @@ export function Home(props: {
   // Clicking a spot opens its show or movie page.
   const openSpot = (spot: Spot) => {
     const m = cat.byId.get(spot.media.id) ?? spot.media;
-    const show = m.episode && cat.shows.find((s) => s.episodes.some((e) => e.id === m.id));
-    go(show ? showLink(show) : movieLink(m));
+    // An extra opens the show or movie it belongs to.
+    const show = cat.shows.find((s) => s.episodes.some((e) => e.id === m.id) || s.extras.some((e) => e.id === m.id));
+    const owner = m.extra?.of ? cat.byId.get(m.extra.of) : undefined;
+    go(show ? showLink(show) : movieLink(owner ?? m));
   };
 
   const join = (e: FormEvent) => {
