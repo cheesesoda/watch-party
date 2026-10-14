@@ -86,6 +86,20 @@ function spellings(query: string): string[] {
   return all.filter((q, i) => all.findIndex((o) => o.toLowerCase() === q.toLowerCase()) === i);
 }
 
+/** "Valentime's Day" and "Valentimes Day" read the same. */
+const loose = (s: string) => key(s.replace(/['’]/g, ""));
+
+/**
+ * The special a file names, when its title matches one of TMDB's ("Letterkenny S00E41 Valentimes Day"): specials are
+ * numbered differently from place to place (TMDB has 1 to 7 where others count every episode), so the name is surer.
+ */
+function byName(season: SeasonHit | null | undefined, title: string | null): SeasonHit["episodes"][number] | undefined {
+  const want = title ? loose(title) : "";
+  if (!season || want.length < 4) return undefined;
+  const all = Object.values(season.episodes).filter((e) => e.name && loose(e.name).length >= 4);
+  return all.find((e) => loose(e.name!) === want) ?? all.find((e) => want.includes(loose(e.name!)) || loose(e.name!).includes(want));
+}
+
 /** Bumped when lookups get better, so answers of "not found" from older versions are asked again. */
 const CACHE_VERSION = 2;
 const movieKey = (item: MediaItem) => `${key(item.title)}|${item.year ?? ""}`;
@@ -163,7 +177,7 @@ export class Metadata {
     const show = this.lookup("shows", showKey(ep.show), () => this.findShow(ep.show), (s) => this.refresh("tv", s));
     if (!show) return item;
     const season = this.lookup("seasons", `${show.id}|${ep.season}`, () => this.findSeason(show.id, ep.season));
-    const details = season?.episodes[ep.episode];
+    const details = (ep.season === 0 ? byName(season, ep.title) : undefined) ?? season?.episodes[ep.episode];
     const meta: MediaMeta = {
       tmdbId: show.id,
       title: details?.name ?? show.title,
