@@ -13,16 +13,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -35,14 +33,21 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /** The TV's side menu with the remote: Right from it has to reach the page (a grid of posters, like Movies). */
-@OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvMenuFocusTest {
     @get:Rule
     val rule = createComposeRule()
+    private lateinit var focus: FocusManager
+
+    /** What the remote's arrow keys do (key events don't reach the app under Robolectric). */
+    private fun move(direction: FocusDirection) {
+        rule.runOnIdle { focus.moveFocus(direction) }
+        rule.waitForIdle()
+    }
 
     private fun page(alone: Boolean, focused: (Int) -> Unit) = rule.setContent {
+        focus = LocalFocusManager.current
         TvShell("movies", adding = false, alone = alone, setAlone = {}, onCode = {}, onRefresh = {}, onSettings = {}, go = {}) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(118.dp),
@@ -61,8 +66,7 @@ class TvMenuFocusTest {
         rule.onNodeWithContentDescription("Movies").performSemanticsAction(SemanticsActions.RequestFocus)
         rule.waitForIdle()
         val before = focusedNow()
-        rule.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
-        rule.waitForIdle()
+        move(FocusDirection.Right)
         assertTrue("Right from the menu didn't reach the page (focused before: $before; after: ${focusedNow()})", card >= 0)
     }
 
@@ -74,6 +78,7 @@ class TvMenuFocusTest {
     fun rightFromAPlainButtonReachesTheGrid() {
         var card = -1
         rule.setContent {
+            focus = LocalFocusManager.current
             androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(118.dp),
@@ -89,8 +94,7 @@ class TvMenuFocusTest {
         rule.onNodeWithContentDescription("Plain").performSemanticsAction(SemanticsActions.RequestFocus)
         rule.waitForIdle()
         val before = focusedNow()
-        rule.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
-        rule.waitForIdle()
+        move(FocusDirection.Right)
         assertTrue("Right from a plain button didn't reach the grid (focused before: $before; after: ${focusedNow()})", card >= 0)
     }
 

@@ -9,15 +9,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.serialization.encodeToString
@@ -41,13 +40,13 @@ import java.io.File
  * The TV home, pages and side menu, driven with remote keys against a pretend server. Screenshots of each step land
  * in build/tv-screens (CI keeps them), so the TV layout can be checked without a TV.
  */
-@OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvScreensTest {
     @get:Rule
-    val rule = createComposeRule()
+    val rule = createAndroidComposeRule<ComponentActivity>()
+    private lateinit var focus: FocusManager
     private val server = MockWebServer()
     private val out = File("build/tv-screens").apply { mkdirs() }
 
@@ -99,6 +98,7 @@ class TvScreensTest {
         // The banner and progress keep asking for frames, so the clock only moves when told to.
         rule.mainClock.autoAdvance = false
         rule.setContent {
+            focus = LocalFocusManager.current
             PopcornTheme {
                 Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}, forceTv = true) }
             }
@@ -126,13 +126,29 @@ class TvScreensTest {
     private fun shot(name: String) {
         rule.mainClock.advanceTimeBy(600)
         rule.waitForIdle()
-        val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
+        val view = rule.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        rule.runOnIdle { view.draw(Canvas(bitmap)) }
         File(out, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun press(key: Key, times: Int = 1) = repeat(times) {
-        rule.onRoot().performKeyInput { pressKey(key) }
+    /** The remote's arrow keys (key events don't reach the app under Robolectric, so focus moves the same way they would). */
+    private fun press(direction: FocusDirection, times: Int = 1) = repeat(times) {
+        rule.runOnIdle { focus.moveFocus(direction) }
         settle(400) { false }
+    }
+
+    /** OK on the remote. */
+    private fun ok() {
+        rule.onNode(isFocused()).performClick()
+        settle(800) { false }
+    }
+
+    private val problems = mutableListOf<String>()
+
+    /** Noted rather than thrown, so the rest of the screenshots still get taken. */
+    private fun check(ok: Boolean, problem: String) {
+        if (!ok) problems += problem
     }
 
     /** The side menu is open (its labels show) only while the remote is on it. */
@@ -141,35 +157,37 @@ class TvScreensTest {
     @Test
     fun theRemoteGetsInAndOutOfTheMenu() {
         shot("01-home")
-        press(Key.DirectionDown)
+        press(FocusDirection.Down)
         shot("02-home-first-card")
-        press(Key.DirectionLeft)
-        assertTrue("Left from the first card opens the menu", menuOpen())
+        press(FocusDirection.Left)
+        check(menuOpen(), "Left from the first card didn't open the menu")
         shot("03-menu")
         // Home, Movies: down twice from wherever it landed is not certain, so go to the top first.
-        press(Key.DirectionUp, 8)
-        press(Key.DirectionDown, 2)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 2)
         shot("04-menu-on-movies")
-        press(Key.DirectionCenter)
+        ok()
         shot("05-movies")
-        press(Key.DirectionRight)
+        press(FocusDirection.Right)
         shot("06-movies-right")
-        assertTrue("Right from the menu on Movies reaches the page", !menuOpen())
+        check(!menuOpen(), "Right from the menu on Movies didn't reach the page")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
     @Test
     fun showPage() {
         // TV Shows from the menu, then the first show.
-        press(Key.DirectionLeft)
-        press(Key.DirectionUp, 8)
-        press(Key.DirectionDown, 3)
-        press(Key.DirectionCenter)
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 3)
+        ok()
         shot("10-shows")
-        press(Key.DirectionRight)
-        press(Key.DirectionCenter)
+        press(FocusDirection.Right)
+        ok()
         shot("11-show-page")
-        press(Key.DirectionUp)
+        press(FocusDirection.Up)
         shot("12-show-page-up")
-        assertTrue("Up from Binge stays on the page", !menuOpen())
+        check(!menuOpen(), "Up from Binge went to the menu")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }
