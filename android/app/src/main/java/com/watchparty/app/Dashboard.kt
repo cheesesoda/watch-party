@@ -854,8 +854,15 @@ private fun ShelfRow(title: String, seeAll: Route?, a: Actions, content: LazyLis
             // On a TV, See all is the menu item; on a phone it's a tap here.
             if (seeAll != null && !a.tv) Text("See all", color = Muted, fontSize = 13.sp, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { a.go(seeAll) }.padding(8.dp))
         }
-        // Room for a focused card to grow without being clipped.
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(if (a.tv) 18.dp else 12.dp), contentPadding = PaddingValues(vertical = if (a.tv) 8.dp else 0.dp), content = content)
+        // Room for a focused card to grow without its white edge being clipped: the row reaches 12dp further out on the
+        // left, and its padding brings the first card back in line with the title.
+        val grow = if (a.tv) 12.dp else 0.dp
+        LazyRow(
+            modifier = Modifier.offset(x = -grow),
+            horizontalArrangement = Arrangement.spacedBy(if (a.tv) 18.dp else 12.dp),
+            contentPadding = PaddingValues(start = grow, end = grow, top = if (a.tv) 10.dp else 0.dp, bottom = if (a.tv) 10.dp else 0.dp),
+            content = content,
+        )
     }
 }
 

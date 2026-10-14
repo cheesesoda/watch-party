@@ -44,7 +44,7 @@ import java.io.File
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w960dp-h540dp-xhdpi-land-television")
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvScreensTest {
     @get:Rule
     val rule = createComposeRule()

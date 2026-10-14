@@ -60,8 +60,8 @@ jobs:
       # looked at from anywhere GitHub's code is reachable (artifact downloads aren't always).
       - name: Publish TV screenshots
         if: always() && github.event_name == 'workflow_dispatch' && inputs.screens
-        working-directory: android/app/build/tv-screens
         run: |
+          cd app/build/tv-screens 2>/dev/null || { echo "No screenshots"; exit 0; }
           git init -q && git checkout -q -b ci-screens
           git add . && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "TV screens from ${GITHUB_SHA::7}"
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-screens

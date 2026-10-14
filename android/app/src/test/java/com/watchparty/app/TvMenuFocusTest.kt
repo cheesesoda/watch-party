@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
 /** The TV's side menu with the remote: Right from it has to reach the page (a grid of posters, like Movies). */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [34], qualifiers = "w960dp-h540dp-xhdpi-television")
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvMenuFocusTest {
     @get:Rule
     val rule = createComposeRule()
