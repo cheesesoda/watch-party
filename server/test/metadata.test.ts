@@ -239,3 +239,25 @@ test("specials are matched by the title in the file name when their numbers diff
   assert.equal(special(5, null).meta?.overview, "Hearts");
   assert.equal(special(68, "Something Else").meta?.overview, "Show summary");
 });
+
+test("an episode TMDB files as a special is found by its name among the specials", async () => {
+  const tmdb = fakeTmdb({
+    "/3/tv/9/season/4": { episodes: [{ episode_number: 12, name: "Life Is a Cabaret" }] },
+    "/3/tv/9/season/0": { episodes: [{ episode_number: 9, name: "Merry Christmas, Johnny Rose", overview: "Johnny's party", air_date: "2018-12-12" }] },
+  });
+  const file = config("crossover").file;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const show = { id: 9, title: "Schitt's Creek", year: 2015, overview: "Show summary", posterPath: null, backdropPath: null };
+  await fs.writeFile(file, JSON.stringify({ version: 2, shows: { "schitt s creek": { at: Date.now(), value: show } }, seasons: {} }));
+  const meta = new Metadata(config("crossover"), tmdb.fetchImpl, Date.now, noPause);
+  const ep = (episode: number, title: string | null) => item({ title: "x", episode: { show: "Schitt's Creek", season: 4, episode, title } });
+  await meta.warm([ep(13, "Merry Christmas Johnny Rose"), ep(14, null)]);
+  const got = meta.enrich(ep(13, "Merry Christmas Johnny Rose"));
+  assert.equal(got.meta?.overview, "Johnny's party");
+  assert.equal(got.meta?.airDate, "2018-12-12");
+  assert.equal(got.title, "Schitt's Creek S4 E13 · Merry Christmas, Johnny Rose");
+  assert.equal(got.episode?.season, 4);
+  // Without a name there's nothing to look for: the show's summary, as before.
+  assert.equal(meta.enrich(ep(14, null)).meta?.overview, "Show summary");
+  assert.equal(meta.enrich(ep(12, null)).meta?.title, "Life Is a Cabaret");
+});

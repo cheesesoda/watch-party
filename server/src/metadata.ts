@@ -177,7 +177,12 @@ export class Metadata {
     const show = this.lookup("shows", showKey(ep.show), () => this.findShow(ep.show), (s) => this.refresh("tv", s));
     if (!show) return item;
     const season = this.lookup("seasons", `${show.id}|${ep.season}`, () => this.findSeason(show.id, ep.season));
-    const details = (ep.season === 0 ? byName(season, ep.title) : undefined) ?? season?.episodes[ep.episode];
+    let details = (ep.season === 0 ? byName(season, ep.title) : undefined) ?? season?.episodes[ep.episode];
+    // An episode TMDB files as a special ("Schitt's Creek S04E13 Merry Christmas Johnny Rose" is its S00E09): found by
+    // name among the specials, while it stays where the file puts it.
+    if (!details && season && ep.season > 0 && ep.title) {
+      details = byName(this.lookup("seasons", `${show.id}|0`, () => this.findSeason(show.id, 0)), ep.title);
+    }
     const meta: MediaMeta = {
       tmdbId: show.id,
       title: details?.name ?? show.title,
@@ -204,11 +209,13 @@ export class Metadata {
 
   /**
    * Looks up everything in the library ahead of time, so details are ready before anyone opens it.
-   * Runs twice because a TV season can only be asked for once its show has been found.
+   * Runs three times because a TV season can only be asked for once its show has been found, and an episode TMDB
+   * files as a special is only looked for among the specials once its own season has come back without it.
    */
   async warm(items: MediaItem[]): Promise<void> {
     if (!this.enabled) return;
-    for (let round = 0; round < 2; round++) {
+    await this.loaded;
+    for (let round = 0; round < 3; round++) {
       for (const item of items) this.enrich(item);
       await this.idle();
     }
