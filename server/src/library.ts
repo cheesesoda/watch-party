@@ -115,9 +115,9 @@ export function parseName(relPath: string): ParsedName {
     // "Doctor.Who.2005.S01E01": the year only tells shows with the same name apart, so it's dropped.
     let show = clean(untag(base.slice(0, ep.index! + (/^[\s._\-[(]/.test(ep[0]) ? 1 : 0))).replace(/\(?(19|20)\d{2}\)?$/, ""));
     if (!show) {
-      // "Show/Season 2/S02E04.mkv": use the nearest folder that isn't a season folder.
+      // "Show/Season 2/S02E04.mkv" or "Show/Specials/S00E01.mkv": use the nearest folder that isn't a season folder.
       const folders = parts.slice(0, -1).reverse();
-      show = clean(folders.find((f) => !/^(season|series|s)\s*\d+$/i.test(clean(f))) ?? "");
+      show = clean(folders.find((f) => !/^((season|series|s)\s*\d+|specials)$/i.test(clean(f))) ?? "");
     }
     const season = Number(ep[1]);
     const episode = Number(ep[2]);

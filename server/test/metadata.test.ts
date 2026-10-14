@@ -214,3 +214,28 @@ test("episodes carry their air date, and seasons saved before air dates were kep
   assert.deepEqual(tmdb.calls, ["/3/tv/7/season/0?|"]);
   assert.equal(meta.enrich(ep).meta?.airDate, "2019-12-25");
 });
+
+test("specials are matched by the title in the file name when their numbers differ from TMDB's", async () => {
+  const tmdb = fakeTmdb({});
+  const file = config("specials").file;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const show = { id: 7, title: "Letterkenny", year: 2016, overview: "Show summary", posterPath: null, backdropPath: null };
+  const season = {
+    posterPath: null,
+    dated: true,
+    episodes: {
+      1: { name: "St. Perfect's Day", overview: "Shamrocks", stillPath: null, airDate: "2017-03-17" },
+      5: { name: "Valentime's Day", overview: "Hearts", stillPath: null, airDate: "2019-02-14" },
+    },
+  };
+  await fs.writeFile(file, JSON.stringify({ version: 2, shows: { letterkenny: { at: Date.now(), value: show } }, seasons: { "7|0": { at: Date.now(), value: season } } }));
+  const meta = new Metadata(config("specials"), tmdb.fetchImpl, Date.now, noPause);
+  await meta.warm([]);
+  const special = (episode: number, title: string | null) => meta.enrich(item({ title: "x", episode: { show: "Letterkenny", season: 0, episode, title } }));
+  assert.equal(special(41, "Valentimes Day").meta?.overview, "Hearts");
+  assert.equal(special(41, "Valentimes Day").title, "Letterkenny Special 41 · Valentime's Day");
+  assert.equal(special(13, "St. Perfect's Day").meta?.airDate, "2017-03-17");
+  // No title, or one TMDB doesn't have: the number decides, as before.
+  assert.equal(special(5, null).meta?.overview, "Hearts");
+  assert.equal(special(68, "Something Else").meta?.overview, "Show summary");
+});
