@@ -143,6 +143,25 @@ export function parseName(relPath: string): ParsedName {
 }
 
 /**
+ * A movie whose file name has no year ("japhson-groove-1080p.mkv") takes its title and year from its folder
+ * ("The.Emperors.New.Groove.2000.1080p.BluRay"), when that folder has a year and holds no other movie.
+ */
+export function nameFromFolder(items: MediaItem[], extras: Map<string, { kind: string; ownerFolder: string }>): void {
+  const movies = new Map<string, MediaItem[]>();
+  for (const i of items) {
+    if (i.folder === "" || i.episode || extras.has(i.id) || i.part) continue;
+    movies.set(i.folder, [...(movies.get(i.folder) ?? []), i]);
+  }
+  for (const [folder, [movie, ...others]] of movies) {
+    if (others.length || movie.year != null) continue;
+    const named = parseName(folder.slice(folder.lastIndexOf("/") + 1) + ".mkv");
+    if (named.year == null || named.episode || !named.title) continue;
+    movie.title = named.title;
+    movie.year = named.year;
+  }
+}
+
+/**
  * Extras without a Plex-style name: in a movie's own folder ("Burn After Reading (2008)/"), the movie is the file
  * named like the folder, or else (when the folder has a year) a file at least twice the size of any other. The other
  * videos there are its extras. Folders that hold several movies, like "Films/", have neither, so they're left alone.
@@ -319,6 +338,7 @@ export class Library {
     const all = [...next.values()].map((e) => e.item);
     linkParts(all, partNumbers);
     findFolderExtras(all, extraOwners);
+    nameFromFolder(all, extraOwners);
     linkExtras(all, extraOwners);
     this.entries = next;
     this.lastScan = Date.now();

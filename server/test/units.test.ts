@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { expectedPosition } from "../../shared/protocol.ts";
 import { checkPassword, tokenFor } from "../src/auth.ts";
-import { findFolderExtras, linkExtras, linkParts, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
+import { findFolderExtras, linkExtras, linkParts, nameFromFolder, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { parseRange } from "../src/range.ts";
 import { FailureLimiter } from "../src/ratelimit.ts";
@@ -101,6 +101,32 @@ test("other videos in a movie's own folder are its extras", () => {
   assert.deepEqual(items[3].extra, { kind: "Extra", of: "big", show: null });
   // Two cuts of similar size: neither is an extra. A folder of many movies isn't touched either.
   assert.deepEqual([items[0], items[2], items[4], items[5], items[6], items[7]].map((i) => i.extra), [undefined, undefined, undefined, undefined, undefined, undefined]);
+});
+
+test("a movie file named without a year takes its title and year from its folder", () => {
+  const item = (id: string, relPath: string, size = 1000): MediaItem => {
+    const { title, year } = parseName(relPath);
+    return { id, title, year, relPath, folder: relPath.slice(0, relPath.lastIndexOf("/")), size, mime: "video/mp4", subtitles: [], episode: null };
+  };
+  const items = [
+    item("groove", "Movies/The.Emperors.New.Groove.2000.1080p.BluRay.X264-Japhson [PublicHD]/japhson-groove-1080p.mkv"),
+    item("heat", "Films/Heat (1995)/heat_main.mkv", 9000),
+    item("clip", "Films/Heat (1995)/Making of.mkv", 900),
+    item("named", "Films/Alien (1979)/Alien.Directors.Cut.1979.mkv"),
+    item("a", "Films/Loose One.mkv"),
+    item("b", "Films/Loose Two.mkv"),
+  ];
+  const extras = new Map<string, { kind: string; ownerFolder: string }>();
+  findFolderExtras(items, extras);
+  nameFromFolder(items, extras);
+  assert.deepEqual(items.map((i) => [i.title, i.year]), [
+    ["The Emperors New Groove", 2000],
+    ["Heat", 1995],
+    ["Making of", null],
+    ["Alien Directors Cut", 1979],
+    ["Loose One", null],
+    ["Loose Two", null],
+  ]);
 });
 
 test("subtitleTag", () => {
