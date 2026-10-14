@@ -228,7 +228,7 @@ private fun TvRow(api: Api, item: MediaItem, place: Int, modifier: Modifier, onC
         Spacer(Modifier.width(12.dp))
         Thumb(api, item, null)
         Column(Modifier.padding(start = 14.dp).weight(1f)) {
-            val title = if (ep != null) "S${ep.season} E${ep.episode}" else rowTitle(item)
+            val title = if (ep != null) episodeLabel(ep.season, ep.episode) else rowTitle(item)
             val sub = if (ep != null) listOfNotNull(ep.title ?: item.meta?.title, item.duration?.let(::runtime)).joinToString(" · ") else movieLine(item, withLength = true)
             Text(title, color = if (focused) OnFocus else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -497,7 +497,7 @@ internal fun Thumb(api: Api, item: MediaItem, progress: Float?) {
 private fun rowTitle(m: MediaItem): String = m.episode?.let { it.title ?: m.meta?.title } ?: m.meta?.title ?: m.title
 
 /** "Severance S2 E3" for an episode; null for anything else. */
-private fun showLine(m: MediaItem): String? = m.episode?.let { "${m.meta?.show ?: it.show} S${it.season} E${it.episode}" }
+private fun showLine(m: MediaItem): String? = m.episode?.let { "${m.meta?.show ?: it.show} ${episodeLabel(it.season, it.episode)}" }
 
 /** "Movie · 1995 · 2 h 50 m", or the kind of extra. */
 private fun movieLine(m: MediaItem, withLength: Boolean): String = listOfNotNull(

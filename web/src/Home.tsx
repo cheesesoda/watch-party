@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { episodeLabel } from "../../shared/specials.ts";
 import { worthSaving, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, SearchResults, ShowPage, showLink, ShowsPage, type Browse } from "./Browse.tsx";
@@ -418,7 +419,7 @@ function PartyCard(props: { room: RoomSummary; elapsed: number; details: boolean
   const [failed, setFailed] = useState(false);
   const state = !r.playback || r.members.length === 0 ? "Waiting" : r.playback.paused ? "Paused" : "Watching";
   const title = r.media?.episode ? (m?.show ?? r.media.episode.show) : (m?.title ?? r.media?.title ?? "Nothing picked yet");
-  const sub = r.media?.episode ? `S${r.media.episode.season} · E${r.media.episode.episode}` : null;
+  const sub = r.media?.episode ? episodeLabel(r.media.episode.season, r.media.episode.episode) : null;
   return (
     <div className="party-card">
       <span className="party-art">

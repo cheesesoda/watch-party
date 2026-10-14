@@ -62,7 +62,7 @@ test("episodes get TMDB's episode name, whatever the file calls them", async () 
   const got = meta.enrich(ep);
   assert.equal(got.title, "Game of Thrones S1 E1 · Winter Is Coming");
   assert.equal(got.episode?.title, "Winter Is Coming");
-  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…", backdropPath: null, rating: null, genres: [] });
+  assert.deepEqual(got.meta, { tmdbId: 1399, title: "Winter Is Coming", year: 2011, overview: "Ned Stark…", posterPath: "/s1.jpg", stillPath: "/e1.jpg", airDate: null, show: "Game of Thrones", showPosterPath: "/got.jpg", showOverview: "Seven noble families…", backdropPath: null, rating: null, genres: [] });
 
   // A dubbed or tagged title from the file name gives way to TMDB's.
   const named = item({ title: "Game of Thrones S1 E1 · L Inverno Sta Arrivando ITA", episode: { show: "Game of Thrones", season: 1, episode: 1, title: "L Inverno Sta Arrivando ITA" } });
@@ -197,4 +197,20 @@ test("movies and shows saved before backdrops were kept are asked for again by i
   assert.deepEqual(meta.enrich(movie).meta?.genres, ["Drama"]);
   const saved = JSON.parse(await fs.readFile(file, "utf8"));
   assert.equal(saved.movies["old|1999"].pinned, true);
+});
+
+test("episodes carry their air date, and seasons saved before air dates were kept are asked for again", async () => {
+  const tmdb = fakeTmdb({
+    "/3/tv/7/season/0": { episodes: [{ episode_number: 1, name: "A Letterkenny Christmas", air_date: "2019-12-25" }] },
+  });
+  const file = config("dated").file;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const show = { id: 7, title: "Letterkenny", year: 2016, overview: null, posterPath: null, backdropPath: null };
+  const season = { posterPath: null, episodes: { 1: { name: "A Letterkenny Christmas", overview: null, stillPath: null } } };
+  await fs.writeFile(file, JSON.stringify({ version: 2, shows: { letterkenny: { at: Date.now(), value: show } }, seasons: { "7|0": { at: Date.now(), value: season } } }));
+  const ep = item({ title: "Letterkenny S0 E1", episode: { show: "Letterkenny", season: 0, episode: 1, title: null } });
+  const meta = new Metadata(config("dated"), tmdb.fetchImpl, Date.now, noPause);
+  await meta.warm([ep]);
+  assert.deepEqual(tmdb.calls, ["/3/tv/7/season/0?|"]);
+  assert.equal(meta.enrich(ep).meta?.airDate, "2019-12-25");
 });

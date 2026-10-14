@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { episodeLabel } from "../../shared/specials.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ExtraInfo, MediaItem, SubtitleTrack } from "../../shared/protocol.ts";
@@ -123,7 +124,7 @@ export function parseName(relPath: string): ParsedName {
     const epTitle = untag(base.slice(ep.index! + ep[0].length), false) || null;
     const name = show || titleFromFilename(base);
     return {
-      title: `${name} S${season} E${episode}${epTitle ? ` · ${epTitle}` : ""}`,
+      title: `${name} ${episodeLabel(season, episode)}${epTitle ? ` · ${epTitle}` : ""}`,
       year: null,
       episode: { show: name, season, episode, title: epTitle },
     };

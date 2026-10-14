@@ -54,6 +54,7 @@ function showFacts(show: Show): string[] {
   return [
     String(show.meta?.year ?? ""),
     plural(show.seasons.length, "season"),
+    show.specials.length ? plural(show.specials.length, "special") : "",
     show.meta?.rating ? `★ ${show.meta.rating.toFixed(1)}` : "",
     (show.meta?.genres ?? []).slice(0, 3).join(", "),
   ].filter(Boolean);
@@ -381,18 +382,22 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
   );
 }
 
-/** The Extras tab after a show's seasons. */
+/** The Extras tab after a show's seasons, and the Specials tab (season 0) before it. */
 const EXTRAS = -1;
+const SPECIALS = -2;
 
 /** A show's page: backdrop, poster, facts, binge buttons, season chips and the season's episodes. */
 export function ShowPage(props: { b: Browse; show: Show }) {
   const { b, show } = props;
   const m = show.meta;
+  const tabs = [...show.seasons, ...(show.specials.length ? [SPECIALS] : []), ...(show.extras.length ? [EXTRAS] : [])];
   const remembered = Number(readPref(`season:${show.key}`));
-  const [season, setSeason] = useState(() => (show.seasons.includes(remembered) || (remembered === EXTRAS && show.extras.length > 0) ? remembered : show.seasons[0]));
+  const [season, setSeason] = useState(() => (tabs.includes(remembered) ? remembered : tabs[0]));
   useEffect(() => writePref(`season:${show.key}`, String(season)), [show.key, season]);
-  const inSeason = (n: number) => show.episodes.filter((e) => e.episode!.season === n);
-  const binge = season === EXTRAS ? show.seasons[0] : season;
+  // A season's list has the specials that aired during it, where they aired.
+  const inSeason = (n: number) => (n === SPECIALS ? show.specials : (show.bySeason.get(n) ?? []));
+  const binge = season === EXTRAS ? tabs[0] : season;
+  const bingeName = binge === SPECIALS ? "specials" : `season ${binge}`;
   const spot = b.spot?.of(show);
 
   return (
@@ -411,12 +416,14 @@ export function ShowPage(props: { b: Browse; show: Show }) {
                 <PlayIcon size={18} /> Continue binge
               </button>
             )}
-            <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
-              <PlayIcon size={18} /> Binge season {binge}
-            </button>
-            {b.queue && (
-              <button className="pill tonal" onClick={() => b.queue!.add(inSeason(binge).map((e) => e.id), `${show.name} season ${binge}`)}>
-                <ListPlusIcon size={18} /> Add season {binge} to Up next
+            {binge !== EXTRAS && (
+              <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
+                <PlayIcon size={18} /> Binge {bingeName}
+              </button>
+            )}
+            {b.queue && binge !== EXTRAS && (
+              <button className="pill tonal" onClick={() => b.queue!.add(inSeason(binge).map((e) => e.id), `${show.name} ${bingeName}`)}>
+                <ListPlusIcon size={18} /> Add {bingeName} to Up next
               </button>
             )}
             {show.seasons.length > 1 && (
@@ -428,23 +435,18 @@ export function ShowPage(props: { b: Browse; show: Show }) {
           </div>
         </div>
       </div>
-      {(show.seasons.length > 1 || show.extras.length > 0) && (
+      {tabs.length > 1 && (
         <div className="chips seasons">
-          {show.seasons.map((n) => (
+          {tabs.map((n) => (
             <button key={n} className={n === season ? "chip on" : "chip"} aria-pressed={n === season} onClick={() => setSeason(n)}>
-              Season {n}
+              {n === SPECIALS ? "Specials" : n === EXTRAS ? "Extras" : `Season ${n}`}
             </button>
           ))}
-          {show.extras.length > 0 && (
-            <button className={season === EXTRAS ? "chip on" : "chip"} aria-pressed={season === EXTRAS} onClick={() => setSeason(EXTRAS)}>
-              Extras
-            </button>
-          )}
         </div>
       )}
       <ul className="ep-list">
         {(season === EXTRAS ? show.extras : inSeason(season)).map((e) => (
-          <EpisodeRow key={e.id} item={e} b={b} />
+          <EpisodeRow key={e.id} item={e} b={b} special={season !== SPECIALS && e.episode?.season === 0} />
         ))}
       </ul>
       {b.details && <Credit />}
@@ -453,10 +455,11 @@ export function ShowPage(props: { b: Browse; show: Show }) {
 }
 
 /** An episode or extra: its still, "3. Title", length, summary and its own Start party. Clicking the row opens its details. */
-export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string; playing?: boolean }) {
+export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string; playing?: boolean; special?: boolean }) {
   const { item, b } = props;
   const ep = item.episode;
-  const title = ep ? `${ep.episode}. ${ep.title ?? `Episode ${ep.episode}`}` : item.title;
+  // A special in a season's list: a "Special" tag instead of its number.
+  const title = !ep ? item.title : props.special ? (ep.title ?? `Special ${ep.episode}`) : `${ep.episode}. ${ep.title ?? `Episode ${ep.episode}`}`;
   const facts = [
     props.context,
     item.extra?.kind,
@@ -469,7 +472,10 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
       <button className="ep-open" onClick={() => b.openInfo(item.id)}>
         {b.details && ep ? <Poster path={item.meta?.stillPath} size="w300" className="ep-still" /> : <span className="ep-still empty">{ep ? `E${ep.episode}` : ""}</span>}
         <span className="ep-text">
-          <span className="ep-title">{title}</span>
+          <span className="ep-title">
+            {props.special && <span className="special-tag">Special</span>}
+            {title}
+          </span>
           <span className="ep-facts">{facts.join(" · ")}</span>
           {b.details && ep && item.meta?.overview && <span className="ep-overview">{item.meta.overview}</span>}
         </span>

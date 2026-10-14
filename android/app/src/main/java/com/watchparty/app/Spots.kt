@@ -71,12 +71,12 @@ fun spotPreview(media: MediaItem, position: Double, duration: Double?, next: Med
 fun spotTitle(m: MediaItem): String {
     val ep = m.episode ?: return m.meta?.title ?: m.title
     val name = m.meta?.title ?: ep.title
-    return "${m.meta?.show ?: ep.show} · S${ep.season} E${ep.episode}" + (name?.let { " $it" } ?: "")
+    return "${m.meta?.show ?: ep.show} · ${episodeLabel(ep.season, ep.episode)}" + (name?.let { " $it" } ?: "")
 }
 
 /** "Severance S2 E3", or the movie's title: for the phone's narrower cards. */
 fun spotShortTitle(m: MediaItem): String =
-    m.episode?.let { "${m.meta?.show ?: it.show} S${it.season} E${it.episode}" } ?: m.meta?.title ?: m.title
+    m.episode?.let { "${m.meta?.show ?: it.show} ${episodeLabel(it.season, it.episode)}" } ?: m.meta?.title ?: m.title
 
 /** "31 m in", or "From the start" for a spot at the very beginning (the next one in a binge). */
 fun howFar(position: Double): String = if (position >= 60) "${runtime(position)} in" else "From the start"
@@ -168,7 +168,7 @@ fun PhoneSpotCard(api: Api, details: Boolean, s: Spot, width: Dp, onOpen: () -> 
 @Composable
 fun SpotLine(api: Api, details: Boolean, s: Spot, tv: Boolean) {
     val m = s.media
-    val name = m.episode?.let { e -> "S${e.season} E${e.episode}" + ((m.meta?.title ?: e.title)?.let { " $it" } ?: "") } ?: m.meta?.title ?: m.title
+    val name = m.episode?.let { e -> episodeLabel(e.season, e.episode) + ((m.meta?.title ?: e.title)?.let { " $it" } ?: "") } ?: m.meta?.title ?: m.title
     val saved = savedWhen(s.savedAt).let { if (it == "Today" || it == "Yesterday") it.lowercase() else it }
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (details) Thumb(api, m, progress(m, s.position))
@@ -251,7 +251,7 @@ fun SaveSpotDialog(api: Api, spot: SpotPreview, onSave: () -> Unit, onDontSave: 
                 Column(Modifier.padding(start = 14.dp)) {
                     Text(m.episode?.let { m.meta?.title ?: it.title } ?: m.meta?.title ?: m.title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        listOfNotNull(m.episode?.let { "${m.meta?.show ?: it.show} · S${it.season} E${it.episode}" }, howFar(spot.position), linedUp(spot.more)).joinToString(" · "),
+                        listOfNotNull(m.episode?.let { "${m.meta?.show ?: it.show} · ${episodeLabel(it.season, it.episode)}" }, howFar(spot.position), linedUp(spot.more)).joinToString(" · "),
                         color = Muted,
                         fontSize = 13.sp,
                     )

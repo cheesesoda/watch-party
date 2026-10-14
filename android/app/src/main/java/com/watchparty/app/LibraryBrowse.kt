@@ -12,7 +12,13 @@ enum class LibrarySort(val label: String) { Recent("Recently added"), AZ("A–Z"
  */
 data class Show(val name: String, val episodes: List<MediaItem>, val aliases: List<String> = listOf(name)) {
     val meta: MediaMeta? = episodes.firstOrNull { it.meta != null }?.meta
-    val seasons: List<Int> = episodes.map { it.episode!!.season }.distinct()
+    private val woven = weave(episodes)
+    /** The real seasons, without 0. */
+    val seasons: List<Int> = woven.seasons.keys.toList()
+    /** Each season with the specials that aired during it, where they aired. */
+    val bySeason: Map<Int, List<MediaItem>> = woven.seasons
+    /** Season 0 by number: the Specials tab. */
+    val specials: List<MediaItem> = woven.specials
     val addedAt: Long = episodes.maxOfOrNull { it.addedAt } ?: 0
     val size: Long = episodes.sumOf { it.size }
     val summary: String
@@ -54,11 +60,53 @@ fun shows(items: List<MediaItem>): List<Show> =
         .map { (_, eps) ->
             Show(
                 name = eps.firstNotNullOfOrNull { it.meta?.show } ?: eps.first().episode!!.show,
-                episodes = eps.sortedWith(compareBy({ it.episode!!.season }, { it.episode!!.episode })),
+                // Watching order: the seasons, with specials where they aired (Binge all plays this).
+                episodes = weave(eps).all,
                 aliases = eps.map { it.episode!!.show }.distinct(),
             )
         }
         .sortedWith(compareBy(byName) { it.name })
+
+/** A show's episodes in watching order (see [weave]). */
+class Woven(val all: List<MediaItem>, val seasons: Map<Int, List<MediaItem>>, val specials: List<MediaItem>)
+
+/**
+ * Places each special (season 0) after the last episode that aired on or before its TMDB air date, so a binge plays
+ * it where people first saw it. One that aired before the first episode starts that season; one without a date, or in
+ * a show whose episodes have none, only goes at the end of the whole binge. Same as shared/specials.ts on the web.
+ */
+fun weave(episodes: List<MediaItem>): Woven {
+    val regular = episodes.filter { it.episode!!.season > 0 }.sortedWith(compareBy({ it.episode!!.season }, { it.episode!!.episode }))
+    val specials = episodes.filter { it.episode!!.season == 0 }.sortedBy { it.episode!!.episode }
+    val after = mutableMapOf<Int, MutableList<MediaItem>>() // index into regular, -1 for before the first
+    val undated = mutableListOf<MediaItem>()
+    val dated = regular.any { it.meta?.airDate != null }
+    for (s in specials) {
+        val day = s.meta?.airDate
+        if (day == null || !dated || regular.isEmpty()) {
+            undated += s
+            continue
+        }
+        val at = regular.indexOfLast { e -> e.meta?.airDate?.let { it <= day } == true }
+        after.getOrPut(at) { mutableListOf() } += s
+    }
+    val all = mutableListOf<MediaItem>()
+    val seasons = linkedMapOf<Int, MutableList<MediaItem>>()
+    after[-1]?.let { first ->
+        all += first
+        seasons.getOrPut(regular.first().episode!!.season) { mutableListOf() } += first
+    }
+    regular.forEachIndexed { i, e ->
+        val next = listOf(e) + (after[i] ?: emptyList())
+        all += next
+        seasons.getOrPut(e.episode!!.season) { mutableListOf() } += next
+    }
+    all += undated
+    return Woven(all, seasons, specials)
+}
+
+/** "S2 E3", or "Special 3" for season 0. */
+fun episodeLabel(season: Int, episode: Int): String = if (season == 0) "Special $episode" else "S$season E$episode"
 
 /** A show's extras, filed under any of the names its folders have. */
 fun extrasOfShow(show: Show, extras: Map<String, List<MediaItem>>): List<MediaItem>? =

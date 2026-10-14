@@ -54,6 +54,8 @@ export interface MediaMeta {
   posterPath: string | null;
   /** The episode's still image. */
   stillPath?: string | null;
+  /** When the episode first aired, "2019-12-25" (TMDB), so specials can be played where they aired. */
+  airDate?: string | null;
   /** The show's name as TMDB has it, for episodes. */
   show?: string | null;
   /** The show's own poster and summary, for episodes. */

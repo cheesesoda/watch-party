@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { episodeLabel } from "../../shared/specials.ts";
 import { nearEnd, type MediaItem, type Spot } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { fmtRuntime } from "./catalog.ts";
@@ -8,7 +9,7 @@ import { CloseIcon, PlayIcon } from "./Icons.tsx";
 export function spotTitle(m: MediaItem): string {
   if (!m.episode) return m.meta?.title ?? m.title;
   const name = m.meta?.title ?? m.episode.title;
-  return `${m.meta?.show ?? m.episode.show} · S${m.episode.season} E${m.episode.episode}${name ? ` ${name}` : ""}`;
+  return `${m.meta?.show ?? m.episode.show} · ${episodeLabel(m.episode.season, m.episode.episode)}${name ? ` ${name}` : ""}`;
 }
 
 /** "31 m in", or "From the start" for a spot at the very beginning (the next one in a binge). */
@@ -87,7 +88,7 @@ export function SpotRow(props: { spots: Spot[]; details: boolean; onStart: (s: S
 export function SpotLine(props: { spot: Spot; details: boolean }) {
   const { spot } = props;
   const m = spot.media;
-  const ep = m.episode ? `S${m.episode.season} E${m.episode.episode}` + ((m.meta?.title ?? m.episode.title) ? ` ${m.meta?.title ?? m.episode.title}` : "") : (m.meta?.title ?? m.title);
+  const ep = m.episode ? episodeLabel(m.episode.season, m.episode.episode) + ((m.meta?.title ?? m.episode.title) ? ` ${m.meta?.title ?? m.episode.title}` : "") : (m.meta?.title ?? m.title);
   const saved = when(spot.savedAt);
   return (
     <div className="spot-line">
@@ -123,7 +124,7 @@ export function SaveSpotDialog(props: {
   useEffect(() => save.current?.focus(), []);
   const m = props.media;
   const name = m.episode ? (m.meta?.title ?? m.episode.title ?? m.title) : (m.meta?.title ?? m.title);
-  const sub = [m.episode ? `${m.meta?.show ?? m.episode.show} · S${m.episode.season} E${m.episode.episode}` : "", howFar(props.position), lined(props.more)];
+  const sub = [m.episode ? `${m.meta?.show ?? m.episode.show} · ${episodeLabel(m.episode.season, m.episode.episode)}` : "", howFar(props.position), lined(props.more)];
   return (
     <div
       className="save-spot-backdrop"

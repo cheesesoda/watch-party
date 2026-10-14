@@ -75,4 +75,22 @@ class LibraryBrowseTest {
         assertEquals("2:01:00", formatLength(7260.0))
         assertEquals("50:00", formatLength(3000.0))
     }
+
+    private fun aired(season: Int, n: Int, day: String?) = ep("Letterkenny", season, n).copy(meta = day?.let { MediaMeta(tmdbId = 1, title = "", airDate = it) })
+
+    @Test
+    fun specialsAreWovenInWhereTheyAired() {
+        val show = listOf(
+            aired(2, 1, "2017-12-25"), aired(1, 2, "2016-02-14"), aired(1, 1, "2016-02-07"), aired(2, 2, "2018-01-01"),
+            aired(0, 3, null), aired(0, 2, "2017-12-25"), aired(0, 1, "2016-12-20"), aired(0, 4, "2015-01-01"),
+        )
+        val w = weave(show)
+        val ids = { l: List<MediaItem> -> l.map { "${it.episode!!.season}x${it.episode!!.episode}" } }
+        assertEquals(listOf("0x4", "1x1", "1x2", "0x1", "2x1", "0x2", "2x2", "0x3"), ids(w.all))
+        assertEquals(listOf("0x4", "1x1", "1x2", "0x1"), ids(w.seasons.getValue(1)))
+        assertEquals(listOf("2x1", "0x2", "2x2"), ids(w.seasons.getValue(2)))
+        assertEquals(listOf("0x1", "0x2", "0x3", "0x4"), ids(w.specials))
+        assertEquals(listOf(1, 2), Show("Letterkenny", w.all).seasons)
+        assertEquals("Special 3", episodeLabel(0, 3))
+    }
 }

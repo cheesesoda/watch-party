@@ -1,4 +1,5 @@
 import type { MediaItem, MediaMeta } from "../../shared/protocol.ts";
+import { weave } from "../../shared/specials.ts";
 
 export const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -15,8 +16,14 @@ export interface Show {
   name: string;
   /** The show names read from file names that were grouped into this one. */
   aliases: string[];
+  /** In watching order: the seasons with specials woven in where they aired, then undated specials (Binge all). */
   episodes: MediaItem[];
+  /** The real seasons, without 0. */
   seasons: number[];
+  /** Each season's episodes with the specials that aired during it. */
+  bySeason: Map<number, MediaItem[]>;
+  /** Season 0 by number, for the Specials tab. */
+  specials: MediaItem[];
   addedAt: number;
   /** The show's TMDB details, from any of its episodes. */
   meta: MediaMeta | null;
@@ -54,7 +61,7 @@ export function buildCatalog(items: MediaItem[]): Catalog {
     if (!item.episode) continue;
     // With TMDB, "Franklin & Bash" and "Franklin and Bash" folders are one show, under TMDB's name.
     const id = item.meta?.tmdbId ? `tmdb-${item.meta.tmdbId}` : item.episode.show.toLowerCase().replace(/\s*&\s*/g, " and ");
-    if (!map.has(id)) map.set(id, { key: id, name: item.meta?.show ?? item.episode.show, aliases: [], episodes: [], seasons: [], addedAt: 0, meta: null, extras: [] });
+    if (!map.has(id)) map.set(id, { key: id, name: item.meta?.show ?? item.episode.show, aliases: [], episodes: [], seasons: [], bySeason: new Map(), specials: [], addedAt: 0, meta: null, extras: [] });
     const show = map.get(id)!;
     if (!show.aliases.includes(item.episode.show)) show.aliases.push(item.episode.show);
     show.episodes.push(item);
@@ -62,8 +69,11 @@ export function buildCatalog(items: MediaItem[]): Catalog {
     show.meta ??= item.meta ?? null;
   }
   for (const show of map.values()) {
-    show.episodes.sort((a, b) => a.episode!.season - b.episode!.season || a.episode!.episode - b.episode!.episode);
-    show.seasons = [...new Set(show.episodes.map((e) => e.episode!.season))];
+    const woven = weave(show.episodes);
+    show.episodes = woven.all;
+    show.bySeason = woven.seasons;
+    show.specials = woven.specials;
+    show.seasons = [...woven.seasons.keys()];
     show.extras = show.aliases.flatMap((a) => extrasByFolder.get(a) ?? []);
   }
 

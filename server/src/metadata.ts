@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { episodeLabel } from "../../shared/specials.ts";
 import path from "node:path";
 import type { MediaItem, MediaMeta } from "../../shared/protocol.ts";
 
@@ -30,7 +31,9 @@ interface ShowHit extends MovieHit {}
 
 interface SeasonHit {
   posterPath: string | null;
-  episodes: Record<number, { name: string | null; overview: string | null; stillPath: string | null }>;
+  episodes: Record<number, { name: string | null; overview: string | null; stillPath: string | null; airDate?: string | null }>;
+  /** Saved after air dates were kept; older saved seasons are asked for again. */
+  dated?: boolean;
 }
 
 interface CacheEntry<T> {
@@ -63,6 +66,9 @@ const OFFLINE_RETRY_MS = 5 * 60 * 1000;
 const OFFLINE = Symbol("offline");
 
 const IMAGE = "https://image.tmdb.org/t/p";
+
+/** A season saved before air dates were kept: asked for again (its old answer is used meanwhile). */
+const undated = (kind: string, entry: CacheEntry<unknown>) => kind === "seasons" && entry.value !== null && !(entry.value as SeasonHit).dated;
 /** Poster and still sizes the server passes along; TMDB has others, but these cover every screen. */
 export const IMAGE_SIZES = new Set(["w92", "w185", "w342", "w500", "w300", "w780", "w1280"]);
 const IMAGE_FILE = /^[A-Za-z0-9_-]+\.(jpg|png)$/;
@@ -165,6 +171,7 @@ export class Metadata {
       overview: details?.overview ?? show.overview,
       posterPath: season?.posterPath ?? show.posterPath,
       stillPath: details?.stillPath ?? null,
+      airDate: details?.airDate ?? null,
       show: show.title,
       showPosterPath: show.posterPath,
       showOverview: show.overview,
@@ -175,7 +182,7 @@ export class Metadata {
     // TMDB's episode name wins: most rips have none ("Show.S01E02.mkv"), and others carry a dubbed or tagged one
     // ("La Citta Dell Amore Fraterno ITA ENG AMZN"). Every client shows it.
     if (details?.name) {
-      const title = `${ep.show} S${ep.season} E${ep.episode} · ${details.name}`;
+      const title = `${ep.show} ${episodeLabel(ep.season, ep.episode)} · ${details.name}`;
       return { ...item, title, episode: { ...ep, title: details.name }, meta };
     }
     return { ...item, meta };
@@ -271,7 +278,7 @@ export class Metadata {
   ): CacheFile[K][string]["value"] {
     const entry = this.cache[kind][id];
     const old = refresh && entry?.value && (entry.value as MovieHit).backdropPath === undefined;
-    const fresh = entry && !old && (entry.value !== null || entry.pinned || this.now() - entry.at < RETRY_MISS_MS);
+    const fresh = entry && !old && !undated(kind, entry) && (entry.value !== null || entry.pinned || this.now() - entry.at < RETRY_MISS_MS);
     const task = `${kind}:${id}`;
     if (old && !this.pending.has(task)) {
       this.pending.add(task);
@@ -295,7 +302,7 @@ export class Metadata {
           if (!this.enabled) return;
           // The file may already have it now that it's loaded.
           const cached = this.cache[kind][id];
-          if (cached && (cached.value !== null || cached.pinned || this.now() - cached.at < RETRY_MISS_MS)) return;
+          if (cached && !undated(kind, cached) && (cached.value !== null || cached.pinned || this.now() - cached.at < RETRY_MISS_MS)) return;
           const value = await find();
           (this.cache[kind] as Record<string, CacheEntry<unknown>>)[id] = { at: this.now(), value };
           this.scheduleSave();
@@ -360,9 +367,9 @@ export class Metadata {
     const episodes: SeasonHit["episodes"] = {};
     for (const e of Array.isArray(data.episodes) ? data.episodes : []) {
       if (typeof e?.episode_number !== "number") continue;
-      episodes[e.episode_number] = { name: text(e.name), overview: text(e.overview), stillPath: text(e.still_path) };
+      episodes[e.episode_number] = { name: text(e.name), overview: text(e.overview), stillPath: text(e.still_path), airDate: text(e.air_date) };
     }
-    return { posterPath: text(data.poster_path), episodes };
+    return { posterPath: text(data.poster_path), episodes, dated: true };
   }
 
   private async search_(kind: "movie" | "tv", query: string, extra: Record<string, string>): Promise<any[]> {
