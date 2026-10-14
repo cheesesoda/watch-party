@@ -99,7 +99,7 @@ import kotlinx.coroutines.launch
  */
 
 /** Where the dashboard is: "home", "movies", "shows", "parties", "search", "movie/<id>" or "show/<name>". */
-private typealias Route = String
+internal typealias Route = String
 
 private const val TMDB_CREDIT = "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."
 /** See-through white for tonal buttons and the selected menu item. */
@@ -566,7 +566,7 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
-private fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     Box(Modifier.fillMaxSize()) {
