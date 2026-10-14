@@ -142,6 +142,7 @@ private class Library(val items: List<MediaItem>) {
     fun showFacts(s: Show): String = listOfNotNull(
         s.meta?.year?.toString(),
         plural(s.seasons.size, "season"),
+        s.specials.size.takeIf { it > 0 }?.let { plural(it, "special") },
         s.meta?.rating?.let { "★ %.1f".format(it) },
         s.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
     ).joinToString(" · ")
@@ -837,7 +838,7 @@ private fun PartyCard(room: RoomSummary, sinceFetch: Long, details: Boolean, a: 
     val m = room.media?.meta
     val ep = room.media?.episode
     val title = (if (ep != null) m?.show ?: ep.show else m?.title ?: room.media?.title ?: "Nothing picked yet") +
-        (ep?.let { " · S${it.season} E${it.episode}" } ?: "") + (room.binge?.let { " · ${it.index} of ${it.length}" } ?: "")
+        (ep?.let { " · ${episodeLabel(it.season, it.episode)}" } ?: "") + (room.binge?.let { " · ${it.index} of ${it.length}" } ?: "")
     val state = when {
         room.playback == null || room.members.isEmpty() -> "WAITING"
         room.playback.paused -> "PAUSED"
@@ -1093,11 +1094,14 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
 @Composable
 private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState) {
     val extras = extrasOfShow(show, lib.extras)
-    // -1 is the Extras chip after the seasons.
-    var season by rememberSaveable(show.name) { mutableStateOf(show.seasons.first()) }
-    val shown = season.takeIf { it in show.seasons || (it == -1 && extras != null) } ?: show.seasons.first()
-    val binge = if (shown == -1) show.seasons.first() else shown
-    val inSeason = { n: Int -> show.episodes.filter { it.episode!!.season == n } }
+    // After the seasons: -2 is the Specials chip (season 0), -1 the Extras chip.
+    val tabs = show.seasons + listOfNotNull((-2).takeIf { show.specials.isNotEmpty() }, (-1).takeIf { extras != null })
+    var season by rememberSaveable(show.name) { mutableStateOf(tabs.first()) }
+    val shown = season.takeIf { it in tabs } ?: tabs.first()
+    val binge = if (shown == -1) tabs.first() else shown
+    // A season's list has the specials that aired during it, where they aired (ui-redesign/specials/).
+    val inSeason = { n: Int -> if (n == -2) show.specials else show.bySeason[n].orEmpty() }
+    val bingeName = if (binge == -2) "specials" else "season $binge"
     // A saved spot puts Continue binge first (ui-redesign/resume/*-show-continue).
     val spot = if (a.adding) null else a.spotOf(show)
     DetailPage(
@@ -1109,22 +1113,22 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         backdrop = show.meta?.backdropPath,
         buttons = { primary ->
             val bingeSeason = { inSeason(binge).let { eps -> a.start(eps.first(), eps.map { it.id }) } }
-            val addSeason = { a.queue(inSeason(binge).map { it.id }, "Season $binge") }
+            val addSeason = { a.queue(inSeason(binge).map { it.id }, bingeName.replaceFirstChar { it.uppercase() }) }
             if (a.adding && !a.tv) {
                 // Binge (which replaces Up next and plays now) and Add side by side, as in ui-redesign/queue/phone-add.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, modifier = Modifier.weight(1f), onClick = bingeSeason)
-                    Pill("Add season $binge", R.drawable.ic_list_plus, modifier = Modifier.weight(1f), onClick = addSeason)
+                    Pill("Binge $bingeName", R.drawable.ic_play_filled, primary = true, modifier = Modifier.weight(1f), onClick = bingeSeason)
+                    Pill("Add $bingeName", R.drawable.ic_list_plus, modifier = Modifier.weight(1f), onClick = addSeason)
                 }
             } else if (a.adding) {
-                Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
-                Pill("Add season $binge to Up next", R.drawable.ic_list_plus, onClick = addSeason)
+                Pill("Binge $bingeName", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
+                Pill("Add $bingeName to Up next", R.drawable.ic_list_plus, onClick = addSeason)
                 if (show.seasons.size > 1) MoreButton(listOf("Binge all ${show.seasons.size} seasons" to { a.start(show.episodes.first(), show.episodes.map { it.id }) }))
             } else if (spot != null) {
                 Pill("Continue binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary)) { a.startSpot(spot) }
-                Pill("Binge season $binge", R.drawable.ic_play_filled, wide = !a.tv, onClick = bingeSeason)
+                Pill("Binge $bingeName", R.drawable.ic_play_filled, wide = !a.tv, onClick = bingeSeason)
             } else {
-                Pill("Binge season $binge", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
+                Pill("Binge $bingeName", R.drawable.ic_play_filled, primary = true, wide = !a.tv, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
             }
             if (show.seasons.size > 1 && !a.adding) {
                 // With Continue binge, a phone shows it as a text button so the three fit.
@@ -1133,14 +1137,13 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         },
         above = spot?.let { sp -> @Composable { SpotLine(a.api, lib.details, sp, a.tv) } },
     ) {
-        if (show.seasons.size > 1 || extras != null) {
+        if (tabs.size > 1) {
             item(key = "seasons") {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(start = if (a.tv) 128.dp else 16.dp, end = 16.dp, top = if (a.tv) 28.dp else 16.dp, bottom = 8.dp),
                 ) {
-                    items(show.seasons) { n -> Chip("Season $n", n == shown, a.tv) { season = n } }
-                    if (extras != null) item { Chip("Extras", shown == -1, a.tv) { season = -1 } }
+                    items(tabs) { n -> Chip(if (n == -2) "Specials" else if (n == -1) "Extras" else "Season $n", n == shown, a.tv) { season = n } }
                 }
             }
         }
@@ -1149,11 +1152,11 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
             // On a TV the episodes are a sideways row of stills, like Google TV.
             item(key = "episodes-$shown") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
-                    items(list, key = { it.id }) { EpisodeCard(it, lib, a) }
+                    items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
                 }
             }
         } else {
-            items(list, key = { it.id }) { EpisodeRow(it, lib, a) }
+            items(list, key = { it.id }) { EpisodeRow(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
         }
     }
 }
@@ -1163,12 +1166,27 @@ private fun SectionTitle(text: String, a: Actions) {
     Text(text, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White, modifier = Modifier.padding(start = if (a.tv) 128.dp else 16.dp, top = 24.dp, bottom = 8.dp))
 }
 
-private fun episodeTitle(m: MediaItem) = m.episode?.let { "${it.episode}. ${it.title ?: "Episode ${it.episode}"}" } ?: m.title
+private fun episodeTitle(m: MediaItem, special: Boolean = false) =
+    m.episode?.let { if (special) it.title ?: "Special ${it.episode}" else "${it.episode}. ${it.title ?: "Episode ${it.episode}"}" } ?: m.title
+
+/** The episode's title, with a "Special" tag in front when it's a special sitting in a season (where it aired). */
+@Composable
+private fun EpisodeTitle(m: MediaItem, special: Boolean, size: Int, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (special) {
+            Text(
+                "Special", color = Color(0xFFF0B888), fontWeight = FontWeight.SemiBold, fontSize = (size - 3).sp,
+                modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(5.dp)).background(Color(0x2EE09A62)).padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
+        Text(episodeTitle(m, special), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = size.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
 private fun episodeLength(m: MediaItem) = m.duration?.let(::runtime) ?: formatSize(m.size)
 
 /** A TV episode: its still with the length, the title under it, and the summary while the remote is on it. */
 @Composable
-private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions) {
+private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean = false) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(10.dp)
@@ -1188,14 +1206,14 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions) {
             else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center))
             Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
         }
-        Text(episodeTitle(m), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
+        EpisodeTitle(m, special, 13, Modifier.padding(top = if (focused) 12.dp else 8.dp))
         if (focused) (m.meta?.overview ?: m.extra?.kind)?.let { Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
     }
 }
 
 /** A phone episode or extra: still, title, summary, and a round play button that starts a party with it. */
 @Composable
-private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions) {
+private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean = false) {
     Row(
         Modifier.fillMaxWidth().clickable { a.info(m) }.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1211,7 +1229,7 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions) {
         val playing = a.adding && PartyLink.playing == m.id
         val queued = a.adding && PartyLink.queued(m.id)
         Column(Modifier.weight(1f)) {
-            Text(episodeTitle(m), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            EpisodeTitle(m, special, 15)
             if (a.adding) {
                 Row {
                     Text(episodeLength(m), color = Muted, fontSize = 12.sp)

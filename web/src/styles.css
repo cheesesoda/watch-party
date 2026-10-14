@@ -2103,6 +2103,18 @@ button.link:focus-visible {
   position: relative;
   z-index: 1;
 }
+/* "Special" before a special's name where it sits in a season (it aired between those episodes). */
+.special-tag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: rgba(224, 154, 98, 0.18);
+  color: #f0b888;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
 .ep-row {
   display: flex;
   align-items: center;

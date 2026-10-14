@@ -845,7 +845,7 @@ class RoomActivity : ComponentActivity() {
         val names = members.map { it.name }.distinct().joinToString(", ")
         membersText.text = listOfNotNull(
             episode?.let { media?.meta?.show ?: it.show },
-            episode?.let { "S${it.season} E${it.episode}" },
+            episode?.let { episodeLabel(it.season, it.episode) },
             "Party $roomCode",
             names.ifEmpty { null },
         ).joinToString(" · ")
@@ -1538,7 +1538,7 @@ class RoomActivity : ComponentActivity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             addView(text(13f, ON_SURFACE_VARIANT).apply {
-                text = listOfNotNull(m.episode?.let { "${m.meta?.show ?: it.show} · S${it.season} E${it.episode}" }, howFar(spot.position), linedUp(spot.more)).joinToString(" · ")
+                text = listOfNotNull(m.episode?.let { "${m.meta?.show ?: it.show} · ${episodeLabel(it.season, it.episode)}" }, howFar(spot.position), linedUp(spot.more)).joinToString(" · ")
             })
         }
         val card = LinearLayout(this).apply {

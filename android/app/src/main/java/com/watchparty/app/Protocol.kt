@@ -57,6 +57,8 @@ data class MediaMeta(
     val posterPath: String? = null,
     /** The episode's still image. */
     val stillPath: String? = null,
+    /** When the episode first aired, "2019-12-25" (TMDB). */
+    val airDate: String? = null,
     /** The show's name as TMDB has it, and its own poster and summary, for episodes. */
     val show: String? = null,
     val showPosterPath: String? = null,
