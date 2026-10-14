@@ -206,7 +206,7 @@ fun SpotOptions(api: Api, s: Spot, startLabel: String, onStart: () -> Unit, onOp
                 }
             }
             OptionRow(R.drawable.ic_play_filled, startLabel, Modifier.focusRequester(first), onClick = onStart)
-            if (s.media.episode != null) OptionRow(R.drawable.ic_nav_shows, "Go to show", onClick = onOpen)
+            if (s.media.episode != null || s.media.extra?.show != null) OptionRow(R.drawable.ic_nav_shows, "Go to show", onClick = onOpen)
             else OptionRow(R.drawable.ic_nav_movies, "Go to movie", onClick = onOpen)
             OptionRow(R.drawable.ic_trash, "Remove", danger = true, onClick = onRemove)
         }

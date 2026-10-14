@@ -297,8 +297,10 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         open = { spot ->
             spotOptions = null
             val m = spot.media
+            // An extra opens the show or movie it belongs to.
             val show = m.episode?.let { library?.shows?.firstOrNull { s -> s.episodes.any { it.id == m.id } } }
-            go(if (show != null) "show/${show.name}" else "movie/${m.id}")
+                ?: m.extra?.show?.let { name -> library?.shows?.firstOrNull { name in it.aliases } }
+            go(if (show != null) "show/${show.name}" else "movie/${m.extra?.of ?: m.id}")
         },
         remove = { spot ->
             spotOptions = null

@@ -51,8 +51,10 @@ jobs:
           for f in glob.glob("app/build/test-results/testDebugUnitTest/*.xml"):
               for case in ET.parse(f).getroot().iter("testcase"):
                   for fail in case.findall("failure") + case.findall("error"):
-                      msg = (fail.get("message") or fail.text or "").strip().splitlines()[:3]
-                      lines.append(f"{case.get('classname').split('.')[-1]}.{case.get('name')}: {' | '.join(msg)}"[:400])
+                      msg = (fail.get("message") or "").strip()[:700]
+                      # Where it failed: the first frames in the app's own code.
+                      frames = [l.strip() for l in (fail.text or "").splitlines() if "com.watchparty" in l][:3]
+                      lines.append(f"{case.get('classname').split('.')[-1]}.{case.get('name')}: {msg} | {' | '.join(frames)}"[:1200])
           if lines:
               print("::error title=Failed tests::" + "%0A".join(lines[:20]))
           PY

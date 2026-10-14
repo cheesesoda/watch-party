@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -60,7 +65,32 @@ class TvMenuFocusTest {
     }
 
     private fun focusedNow(): String =
-        rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
+        rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
+
+    /** The test itself: a plain button left of the same grid. */
+    @Test
+    fun rightFromAPlainButtonReachesTheGrid() {
+        var card = -1
+        rule.setContent {
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(118.dp),
+                    contentPadding = PaddingValues(start = 96.dp, end = 48.dp, top = 32.dp, bottom = 32.dp),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                ) {
+                    items(18) { i -> Box(Modifier.aspectRatio(2f / 3f).onFocusChanged { if (it.isFocused) card = i }.clickable {}) }
+                }
+                Box(Modifier.padding(start = 14.dp, top = 160.dp).size(48.dp).semantics { contentDescription = "Plain" }.clickable {})
+            }
+        }
+        rule.onNodeWithContentDescription("Plain").performSemanticsAction(SemanticsActions.RequestFocus)
+        rule.waitForIdle()
+        val before = focusedNow()
+        rule.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
+        rule.waitForIdle()
+        assertTrue("Right from a plain button didn't reach the grid (focused before: $before; after: ${focusedNow()})", card >= 0)
+    }
 
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)
