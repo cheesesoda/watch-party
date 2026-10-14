@@ -175,6 +175,8 @@ export interface RoomSummary {
   upNext?: { item: MediaItem; count: number } | null;
   /** Where the party is in its video, for the host's party list. Only on the room list and room lookups. */
   playback?: RoomPlayback;
+  /** The host watching alone: no code to share, no chat or voice, until they invite friends. */
+  solo?: boolean;
 }
 
 /** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
@@ -227,7 +229,9 @@ export type ClientMessage =
   | { type: "voice"; on: boolean; muted: boolean }
   | { type: "signal"; to: string; data: SignalData }
   /** Ends the party for everyone. `save`: keep its spot on Home under "Pick up where you left off". */
-  | { type: "end"; save?: boolean };
+  | { type: "end"; save?: boolean }
+  /** Host, watching alone: open it up as a party friends can join with its code. */
+  | { type: "invite" };
 
 export type ServerMessage =
   | {
@@ -242,7 +246,11 @@ export type ServerMessage =
       iceServers: IceServer[];
       /** The binge, if the party has one. */
       queue?: Queue | null;
+      /** The host is watching alone (see RoomSummary.solo). */
+      solo?: boolean;
     }
+  /** Watching alone became a party (after "invite"), so friends can join and chat and voice show up. */
+  | { type: "solo"; solo: boolean }
   /** The binge changed: started, moved on, counting down to the next video, or stopped (null). */
   | { type: "queue"; queue: Queue | null }
   | { type: "state"; state: PlaybackState; media: MediaItem | null; by: string | null }

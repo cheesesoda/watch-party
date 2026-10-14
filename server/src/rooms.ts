@@ -96,6 +96,8 @@ export class Room {
   private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number } | null = null;
   /** Members whose screen plays the video and says when it has loaded a spot (newer apps only). */
   private players = new Set<string>();
+  /** The host watching alone: guests can't join with its code, and it isn't on the party list, until "invite". */
+  solo = false;
   /** Where jump waits are noted, so the server log shows who was waited for and how long. */
   log: (line: string) => void = (line) => console.log(`party ${this.id}: ${line}`);
 
@@ -117,6 +119,7 @@ export class Room {
       members: this.memberList(),
       binge: this.queue.length > 1 && index >= 0 ? { index: index + 1, length: this.queue.length } : null,
       upNext: this.upNextInfo(),
+      solo: this.solo,
     };
   }
 
@@ -218,6 +221,7 @@ export class Room {
       serverTime: this.now(),
       iceServers: this.iceServers,
       queue: this.queueInfo(),
+      solo: this.solo,
     });
     this.broadcast({ type: "members", members: this.memberList() });
     if (!alreadyHere) this.notice(`${member.name} joined`);
@@ -317,6 +321,12 @@ export class Room {
       case "end":
         if (guest) return send({ type: "error", message: "Only the host can end the party." });
         this.end(member.name, msg.save === true);
+        return;
+
+      case "invite":
+        if (guest || !this.solo) return;
+        this.solo = false;
+        this.broadcast({ type: "solo", solo: false });
         return;
 
       case "select": {
@@ -533,12 +543,13 @@ export class RoomManager {
    * queue: a binge, played in order from its first video (mediaId is then ignored). position: where in the first
    * video to start (picking up a saved spot).
    */
-  create(mediaId?: string, queue?: string[], position = 0): Room {
+  create(mediaId?: string, queue?: string[], position = 0, solo = false): Room {
     let id: string;
     do {
       id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
     } while (this.rooms.has(id));
     const room = new Room(id, this.lookup, this.now, this.iceServers);
+    room.solo = solo;
     room.onEnded = () => this.rooms.delete(id);
     room.onSave = (spot) => this.save(spot);
     if (queue && queue.length > 0) room.setQueue(queue);
@@ -550,6 +561,12 @@ export class RoomManager {
 
   get(id: string): Room | undefined {
     return this.rooms.get(id.toLowerCase());
+  }
+
+  /** A party friends can join with its code: not one where the host is watching alone. */
+  joinable(id: string): Room | undefined {
+    const room = this.get(id);
+    return room && !room.solo ? room : undefined;
   }
 
   /**
@@ -575,7 +592,12 @@ export class RoomManager {
     this.spots.add({ ...spot, key: show ? `show:${show.toLowerCase()}` : `media:${media.id}` });
   }
 
+  /** The parties, without the host's own solo viewing. */
+  parties(): Room[] {
+    return [...this.rooms.values()].filter((r) => !r.solo);
+  }
+
   list(): RoomSummary[] {
-    return [...this.rooms.values()].map((r) => r.summary());
+    return this.parties().map((r) => r.summary());
   }
 }

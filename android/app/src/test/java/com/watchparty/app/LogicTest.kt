@@ -39,6 +39,17 @@ class LogicTest {
     }
 
     @Test
+    fun parsesWatchingAlone() {
+        val welcome = Protocol.parse(
+            """{"type":"welcome","you":{"id":"1","name":"Ann"},"roomId":"abc","state":{"mediaId":null,"paused":true,"position":0,"updatedAt":5},""" +
+                """"media":null,"serverTime":9,"solo":true}""",
+        ) as ServerMessage.Welcome
+        assertTrue(welcome.solo)
+        assertEquals(false, (Protocol.parse("""{"type":"solo","solo":false}""") as ServerMessage.Solo).solo)
+        assertEquals("""{"type":"invite"}""", Protocol.invite())
+    }
+
+    @Test
     fun countsPlacesInUpNext() {
         assertEquals(listOf("1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"), listOf(1, 2, 3, 4, 11, 12, 13, 21, 22).map(::ordinal))
     }

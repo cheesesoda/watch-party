@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, 
 import { episodeLabel } from "../../shared/specials.ts";
 import { worthSaving, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
-import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, SearchResults, ShowPage, showLink, ShowsPage, type Browse } from "./Browse.tsx";
+import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
-import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UsersIcon } from "./Icons.tsx";
+import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
 import { Details, fmtSize } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
@@ -45,6 +45,10 @@ export function Home(props: {
   // Pick up where you left off, and the party being ended while "Save your spot?" is up.
   const [spots, setSpots] = useState<Spot[]>([]);
   const [ending, setEnding] = useState<RoomSummary | null>(null);
+  // Together / Alone: watching alone, every play button goes straight to the player, with no code to share.
+  const [alone, setAlone] = useState(() => readPref("alone") === "1");
+  useEffect(() => writePref("alone", alone ? "1" : "0"), [alone]);
+  const startLabel = alone ? "Play" : "Start party";
   const loadSpots = () => api.spots().then(setSpots, () => {});
   const [query, setQuery] = useState(() => session("query") ?? "");
   useEffect(() => saveSession("query", query), [query]);
@@ -88,8 +92,9 @@ export function Home(props: {
   const start = async (ids: string[], spot?: Spot) => {
     setError(null);
     try {
-      const room = spot ? await api.startSpot(spot.id) : await api.createRoom(ids[0], ids.length > 1 ? ids : undefined);
+      const room = spot ? await api.startSpot(spot.id, alone) : await api.createRoom(ids[0], ids.length > 1 ? ids : undefined, alone);
       if (spot) setSpots((ss) => ss.filter((x) => x.id !== spot.id));
+      if (room.solo) return navigate(`/room/${room.id}`);
       setStarted(room);
       window.scrollTo({ top: 0, behavior: "smooth" });
       setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
@@ -162,13 +167,14 @@ export function Home(props: {
       details: !!library?.details,
       convert: library?.convert ?? true,
       start: (ids) => void start(ids),
+      startLabel,
       openInfo: (id, fix = false) => setInfo({ id, fix }),
       spot: {
         of: (show) => spots.find((sp) => show.episodes.some((e) => e.id === sp.media.id)),
         start: (sp) => void start([], sp),
       },
     }),
-    [cat, library, spots],
+    [cat, library, spots, alone],
   );
 
   // Going to another page clears the search, the way a search box in an app does.
@@ -290,6 +296,14 @@ export function Home(props: {
             />
           </label>
           <span className="spacer" />
+          <div className="mode-switch" role="group" aria-label="Watch together or alone">
+            <button className={alone ? "" : "on"} aria-pressed={!alone} onClick={() => setAlone(false)} title="Play buttons start a party">
+              <UsersIcon size={16} /> Together
+            </button>
+            <button className={alone ? "on" : ""} aria-pressed={alone} onClick={() => setAlone(true)} title="Play buttons play just for you">
+              <UserIcon size={16} /> Alone
+            </button>
+          </div>
           <form className="join-code" onSubmit={join}>
             <label htmlFor="party-code">Party code</label>
             <input id="party-code" placeholder="______" value={code} maxLength={12} autoComplete="off" onChange={(e) => setCode(e.target.value.toUpperCase())} />
@@ -334,7 +348,7 @@ export function Home(props: {
         {route === "/" && !query.trim() && library && <Banner b={browse} />}
 
         {route === "/" && !query.trim() && spots.length > 0 && (
-          <SpotRow spots={spots} details={browse.details} onStart={(sp) => void start([], sp)} onRemove={removeSpot} onOpen={openSpot} />
+          <SpotRow spots={spots} details={browse.details} startLabel={startLabel} onStart={(sp) => void start([], sp)} onRemove={removeSpot} onOpen={openSpot} />
         )}
 
         {route === "/" && !query.trim() && rooms.length > 0 && (
@@ -382,7 +396,7 @@ export function Home(props: {
           item={cat.byId.get(info.id)!}
           startFixing={info.fix}
           canMatch={browse.details}
-          actionLabel="Start party"
+          actionLabel={startLabel}
           lengthLabel={detailsLine(cat.byId.get(info.id)!)}
           onPick={() => {
             const item = cat.byId.get(info.id)!;

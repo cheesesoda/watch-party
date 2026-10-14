@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { worthSaving, type MediaInfo, type MediaItem } from "../../shared/protocol.ts";
 import { api, hlsUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
-import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon } from "./Icons.tsx";
+import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon, UserPlusIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Picker } from "./Picker.tsx";
 import { SaveSpotDialog, spotPreview } from "./Spots.tsx";
@@ -264,6 +264,20 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     else void containerRef.current?.requestFullscreen?.();
   };
 
+  // Watching alone: Invite asks first, since it opens it up as a party friends can join.
+  const solo = view.solo && props.host;
+  const [asking, setAsking] = useState(false);
+  const leave = () => {
+    // Leaving on your own keeps your spot for Pick up where you left off, without asking.
+    if (solo) send({ type: "end", save: true });
+    navigate("/");
+  };
+  const makeParty = () => {
+    setAsking(false);
+    send({ type: "invite" });
+    void invite();
+  };
+
   const invite = async () => {
     const link = inviteLink(props.roomId);
     try {
@@ -344,7 +358,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       </video>
 
       <div className="room-top">
-        <button className="icon" onClick={() => navigate("/")} title="Leave" aria-label="Leave">
+        <button className="icon" onClick={leave} title="Leave" aria-label="Leave">
           <BackIcon />
         </button>
         <div className="room-title">
@@ -352,7 +366,13 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           <span className="muted">
             {queue && at >= 0 && `${media?.part ? "Part " : ""}${at + 1} of ${queue.items.length} · `}
             {next && `Up next: ${next.episode?.title ?? next.title} · `}
-            {view.status === "open" ? [...new Set(view.members.map((m) => m.name))].join(", ") : view.status === "connecting" ? "Connecting…" : "Reconnecting…"}
+            {view.status === "open"
+              ? solo
+                ? "Watching alone"
+                : [...new Set(view.members.map((m) => m.name))].join(", ")
+              : view.status === "connecting"
+                ? "Connecting…"
+                : "Reconnecting…"}
           </span>
         </div>
         <span className="spacer" />
@@ -371,6 +391,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
             <ListVideoIcon />
           </button>
         )}
+        {!solo && (
         <button
           className={voiceStatus === "off" ? "icon" : "icon on"}
           onClick={toggleVoice}
@@ -381,30 +402,39 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         >
           <MicIcon />
         </button>
+        )}
         {voiceStatus === "on" && hasMic && (
           <button className="icon" onClick={toggleMute} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}>
             {muted ? <MicOffIcon /> : <MicIcon />}
           </button>
         )}
-        <span className="divider" />
-        <button
-          className="icon"
-          onClick={invite}
-          title={copied ? "Invite link copied" : `Invite · party code ${props.roomId.toUpperCase()}`}
-          aria-label={copied ? "Invite link copied" : "Invite"}
-        >
-          {copied ? <CheckIcon /> : <ShareIcon />}
-        </button>
-        <button className={pinned ? "icon on" : "icon"} onClick={() => setPinned(!pinned)} title="Chat" aria-label="Chat" aria-pressed={pinned}>
-          <ChatIcon />
-        </button>
+        {solo ? (
+          <button className={asking ? "icon on" : "icon"} onClick={() => setAsking(!asking)} title="Invite friends" aria-label="Invite friends" aria-expanded={asking}>
+            <UserPlusIcon />
+          </button>
+        ) : (
+          <>
+            <span className="divider" />
+            <button
+              className="icon"
+              onClick={invite}
+              title={copied ? "Invite link copied" : `Invite · party code ${props.roomId.toUpperCase()}`}
+              aria-label={copied ? "Invite link copied" : "Invite"}
+            >
+              {copied ? <CheckIcon /> : <ShareIcon />}
+            </button>
+            <button className={pinned ? "icon on" : "icon"} onClick={() => setPinned(!pinned)} title="Chat" aria-label="Chat" aria-pressed={pinned}>
+              <ChatIcon />
+            </button>
+          </>
+        )}
         <button className="icon" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
           <SettingsIcon />
         </button>
         <button className="icon" onClick={toggleFullscreen} title={fullscreen ? "Exit fullscreen" : "Fullscreen"} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
           {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
         </button>
-        {props.host && (
+        {props.host && !solo && (
           <button className="icon end" onClick={endParty} disabled={view.status !== "open"} title="End party for everyone" aria-label="End party">
             <PowerIcon />
           </button>
@@ -415,7 +445,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         <div className="room-empty">
           {props.host ? (
             <>
-              <p>Pick something to watch together. Friends join with the code {props.roomId.toUpperCase()}.</p>
+              <p>{solo ? "Pick something to watch." : `Pick something to watch together. Friends join with the code ${props.roomId.toUpperCase()}.`}</p>
               <button className="primary" onClick={() => setPicking(true)}>
                 Browse library
               </button>
@@ -463,7 +493,25 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         </div>
       )}
 
-      <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} popups={popups} onSend={(text) => send({ type: "chat", text })} />
+      {!solo && <ChatOverlay chat={view.chat} me={view.me} pinned={pinned} popups={popups} onSend={(text) => send({ type: "chat", text })} />}
+
+      {solo && asking && (
+        <div className="invite-pop" role="dialog" aria-label="Invite friends">
+          <h3>Invite friends?</h3>
+          <p>
+            This turns your viewing into a party with code <strong className="code">{props.roomId.toUpperCase()}</strong>. Chat and voice appear, and you
+            keep your place.
+          </p>
+          <div className="invite-pop-actions">
+            <button className="pill text" onClick={() => setAsking(false)}>
+              Cancel
+            </button>
+            <button className="pill primary" onClick={makeParty}>
+              Copy invite link
+            </button>
+          </div>
+        </div>
+      )}
 
       {saving && (
         <SaveSpotDialog
@@ -529,6 +577,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           queue={queue}
           media={media}
           edit={props.host ? send : undefined}
+          solo={solo}
           onPlay={(ids) => {
             send(ids.length > 1 ? { type: "binge", mediaIds: ids } : { type: "select", mediaId: ids[0] });
             setPicking(false);

@@ -16,6 +16,8 @@ object PartyLink {
     /** What the party is playing now, and its binge or Up next. */
     var playing by mutableStateOf<String?>(null)
     var queue by mutableStateOf<Queue?>(null)
+    /** The host is watching alone, so there's no party code to show and Play is just for them. */
+    var solo by mutableStateOf(false)
 
     val upcoming: List<MediaItem> get() = queue?.upcoming(playing).orEmpty()
 

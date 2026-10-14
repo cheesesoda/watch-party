@@ -119,13 +119,17 @@ class Api(private val baseUrl: String, private val token: String) {
         request("/api/spots/$id", delete = true)
     }
 
-    /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. */
-    suspend fun startSpot(id: String): RoomSummary =
-        Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", buildJsonObject { put("spot", id) }.toString())).room
+    /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. [solo]: watch alone. */
+    suspend fun startSpot(id: String, solo: Boolean = false): RoomSummary =
+        Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", buildJsonObject {
+            put("spot", id)
+            if (solo) put("solo", true)
+        }.toString())).room
 
-    /** queue: a binge, the videos to play one after another from the first. */
-    suspend fun createRoom(mediaId: String?, queue: List<String>? = null): RoomSummary {
+    /** queue: a binge, the videos to play one after another from the first. [solo]: watch alone, off the party list. */
+    suspend fun createRoom(mediaId: String?, queue: List<String>? = null, solo: Boolean = false): RoomSummary {
         val body = buildJsonObject {
+            if (solo) put("solo", true)
             if (mediaId != null) put("mediaId", mediaId)
             if (queue != null) put("queue", kotlinx.serialization.json.JsonArray(queue.map { kotlinx.serialization.json.JsonPrimitive(it) }))
         }.toString()

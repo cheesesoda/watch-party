@@ -656,7 +656,7 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
     }
 }
 
-private fun qrBitmap(text: String, size: Int = 480): ImageBitmap {
+internal fun qrBitmap(text: String, size: Int = 480): ImageBitmap {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 0))
     val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()

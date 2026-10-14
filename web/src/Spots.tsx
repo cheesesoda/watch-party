@@ -50,7 +50,15 @@ function Thumb(props: { media: MediaItem; position: number; details: boolean; si
  * Home's "Pick up where you left off": where parties stopped. Hovering a card shows Start party (a new party at that
  * spot, with the rest lined up in Up next) and × (forget it); clicking the card opens the show or movie page.
  */
-export function SpotRow(props: { spots: Spot[]; details: boolean; onStart: (s: Spot) => void; onRemove: (s: Spot) => void; onOpen: (s: Spot) => void }) {
+export function SpotRow(props: {
+  spots: Spot[];
+  details: boolean;
+  /** "Start party", or "Play" while the host is watching alone. */
+  startLabel: string;
+  onStart: (s: Spot) => void;
+  onRemove: (s: Spot) => void;
+  onOpen: (s: Spot) => void;
+}) {
   return (
     <section className="dash-section">
       <div className="dash-section-head">
@@ -66,7 +74,7 @@ export function SpotRow(props: { spots: Spot[]; details: boolean; onStart: (s: S
               <div className="spot-top">
                 <Thumb media={s.media} position={s.position} details={props.details} size="w780" />
                 <button className="pill primary small spot-start" onClick={() => props.onStart(s)}>
-                  <PlayIcon size={14} /> Start party
+                  <PlayIcon size={14} /> {props.startLabel}
                 </button>
                 <button className="spot-remove" onClick={() => props.onRemove(s)} title="Remove" aria-label={`Remove ${title}`}>
                   <CloseIcon size={16} />

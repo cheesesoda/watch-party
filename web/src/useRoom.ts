@@ -14,6 +14,8 @@ export interface RoomView {
   iceServers: IceServer[];
   /** The binge, if the party has one. */
   queue: Queue | null;
+  /** The host watching alone, until they invite friends. */
+  solo: boolean;
 }
 
 export interface RoomHandlers {
@@ -38,6 +40,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
     error: null,
     iceServers: [],
     queue: null,
+    solo: false,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef(handlers);
@@ -81,6 +84,7 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
               error: null,
               iceServers: msg.iceServers ?? [],
               queue: msg.queue ?? null,
+              solo: msg.solo === true,
             });
             handlersRef.current.onState?.(msg.state);
             handlersRef.current.onWelcome?.(msg.you);
@@ -93,6 +97,9 @@ export function useRoom(roomId: string, name: string, handlers: RoomHandlers) {
             break;
           case "queue":
             setView((v) => ({ ...v, queue: msg.queue }));
+            break;
+          case "solo":
+            setView((v) => ({ ...v, solo: msg.solo }));
             break;
           case "members":
             setView((v) => ({ ...v, members: msg.members }));

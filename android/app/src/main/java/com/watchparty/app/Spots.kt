@@ -187,7 +187,7 @@ fun SpotLine(api: Api, details: Boolean, s: Spot, tv: Boolean) {
 
 /** OK on a TV spot card: start a party there, go to its page, or forget it. */
 @Composable
-fun SpotOptions(api: Api, s: Spot, onStart: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit, onClose: () -> Unit) {
+fun SpotOptions(api: Api, s: Spot, startLabel: String, onStart: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -205,7 +205,7 @@ fun SpotOptions(api: Api, s: Spot, onStart: () -> Unit, onOpen: () -> Unit, onRe
                     Text(spotFacts(s), color = Muted, fontSize = 13.sp)
                 }
             }
-            OptionRow(R.drawable.ic_play_filled, "Start party here", Modifier.focusRequester(first), onClick = onStart)
+            OptionRow(R.drawable.ic_play_filled, startLabel, Modifier.focusRequester(first), onClick = onStart)
             if (s.media.episode != null) OptionRow(R.drawable.ic_nav_shows, "Go to show", onClick = onOpen)
             else OptionRow(R.drawable.ic_nav_movies, "Go to movie", onClick = onOpen)
             OptionRow(R.drawable.ic_trash, "Remove", danger = true, onClick = onRemove)

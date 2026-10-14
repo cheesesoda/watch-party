@@ -593,6 +593,38 @@ select:focus-visible {
   background: rgba(176, 166, 191, 0.3);
   flex: none;
 }
+/* Watching alone: Invite asks before opening it up as a party. Sits under the toolbar, at its right. */
+.invite-pop {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  width: min(340px, calc(100% - 24px));
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: #231c2c;
+  border: 1px solid rgba(238, 234, 243, 0.12);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+.invite-pop h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.invite-pop p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.invite-pop .code {
+  color: var(--text);
+  letter-spacing: 0.12em;
+}
+.invite-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .room-title {
   display: grid;
   min-width: 0;
@@ -1445,6 +1477,37 @@ button.link:focus-visible {
 .join-code input::placeholder {
   color: rgba(176, 166, 191, 0.5);
   letter-spacing: 0.05em;
+}
+
+/* Together / Alone: whether play buttons start a party or play just for the host. Dark glass on any art. */
+.mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(10, 7, 14, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  flex: none;
+}
+.mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.mode-switch button:hover {
+  color: var(--text);
+}
+.mode-switch button.on {
+  background: var(--text);
+  color: var(--bg);
 }
 
 /* Over light art (see artTone.ts), the top bar's controls switch to frosted light glass with dark text. */

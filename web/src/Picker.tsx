@@ -23,6 +23,8 @@ export function Picker(props: {
   edit?: (msg: ClientMessage) => void;
   /** Who picks, for the guests' note ("Jake picks what plays"). */
   hostName?: string;
+  /** The host watching alone: play buttons say Play rather than Play for everyone. */
+  solo?: boolean;
   onClose: () => void;
 }) {
   const { queue, media, edit } = props;
@@ -68,11 +70,11 @@ export function Picker(props: {
         setQuery("");
         setPage(path);
       },
-      startLabel: "Play for everyone",
+      startLabel: props.solo ? "Play" : "Play for everyone",
       compact: true,
       queue: { has: (id) => queuedIds.has(id), add },
     }),
-    [cat, library, queuedIds],
+    [cat, library, queuedIds, props.solo],
   );
 
   const movieId = page && /^\/movie\/([\w-]+)/.exec(page)?.[1];
@@ -206,7 +208,7 @@ export function Picker(props: {
           item={infoItem}
           startFixing={info!.fix}
           canMatch={b.details}
-          actionLabel="Play for everyone"
+          actionLabel={props.solo ? "Play" : "Play for everyone"}
           lengthLabel={[infoItem.duration ? fmtLength(infoItem.duration) : fmtSize(infoItem.size)].join(" · ")}
           onPick={() => {
             setInfo(null);

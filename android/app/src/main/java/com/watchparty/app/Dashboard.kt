@@ -174,8 +174,11 @@ private class Actions(
     /** The show's saved spot (Pick up where you left off), for Continue binge on its page. */
     val spotOf: (Show) -> Spot? = { null },
     val startSpot: (Spot) -> Unit = {},
+    /** The Together / Alone switch is on Alone: Play starts just for the host. */
+    val alone: Boolean = false,
+    val setAlone: (Boolean) -> Unit = {},
 ) {
-    val startLabel = if (adding) "Play for everyone" else "Start party"
+    val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else if (alone) "Play" else "Start party"
 }
 
 /**
@@ -200,6 +203,13 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     var spots by remember { mutableStateOf<List<Spot>>(emptyList()) }
     var spotOptions by remember { mutableStateOf<Spot?>(null) }
     var askCode by remember { mutableStateOf(false) }
+    // Together / Alone: remembered on this device.
+    var alone by remember { mutableStateOf(prefs.alone) }
+    val setAlone = { on: Boolean ->
+        alone = on
+        prefs.alone = on
+        if (!tv) android.widget.Toast.makeText(context, if (on) "Watching alone" else "Watching together", android.widget.Toast.LENGTH_SHORT).show()
+    }
 
     // Pages opened so far; Back returns to the one before. Kept through rotation.
     val stack: SnapshotStateList<Route> = rememberSaveable(saver = listSaver(save = { it.toList() }, restore = { mutableStateListOf(*it.toTypedArray()) })) {
@@ -272,9 +282,11 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         start = { spot ->
             spotOptions = null
             scope.launch {
-                val room = guard { api.startSpot(spot.id) }
+                val room = guard { api.startSpot(spot.id, alone) }
                 spots = spots.filter { it.id != spot.id }
-                if (room != null) {
+                // Watching alone goes straight to the player; a party shows its code first.
+                if (room?.solo == true) RoomActivity.start(context, room.id)
+                else if (room != null) {
                     started = room
                     rooms = rooms.filter { it.id != room.id } + room
                     listState.scrollToItem(0)
@@ -319,7 +331,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         go = go,
         start = { media, queue ->
             scope.launch {
-                guard { api.createRoom(media.id, queue) }?.let { room ->
+                guard { api.createRoom(media.id, queue, alone) }?.let { room ->
+                    if (room.solo) return@let RoomActivity.start(context, room.id)
                     started = room
                     rooms = rooms.filter { it.id != room.id } + room
                     listState.scrollToItem(0)
@@ -331,6 +344,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         end = { ending = it },
         spotOf = { show -> spots.firstOrNull { sp -> show.episodes.any { it.id == sp.media.id } } },
         startSpot = { spotActions.start(it) },
+        alone = alone,
+        setAlone = setAlone,
     )
     val sinceFetch = (now - fetchedAt).coerceAtLeast(0)
 
@@ -353,14 +368,14 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     }
 
     if (tv) {
-        TvShell(route, adding, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go) {
+        TvShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 if (adding) PartyPill(tv = true, Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 32.dp), onBackToParty)
             }
         }
     } else {
-        PhoneShell(route, adding, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, onBack = onBackToParty, go = go) {
+        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, onBack = onBackToParty, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 // The top pages show it in their bar; movie and show pages over their backdrop.
@@ -422,7 +437,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         )
     }
     spotOptions?.let { s ->
-        SpotOptions(api, s, onStart = { spotActions.start(s) }, onOpen = { spotActions.open(s) }, onRemove = { spotActions.remove(s) }, onClose = { spotOptions = null })
+        SpotOptions(api, s, if (alone) "Play from here" else "Start party here", onStart = { spotActions.start(s) }, onOpen = { spotActions.open(s) }, onRemove = { spotActions.remove(s) }, onClose = { spotOptions = null })
     }
     val lib = library
     val shownMedia = shownInfo?.let { id -> lib?.byId?.get(id) }
@@ -468,7 +483,7 @@ private fun section(route: Route) = when {
 }
 
 @Composable
-private fun PhoneShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         // Movie and show pages draw their own header over the backdrop.
@@ -483,6 +498,8 @@ private fun PhoneShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefr
         } else if (route in TOP_PAGES) {
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
+                ModeSwitch(alone, setAlone)
+                Spacer(Modifier.width(4.dp))
                 IconAction(R.drawable.ic_keypad, "Join with a party code", onCode)
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 var menu by remember { mutableStateOf(false) }
@@ -520,6 +537,26 @@ private fun PhoneShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefr
     }
 }
 
+/** The phone's Together / Alone switch: people and person in a pill, the chosen one lit. */
+@Composable
+private fun ModeSwitch(alone: Boolean, setAlone: (Boolean) -> Unit) {
+    Row(Modifier.clip(CircleShape).background(Color(0xFF2A2333)).padding(3.dp)) {
+        listOf(false to R.drawable.ic_nav_parties, true to R.drawable.ic_user).forEach { (mode, icon) ->
+            val on = alone == mode
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(if (on) Color(0xFFF1ECF4) else Color.Transparent)
+                    .clickable { if (!on) setAlone(mode) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(icon), contentDescription = if (mode) "Watch alone" else "Watch together", tint = if (on) Color(0xFF1A1420) else Muted, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
     Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
@@ -529,7 +566,7 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
-private fun TvShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+private fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     Box(Modifier.fillMaxSize()) {
@@ -561,6 +598,7 @@ private fun TvShell(route: Route, adding: Boolean, onCode: () -> Unit, onRefresh
             Spacer(Modifier.weight(1f))
             TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, onRefresh)
             if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
+            if (!adding) TvModeItem(alone, open) { setAlone(!alone) }
         }
     }
 }
@@ -582,6 +620,36 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
     ) {
         Icon(painterResource(icon), contentDescription = label, tint = if (focused) OnFocus else if (selected) Color.White else Muted, modifier = Modifier.size(20.dp))
         if (open) Text(label, color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** The TV's Together / Alone switch, last in the menu: lit orange while on Alone; OK flips it. */
+@Composable
+private fun TvModeItem(alone: Boolean, open: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(
+        Modifier
+            .padding(top = 6.dp)
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(if (focused) FocusFill else if (alone) Color(0x38E09A62) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(
+            painterResource(if (alone) R.drawable.ic_user else R.drawable.ic_nav_parties),
+            contentDescription = if (alone) "Watching alone" else "Watching together",
+            tint = if (focused) OnFocus else if (alone) Color.White else Muted,
+            modifier = Modifier.size(20.dp),
+        )
+        if (open) Column {
+            Text(if (alone) "Watching alone" else "Watching together", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(if (alone) "OK: switch to together" else "OK: switch to alone", color = if (focused) OnFocus.copy(alpha = 0.7f) else Muted, fontSize = 12.sp, maxLines = 1)
+        }
     }
 }
 
@@ -1037,6 +1105,24 @@ private fun DetailPage(
             Box(Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x730A070E)).clickable { a.go("back") }, contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
             }
+            // While on Alone, so playing just for yourself is never a surprise; tap to switch back.
+            if (a.alone && !a.adding) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp)
+                        .height(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE09A62))
+                        .clickable { a.setAlone(false) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(painterResource(R.drawable.ic_user), contentDescription = null, tint = Color(0xFF2A1A0E), modifier = Modifier.size(16.dp))
+                    Text("Alone", color = Color(0xFF2A1A0E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
     if (tv) LaunchedEffect(title) { runCatching { primary.requestFocus() } }
@@ -1358,12 +1444,12 @@ private fun PartyPill(tv: Boolean, modifier: Modifier, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(painterResource(R.drawable.ic_back), contentDescription = null, tint = if (focused) OnFocus else Color.White, modifier = Modifier.size(18.dp))
-            Text("Back to party ${party.code}", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp))
+            Text(if (PartyLink.solo) "Back to the player" else "Back to party ${party.code}", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp))
             Text(" · $count in Up next", color = if (focused) OnFocusMuted else Muted, fontSize = 14.sp)
         }
     } else {
         Text(
-            "Adding to party ${party.code} · $count next",
+            (if (PartyLink.solo) "Adding to Up next" else "Adding to party ${party.code}") + " · $count next",
             color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
