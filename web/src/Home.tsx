@@ -19,8 +19,8 @@ export const inviteLink = (code: string) =>
 const NAV: [string, string, (p: { size?: number }) => ReactNode][] = [
   ["/", "Home", HomeIcon],
   ["/movies", "Movies", FilmIcon],
-  ["/shows", "TV shows", TvIcon],
-  ["/parties", "Watch parties", UsersIcon],
+  ["/shows", "TV Shows", TvIcon],
+  ["/parties", "Watch Parties", UsersIcon],
   ["/subtitles", "Has subtitles", CaptionsIcon],
 ];
 
@@ -354,7 +354,7 @@ export function Home(props: {
         {route === "/" && !query.trim() && rooms.length > 0 && (
           <section className="dash-section">
             <div className="dash-section-head">
-              <h2>Watch parties</h2>
+              <h2>Watch Parties</h2>
             </div>
             {partyCards}
           </section>
@@ -363,7 +363,7 @@ export function Home(props: {
         {route === "/parties" && !query.trim() ? (
           <>
             <div className="page-head">
-              <h1>Watch parties</h1>
+              <h1>Watch Parties</h1>
               <span className="count">{rooms.length}</span>
             </div>
             {rooms.length === 0 ? <p className="muted">No parties right now. Start one from any movie or episode.</p> : partyCards}

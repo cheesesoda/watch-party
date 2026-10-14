@@ -99,7 +99,7 @@ export function Picker(props: {
             </button>{" "}
             or{" "}
             <button className="link" onClick={() => setTab("shows")}>
-              TV shows
+              TV Shows
             </button>
             , or with the Add to Up next button on any poster or episode.
           </>
@@ -144,7 +144,7 @@ export function Picker(props: {
   const tabs: [Tab, string][] = [
     ["next", "Up next"],
     ["movies", "Movies"],
-    ["shows", "TV shows"],
+    ["shows", "TV Shows"],
   ];
   const browsing = !!edit && !page && !query.trim();
 

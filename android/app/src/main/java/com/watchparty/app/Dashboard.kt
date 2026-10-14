@@ -186,11 +186,12 @@ private class Actions(
  * [adding], it's the library for the open party's Up next ([AddVideosActivity]), and [onBackToParty] returns to it.
  */
 @Composable
-fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = false, onBackToParty: () -> Unit = {}) {
+fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = false, onBackToParty: () -> Unit = {}, forceTv: Boolean = false) {
     val api = remember { Api(prefs.serverUrl, prefs.token) }
     val context = LocalContext.current
+    // forceTv: the TV layout without a TV, for the screen tests.
     val tv = remember {
-        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        forceTv || context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
@@ -360,7 +361,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             movie != null -> MoviePage(lib, movie, actions, listState)
             show != null -> ShowPage(lib, show, actions, listState)
             route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
-            route == "shows" -> PosterGrid(lib, "TV shows", emptyList(), lib.shows, actions, gridState)
+            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
             else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
@@ -471,7 +472,7 @@ private data class NavItem(val route: Route, val label: String, val icon: Int)
 private val NAV = listOf(
     NavItem("home", "Home", R.drawable.ic_nav_home),
     NavItem("movies", "Movies", R.drawable.ic_nav_movies),
-    NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
+    NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
     NavItem("parties", "Parties", R.drawable.ic_nav_parties),
 )
 
@@ -580,10 +581,11 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
                 .onFocusChanged { open = it.hasFocus }
-                .padding(horizontal = 12.dp, vertical = 24.dp),
+                // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
+                .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(Modifier.padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(start = 11.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (open) LogoTitle(fontSize = 20.sp, markSize = 26.dp) else LogoMark(26.dp)
             }
             TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open) { go("search") }
@@ -591,8 +593,8 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
             listOfNotNull(
                 NavItem("home", "Home", R.drawable.ic_nav_home),
                 NavItem("movies", "Movies", R.drawable.ic_nav_movies),
-                NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
-                NavItem("parties", "Watch parties", R.drawable.ic_nav_parties).takeIf { !adding },
+                NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
+                NavItem("parties", "Watch Parties", R.drawable.ic_nav_parties).takeIf { !adding },
             ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open) { go(item.route) } }
             if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
             Spacer(Modifier.weight(1f))
@@ -632,8 +634,8 @@ private fun TvModeItem(alone: Boolean, open: Boolean, onClick: () -> Unit) {
         Modifier
             .padding(top = 6.dp)
             .fillMaxWidth()
-            .height(52.dp)
-            .clip(RoundedCornerShape(26.dp))
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(if (focused) FocusFill else if (alone) Color(0x38E09A62) else Color.Transparent)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
@@ -699,7 +701,7 @@ private fun HomePage(
             }
             if (rooms.isNotEmpty()) {
                 item(key = "parties") {
-                    ShelfRow("Watch parties", null, a) {
+                    ShelfRow("Watch Parties", null, a) {
                         items(rooms, key = { it.id }) { PartyCard(it, sinceFetch, lib.details, a, width = if (tv) 300.dp else 290.dp) }
                     }
                 }
@@ -722,7 +724,7 @@ private fun HomePage(
             }
             if (lib.shows.isNotEmpty()) {
                 item(key = "shows") {
-                    ShelfRow("TV shows", "shows", a) { items(lib.shows.take(24), key = { it.name }) { ShowCard(it, lib, a) } }
+                    ShelfRow("TV Shows", "shows", a) { items(lib.shows.take(24), key = { it.name }) { ShowCard(it, lib, a) } }
                 }
             }
             if (lib.details) item(key = "credit") { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp) }
@@ -1024,7 +1026,7 @@ private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boo
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch parties", rooms.size.toString()) }
+        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch Parties", rooms.size.toString()) }
         if (rooms.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No parties right now. Start one from any movie or episode.", color = Muted) }
         items(rooms, key = { it.id }) { room ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1046,7 +1048,7 @@ private fun SearchPage(lib: Library, a: Actions, state: LazyGridState) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Movies and TV shows") },
+            placeholder = { Text("Movies and TV Shows") },
             singleLine = true,
             leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

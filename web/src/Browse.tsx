@@ -248,7 +248,7 @@ export function HomeRows(props: { b: Browse }) {
         </PosterRow>
       )}
       {cat.shows.length > 0 && (
-        <PosterRow title="TV shows" seeAll="/shows">
+        <PosterRow title="TV Shows" seeAll="/shows">
           {cat.shows.slice(0, 24).map((s) => (
             <ShowCard key={s.key} show={s} b={props.b} />
           ))}
@@ -308,7 +308,7 @@ export function MoviesPage(props: { b: Browse; subtitlesOnly?: boolean }) {
       </div>
       {shows.length > 0 && (
         <>
-          <h2 className="grid-title">TV shows</h2>
+          <h2 className="grid-title">TV Shows</h2>
           <div className="poster-grid">
             {shows.map((s) => (
               <ShowCard key={s.key} show={s} b={props.b} />
@@ -325,7 +325,7 @@ export function ShowsPage(props: { b: Browse }) {
   return (
     <>
       <div className="page-head">
-        <h1>TV shows</h1>
+        <h1>TV Shows</h1>
         <span className="count">{shows.length}</span>
       </div>
       {shows.length === 0 && <p className="muted">No TV shows yet. Episodes named like "Show S01E02" are grouped here.</p>}
