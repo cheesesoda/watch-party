@@ -1498,6 +1498,7 @@ class RoomActivity : ComponentActivity() {
     /** Watching alone or not: alone, there's Invite in place of Chat and Join voice, and no party code. */
     private fun setSolo(on: Boolean) {
         solo = on && host
+        sync.alone = solo
         if (link != null) PartyLink.solo = solo
         val party = if (solo) View.GONE else View.VISIBLE
         chatButtons.forEach { it.visibility = party }

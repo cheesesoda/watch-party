@@ -18,6 +18,13 @@ class PlayerSync(
     private val send: (type: String, position: Double, at: Long?) -> Unit,
 ) {
     val clock = ClockOffset()
+    /**
+     * Watching alone: nobody to keep in step with, so after the player stalls (slow loading) the room is moved to
+     * where the player is, instead of the player skipping ahead to where the room got to.
+     */
+    var alone = false
+    /** Set while this class changes play/pause itself, so the listener only reacts to the person's own presses. */
+    private var ownChange = false
     private var state: PlaybackState? = null
     /** Our own play/pause/seeks the server hasn't echoed back yet, and when the last one went out. */
     private var unechoed = 0
@@ -58,7 +65,12 @@ class PlayerSync(
     private val listener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             val s = state ?: return
-            if (waitUntil != null) return
+            if (ownChange) return
+            // A press while waiting for the room to catch up wins over the wait, so the wait can't undo a pause.
+            if (waitUntil != null) {
+                waitUntil = null
+                main.removeCallbacks(check)
+            }
             if (playWhenReady && s.paused) local("play")
             else if (!playWhenReady && !s.paused && player.playbackState != Player.STATE_ENDED) local("pause")
         }
@@ -196,8 +208,8 @@ class PlayerSync(
         // Only correct once the player is loaded; while buffering the position is stale.
         if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) {
             // Still honor pause so a paused room doesn't start playing when the buffer fills.
-            if (s.paused && player.playWhenReady) player.playWhenReady = false
-            if (!s.paused && !player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) player.playWhenReady = true
+            if (s.paused && player.playWhenReady) setPlay(false)
+            if (!s.paused && !player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) setPlay(true)
             return
         }
 
@@ -207,7 +219,7 @@ class PlayerSync(
 
         if (s.paused) {
             setSpeed(1f)
-            if (player.playWhenReady) player.playWhenReady = false
+            if (player.playWhenReady) setPlay(false)
             val spot = minOf(target + holdLead(s), duration)
             if (abs(current - spot) > PAUSED_TOLERANCE) {
                 seek((spot * 1000).toLong())
@@ -227,7 +239,7 @@ class PlayerSync(
             return
         }
 
-        if (!player.playWhenReady && player.playbackState != Player.STATE_ENDED) player.playWhenReady = true
+        if (!player.playWhenReady && player.playbackState != Player.STATE_ENDED) setPlay(true)
         // The position reads as the new spot before it has loaded, so there's nothing to measure yet.
         if (seekPending) return
         val drift = current - target
@@ -236,6 +248,16 @@ class PlayerSync(
             if (SystemClock.uptimeMillis() - resumedAt < LAG_CHECK_MS) return
             resumedAt = 0L
             startLag = (startLag - drift).coerceIn(0.0, MAX_START_LAG)
+        }
+        if (alone) {
+            // Nobody to keep up with: when the player has fallen behind (it stalled loading) or got ahead, the room
+            // moves to the player's spot. A "play" at a spot doesn't pause anyone or make the server wait.
+            if (abs(drift) > ALONE_DRIFT && unechoed == 0) {
+                setSpeed(1f)
+                state = s.copy(position = current, updatedAt = clock.serverNow())
+                sent("play", current)
+            }
+            return
         }
         when (val action = Drift.decide(current, target, nudging = player.playbackParameters.speed != 1f)) {
             is DriftAction.Seek -> return catchUp(current, target, duration, behind = true)
@@ -262,7 +284,7 @@ class PlayerSync(
         val at = if (behind) target + lead else current
         waitUntil = at
         waitJumped = behind
-        player.playWhenReady = false
+        setPlay(false)
         if (behind) seek((at * 1000).toLong())
         waitForRoom()
     }
@@ -273,7 +295,7 @@ class PlayerSync(
             waitUntil = null
             return
         }
-        if (player.playWhenReady) player.playWhenReady = false
+        if (player.playWhenReady) setPlay(false)
         if (seekPending || player.playbackState != Player.STATE_READY) return
         // Start a little early to make up for how late this device gets going.
         val early = at - (if (waitJumped) startLag else 0.0) - target()
@@ -286,7 +308,16 @@ class PlayerSync(
         if (-early > Drift.SOFT) lead = minOf(lead - early + 0.5, MAX_LEAD)
         waitUntil = null
         if (waitJumped) resumedAt = SystemClock.uptimeMillis()
-        player.playWhenReady = true
+        setPlay(true)
+    }
+
+    private fun setPlay(play: Boolean) {
+        ownChange = true
+        try {
+            player.playWhenReady = play
+        } finally {
+            ownChange = false
+        }
     }
 
     private fun setSpeed(speed: Float) {
@@ -305,6 +336,8 @@ class PlayerSync(
         private const val LAG_CHECK_MS = 3_000L
         private const val MAX_START_LAG = 4.0
         private const val READY_BUFFER_MS = 3_000L
+        /** Watching alone, how far the room may drift from the player (seconds) before it's moved to the player. */
+        private const val ALONE_DRIFT = 1.0
 
         /** How late this device starts playing after a jump, in seconds. Saved between parties (see Prefs). */
         var startLag = 0.0
