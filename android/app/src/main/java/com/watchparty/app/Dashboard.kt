@@ -1186,10 +1186,10 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
     val tabs = show.seasons + listOfNotNull((-2).takeIf { show.specials.isNotEmpty() }, (-1).takeIf { extras != null })
     var season by rememberSaveable(show.name) { mutableStateOf(tabs.first()) }
     val shown = season.takeIf { it in tabs } ?: tabs.first()
-    val binge = if (shown == -1) tabs.first() else shown
+    val binge = shown
     // A season's list has the specials that aired during it, where they aired (ui-redesign/specials/).
-    val inSeason = { n: Int -> if (n == -2) show.specials else show.bySeason[n].orEmpty() }
-    val bingeName = if (binge == -2) "specials" else "season $binge"
+    val inSeason = { n: Int -> if (n == -1) extras.orEmpty() else if (n == -2) show.specials else show.bySeason[n].orEmpty() }
+    val bingeName = if (binge == -1) "extras" else if (binge == -2) "specials" else "season $binge"
     // A saved spot puts Continue binge first (ui-redesign/resume/*-show-continue).
     val spot = if (a.adding) null else a.spotOf(show)
     DetailPage(

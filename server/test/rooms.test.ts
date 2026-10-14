@@ -386,3 +386,20 @@ test("watching alone stays off the party list until the host invites friends", (
   assert.equal(mgr.joinable(room.id), room);
   assert.equal(mgr.list()[0].solo, false);
 });
+
+test("watching alone plays by itself once the host's screen has loaded the video", () => {
+  const mgr = new RoomManager((id) => (id === movie.id ? movie : undefined), () => 1_000, 1000);
+  const room = mgr.create(movie.id, undefined, 120, true);
+  const inbox: ServerMessage[] = [];
+  const host = room.join("Jake", (m) => inbox.push(m));
+  room.handle(host.id, { type: "player", on: true });
+  assert.deepEqual({ ...room.state, updatedAt: 0 }, { mediaId: movie.id, paused: true, position: 120, updatedAt: 0, hold: true });
+  room.handle(host.id, { type: "ready", position: 120 });
+  assert.equal(room.state.paused, false);
+  assert.equal(room.state.position, 120);
+  // A party still waits for the host to press play.
+  const party = mgr.create(movie.id);
+  const jake = party.join("Jake", () => {});
+  party.handle(jake.id, { type: "player", on: true });
+  assert.equal(party.state.paused, true);
+});

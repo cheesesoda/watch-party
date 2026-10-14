@@ -395,9 +395,9 @@ export function ShowPage(props: { b: Browse; show: Show }) {
   const [season, setSeason] = useState(() => (tabs.includes(remembered) ? remembered : tabs[0]));
   useEffect(() => writePref(`season:${show.key}`, String(season)), [show.key, season]);
   // A season's list has the specials that aired during it, where they aired.
-  const inSeason = (n: number) => (n === SPECIALS ? show.specials : (show.bySeason.get(n) ?? []));
-  const binge = season === EXTRAS ? tabs[0] : season;
-  const bingeName = binge === SPECIALS ? "specials" : `season ${binge}`;
+  const inSeason = (n: number) => (n === EXTRAS ? show.extras : n === SPECIALS ? show.specials : (show.bySeason.get(n) ?? []));
+  const binge = season;
+  const bingeName = binge === EXTRAS ? "extras" : binge === SPECIALS ? "specials" : `season ${binge}`;
   const spot = b.spot?.of(show);
 
   return (
@@ -416,12 +416,10 @@ export function ShowPage(props: { b: Browse; show: Show }) {
                 <PlayIcon size={18} /> Continue binge
               </button>
             )}
-            {binge !== EXTRAS && (
-              <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
-                <PlayIcon size={18} /> Binge {bingeName}
-              </button>
-            )}
-            {b.queue && binge !== EXTRAS && (
+            <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
+              <PlayIcon size={18} /> Binge {bingeName}
+            </button>
+            {b.queue && (
               <button className="pill tonal" onClick={() => b.queue!.add(inSeason(binge).map((e) => e.id), `${show.name} ${bingeName}`)}>
                 <ListPlusIcon size={18} /> Add {bingeName} to Up next
               </button>
@@ -445,7 +443,7 @@ export function ShowPage(props: { b: Browse; show: Show }) {
         </div>
       )}
       <ul className="ep-list">
-        {(season === EXTRAS ? show.extras : inSeason(season)).map((e) => (
+        {inSeason(season).map((e) => (
           <EpisodeRow key={e.id} item={e} b={b} special={season !== SPECIALS && e.episode?.season === 0} />
         ))}
       </ul>

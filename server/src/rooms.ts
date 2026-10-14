@@ -98,6 +98,8 @@ export class Room {
   private players = new Set<string>();
   /** The host watching alone: guests can't join with its code, and it isn't on the party list, until "invite". */
   solo = false;
+  /** Watching alone starts playing by itself once the host's screen is in (a party waits for the host to press play). */
+  autoplay = false;
   /** Where jump waits are noted, so the server log shows who was waited for and how long. */
   log: (line: string) => void = (line) => console.log(`party ${this.id}: ${line}`);
 
@@ -278,6 +280,14 @@ export class Room {
       case "player":
         if (msg.on === true) this.players.add(member.id);
         else this.players.delete(member.id);
+        if (msg.on === true && this.autoplay && !guest && this.state.mediaId && this.state.paused) {
+          // Watching alone: play as soon as this screen has loaded the video, as a jump does.
+          this.autoplay = false;
+          this.holdAt(this.state.position, now);
+          this.log(`${member.name} is watching alone; waiting for ${this.who(this.players)}`);
+          this.broadcastState(null);
+          return;
+        }
         this.resumeIfAllReady();
         return;
 
@@ -410,10 +420,7 @@ export class Room {
         this.cancelHold();
         if (msg.type === "seek" && !paused && this.players.size > 0) {
           // Jumping while playing: everyone pauses at the new spot until each screen has loaded it.
-          this.state = { mediaId: this.state.mediaId, paused: true, position: msg.position, updatedAt: now, hold: true };
-          const timer = setTimeout(() => this.resumeHold(), this.holdMs);
-          timer.unref?.();
-          this.hold = { ready: new Set(), timer, since: now };
+          this.holdAt(msg.position, now);
           this.log(`${member.name} jumped to ${fmtTime(msg.position)}; waiting for ${this.who(this.players) || "nobody"}`);
         } else {
           this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
@@ -470,6 +477,14 @@ export class Room {
     this.broadcastState(null);
     this.broadcastQueue();
     this.notice(`Now playing ${this.media!.title}`);
+  }
+
+  /** Pauses everyone at [position] until each screen has loaded it (or [holdMs] runs out), then plays. */
+  private holdAt(position: number, now: number): void {
+    this.state = { mediaId: this.state.mediaId, paused: true, position, updatedAt: now, hold: true };
+    const timer = setTimeout(() => this.resumeHold(), this.holdMs);
+    timer.unref?.();
+    this.hold = { ready: new Set(), timer, since: now };
   }
 
   /** Everyone has loaded the spot (or the wait ran out): play from it together. */
@@ -550,6 +565,7 @@ export class RoomManager {
     } while (this.rooms.has(id));
     const room = new Room(id, this.lookup, this.now, this.iceServers);
     room.solo = solo;
+    room.autoplay = solo;
     room.onEnded = () => this.rooms.delete(id);
     room.onSave = (spot) => this.save(spot);
     if (queue && queue.length > 0) room.setQueue(queue);
