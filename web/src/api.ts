@@ -78,14 +78,15 @@ export const api = {
   endRoom: (id: string, name: string, save = false) =>
     call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name, save }) }),
   /** queue: a binge, the videos to play one after another from the first. */
-  createRoom: (mediaId?: string, queue?: string[]) =>
-    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue }) }).then((r) => r.room),
+  /** solo: the host watching alone, with no code to share until they invite friends. */
+  createRoom: (mediaId?: string, queue?: string[], solo = false) =>
+    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue, solo }) }).then((r) => r.room),
   /** "Pick up where you left off": where parties stopped, newest first. */
   spots: () => call<{ spots: Spot[] }>("/api/spots").then((r) => r.spots),
   removeSpot: (id: string) => call(`/api/spots/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. */
-  startSpot: (id: string) =>
-    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ spot: id }) }).then((r) => r.room),
+  startSpot: (id: string, solo = false) =>
+    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ spot: id, solo }) }).then((r) => r.room),
 };
 
 export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);

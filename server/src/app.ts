@@ -105,7 +105,7 @@ export function createApp(config: Config): App {
       return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
     }
     const code = req.body?.code;
-    const room = typeof code === "string" && code.trim() ? rooms.get(code.trim()) : undefined;
+    const room = typeof code === "string" && code.trim() ? rooms.joinable(code.trim()) : undefined;
     if (!room) {
       joinLimiter.fail(client);
       return void res.status(404).json({ error: "No party with that code. It may have ended." });
@@ -158,7 +158,7 @@ export function createApp(config: Config): App {
     if (typeof code === "string" && code.trim()) {
       const wait = joinLimiter.blockedFor(client);
       if (wait > 0) return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
-      const room = rooms.get(code.trim());
+      const room = rooms.joinable(code.trim());
       if (!room) {
         joinLimiter.fail(client);
         return void res.status(404).json({ error: "No party with that code. It may have ended." });
@@ -389,7 +389,7 @@ export function createApp(config: Config): App {
   };
 
   app.get("/api/rooms", async (_req, res) => {
-    res.json({ rooms: await Promise.all([...rooms.rooms.values()].map(withPlayback)) });
+    res.json({ rooms: await Promise.all(rooms.parties().map(withPlayback)) });
   });
 
   // "Pick up where you left off": where parties stopped, newest first. Ones whose video left the library are skipped.
@@ -413,13 +413,15 @@ export function createApp(config: Config): App {
   });
 
   app.post("/api/rooms", async (req, res) => {
+    // Watching alone: the host's own viewing, with no code to share until they invite friends.
+    const solo = req.body?.solo === true;
     // Picking up a saved spot: its video, from where it stopped, with the rest lined up. The spot is used up.
     const spotId = req.body?.spot;
     if (spotId !== undefined) {
       const spot = typeof spotId === "string" ? rooms.spots.get(spotId) : undefined;
       if (!spot) return void res.status(404).json({ error: "That spot isn't saved anymore." });
       await library.list();
-      const room = rooms.create(undefined, [spot.mediaId, ...spot.next], spot.position);
+      const room = rooms.create(undefined, [spot.mediaId, ...spot.next], spot.position, solo);
       if (!room.media || room.media.id !== spot.mediaId) {
         room.end("the server");
         rooms.spots.remove(spot.id);
@@ -441,7 +443,7 @@ export function createApp(config: Config): App {
       await library.list();
       if (!queue.some((id) => library.peek(id))) return void res.status(400).json({ error: "Those files are not in the library." });
     }
-    res.status(201).json({ room: rooms.create(mediaId, queue as string[] | undefined).summary() });
+    res.status(201).json({ room: rooms.create(mediaId, queue as string[] | undefined, 0, solo).summary() });
   });
 
   // Ends a party from the host's home screen, without joining it. Everyone in it is sent home.

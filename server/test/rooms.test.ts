@@ -368,3 +368,21 @@ test("a party that empties out saves its spot when it's dropped, at the moment e
   assert.equal(mgr.rooms.size, 0);
   assert.deepEqual(mgr.spots.list().map((s) => [s.mediaId, s.position]), [["m1", 1260]]);
 });
+
+test("watching alone stays off the party list until the host invites friends", () => {
+  const mgr = new RoomManager((id) => (id === movie.id ? movie : undefined), () => 1_000, 1000);
+  const room = mgr.create(movie.id, undefined, 0, true);
+  const inbox: ServerMessage[] = [];
+  const host = room.join("Jake", (m) => inbox.push(m));
+  const welcome = inbox.find((m) => m.type === "welcome");
+  assert.ok(welcome?.type === "welcome" && welcome.solo === true);
+  assert.equal(mgr.joinable(room.id), undefined);
+  assert.deepEqual(mgr.list(), []);
+  const guest = room.join("Sam", () => {}, "web", () => {}, true);
+  room.handle(guest.id, { type: "invite" });
+  assert.equal(room.solo, true, "only the host invites");
+  room.handle(host.id, { type: "invite" });
+  assert.deepEqual(inbox.at(-1), { type: "solo", solo: false });
+  assert.equal(mgr.joinable(room.id), room);
+  assert.equal(mgr.list()[0].solo, false);
+});

@@ -133,6 +133,10 @@ test("a party code lets a viewer into that party only, until it ends", async () 
     fetch(`${base}/api/join`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "100.64.1.1", ...headers }, body: JSON.stringify({ code }) });
 
   assert.equal((await join("nope00")).status, 404);
+  const solo = await (await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ solo: true }) })).json();
+  assert.equal(solo.room.solo, true);
+  assert.equal((await join(solo.room.id)).status, 404, "nobody joins the host's solo viewing with its code");
+  assert.ok(!(await (await fetch(`${base}/api/rooms`, { headers: auth() })).json()).rooms.some((r: { id: string }) => r.id === solo.room.id));
   const hostJoin = await (await join(room.id.toUpperCase(), auth())).json();
   assert.equal(hostJoin.token, null, "the host keeps their own sign-in");
   const res = await join(` ${room.id.toUpperCase()} `);

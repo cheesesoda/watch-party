@@ -20,7 +20,7 @@ export interface Browse {
   openInfo: (id: string, fix?: boolean) => void;
   /** Goes to a movie or show page; the dashboard changes the address, the in-party picker its own view. */
   open?: (path: string) => void;
-  /** The play buttons' name: "Start party" on the dashboard, "Play for everyone" in a party. */
+  /** The play buttons' name: "Start party" on the dashboard ("Play" while watching alone), "Play for everyone" in a party. */
   startLabel?: string;
   /** Titles on the posters rather than under them, for the in-party picker. */
   compact?: boolean;
@@ -209,7 +209,7 @@ export function Banner(props: { b: Browse }) {
         <div className="banner-actions">
           {shown.start ? (
             <button className="pill primary" onClick={shown.start}>
-              <PlayIcon size={18} /> Start party
+              <PlayIcon size={18} /> {startLabel(props.b)}
             </button>
           ) : null}
           <button className="pill tonal" onClick={() => navigate(shown.link)}>
@@ -568,14 +568,14 @@ function Credit() {
 }
 
 /** Remembered choices (sort, a show's season): kept across visits on this browser. Storage can be unavailable; that's fine. */
-function readPref(key: string): string | null {
+export function readPref(key: string): string | null {
   try {
     return localStorage.getItem(`dash:${key}`);
   } catch {
     return null;
   }
 }
-function writePref(key: string, value: string) {
+export function writePref(key: string, value: string) {
   try {
     localStorage.setItem(`dash:${key}`, value);
   } catch {

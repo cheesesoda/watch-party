@@ -147,6 +147,8 @@ data class RoomSummary(
     val binge: BingePosition? = null,
     /** The next video in Up next, and how many there are in all after the one playing now. */
     val upNext: UpNextInfo? = null,
+    /** The host watching alone, until they invite friends. */
+    val solo: Boolean = false,
 )
 
 @Serializable
@@ -212,7 +214,12 @@ sealed interface ServerMessage {
         val serverTime: Long,
         val iceServers: List<IceServer>,
         val queue: Queue? = null,
+        /** The host is watching alone, until they invite friends. */
+        val solo: Boolean = false,
     ) : ServerMessage
+
+    /** The host invited friends: no longer watching alone. */
+    data class Solo(val solo: Boolean) : ServerMessage
 
     /** The binge changed: started, moved on, counting down to the next video, or stopped (null). */
     data class QueueChanged(val queue: Queue?) : ServerMessage
@@ -251,7 +258,11 @@ object Protocol {
         val serverTime: Long,
         val iceServers: List<IceServer> = emptyList(),
         val queue: Queue? = null,
+        val solo: Boolean = false,
     )
+
+    @Serializable
+    private data class SoloDto(val solo: Boolean = false)
 
     @Serializable
     private data class QueueDto(val queue: Queue? = null)
@@ -285,7 +296,7 @@ object Protocol {
         val obj: JsonObject = json.parseToJsonElement(text).jsonObject
         return when (obj["type"]?.jsonPrimitive?.content) {
             "welcome" -> json.decodeFromJsonElement<WelcomeDto>(obj).let {
-                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime, it.iceServers, it.queue)
+                ServerMessage.Welcome(it.you, it.roomId, it.state, it.media, it.members, it.chat, it.serverTime, it.iceServers, it.queue, it.solo)
             }
             "state" -> json.decodeFromJsonElement<StateDto>(obj).let { ServerMessage.State(it.state, it.media, it.by) }
             "members" -> ServerMessage.Members(json.decodeFromJsonElement<MembersDto>(obj).members)
@@ -295,6 +306,7 @@ object Protocol {
             "voice-peers" -> ServerMessage.VoicePeers(json.decodeFromJsonElement<VoicePeersDto>(obj).peers)
             "signal" -> json.decodeFromJsonElement<SignalDto>(obj).let { ServerMessage.Signal(it.from, it.data) }
             "queue" -> ServerMessage.QueueChanged(json.decodeFromJsonElement<QueueDto>(obj).queue)
+            "solo" -> ServerMessage.Solo(json.decodeFromJsonElement<SoloDto>(obj).solo)
             "ended" -> ServerMessage.Ended(json.decodeFromJsonElement<EndedDto>(obj).by)
             else -> null
         }
@@ -358,6 +370,9 @@ object Protocol {
         put("type", "end")
         if (save) put("save", true)
     }.toString()
+
+    /** Host, watching alone: open it up as a party so friends can join. */
+    fun invite(): String = buildJsonObject { put("type", "invite") }.toString()
 
     /** The video finished on this screen; in a binge, the next one comes up. */
     fun ended(mediaId: String): String = buildJsonObject {

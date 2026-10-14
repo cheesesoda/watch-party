@@ -146,6 +146,10 @@ class RoomActivity : ComponentActivity() {
     /** False for viewers who joined with the party code: no Change video, no End party. */
     private var host = true
     private var roomCode = ""
+    /** The host watching alone (Watch alone): no chat or voice until they invite friends. */
+    private var solo = false
+    private val chatButtons = mutableListOf<View>()
+    private val inviteButtons = mutableListOf<View>()
 
     /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
     private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
@@ -281,6 +285,7 @@ class RoomActivity : ComponentActivity() {
             PartyLink.party = null
             PartyLink.queue = null
             PartyLink.playing = null
+            PartyLink.solo = false
         }
         prefs.startLag = PlayerSync.startLag
         stopVoice()
@@ -337,7 +342,7 @@ class RoomActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_PROG_BLUE -> {
-                if (!companion) {
+                if (!companion && !solo) {
                     if (chatPanel.visibility == View.VISIBLE) closeChat() else openChat()
                 }
                 return true
@@ -358,11 +363,13 @@ class RoomActivity : ComponentActivity() {
                 voice?.rejoin(msg.you.id)
                 chat.clear()
                 chat.addAll(msg.chat)
+                setSolo(msg.solo)
                 showMembers(msg.members)
                 applyState(msg.state, msg.media)
                 setQueue(msg.queue)
                 renderChat()
             }
+            is ServerMessage.Solo -> setSolo(msg.solo)
             is ServerMessage.QueueChanged -> setQueue(msg.queue)
             is ServerMessage.State -> applyState(msg.state, msg.media, mine = msg.by != null && msg.by == me?.name)
             is ServerMessage.Members -> {
@@ -411,9 +418,7 @@ class RoomActivity : ComponentActivity() {
         lastMedia = media
         upNextMedia.value = media
         if (link != null) PartyLink.playing = media?.id
-        titleText.text = media?.let { playerTitle(it) }
-            ?: if (host) "Nothing playing. Use Up next to pick something. Friends join with code $roomCode."
-            else "Waiting for the host to pick something."
+        titleText.text = media?.let { playerTitle(it) } ?: nothingPlaying()
         companionTitle.text = media?.title ?: "Nothing playing"
         if (media?.id != posterFor) loadPoster(media)
         renderCompanionStatus()
@@ -641,7 +646,8 @@ class RoomActivity : ComponentActivity() {
         muteButton = phoneButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         listOfNotNull(
-            phoneButton("Chat", R.drawable.ic_chat) { openChat() },
+            phoneButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
+            phoneButton("Chat", R.drawable.ic_chat) { openChat() }.also { chatButtons.add(it) },
             voiceButton,
             muteButton,
             subtitles,
@@ -800,12 +806,13 @@ class RoomActivity : ComponentActivity() {
         voiceButton = tvButton("Join voice", R.drawable.ic_mic) { toggleVoice() }
         muteButton = tvButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
         listOfNotNull(
-            tvButton("Chat", R.drawable.ic_chat) { openChat() },
+            tvButton("Chat", R.drawable.ic_chat) { openChat() }.also { chatButtons.add(it) },
             voiceButton,
             muteButton,
             subtitles,
             tvButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             tvButton("Settings", R.drawable.ic_settings) { showSettings() },
+            tvButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
             tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
             playerSettings,
         ).forEach { right.addView(it) }
@@ -846,13 +853,19 @@ class RoomActivity : ComponentActivity() {
         membersText.text = listOfNotNull(
             episode?.let { media?.meta?.show ?: it.show },
             episode?.let { episodeLabel(it.season, it.episode) },
-            "Party $roomCode",
-            names.ifEmpty { null },
+            if (solo) "Watching alone" else "Party $roomCode",
+            names.ifEmpty { null }.takeIf { !solo },
         ).joinToString(" · ")
         val items = queue?.items.orEmpty()
         val at = items.indexOfFirst { it.id == media?.id }
         val next = if (at < 0) null else items.getOrNull(at + 1)
         upNextText?.text = next?.let { "Up next: ${it.episode?.episode ?: (at + 2)}. ${playerTitle(it)}" } ?: ""
+    }
+
+    private fun nothingPlaying(): String = when {
+        solo -> "Nothing playing. Use Up next to pick something."
+        host -> "Nothing playing. Use Up next to pick something. Friends join with code $roomCode."
+        else -> "Waiting for the host to pick something."
     }
 
     /** The name the player shows: the episode's own name for an episode, when it's known. */
@@ -1093,7 +1106,7 @@ class RoomActivity : ComponentActivity() {
         // The player's controls have one gear, so Media3's own menu (audio track, playback speed) opens from here.
         action("Audio track and playback speed", null) { openPlayerSettings() }
         // The phone's top row keeps to the essentials, so switching to chat only lives here.
-        if (!isTv) action("Chat only", "Just chat on this phone, for when you're watching on a TV.") { enterCompanion(auto = false) }
+        if (!isTv && !solo) action("Chat only", "Just chat on this phone, for when you're watching on a TV.") { enterCompanion(auto = false) }
         row.requestFocus()
     }
 
@@ -1107,7 +1120,7 @@ class RoomActivity : ComponentActivity() {
     private fun renderChatOverlay() {
         val now = System.currentTimeMillis()
         val serverNow = sync.clock.serverNow(now)
-        val recent = if (chatPanel.visibility == View.VISIBLE || !prefs.chatPopups) emptyList()
+        val recent = if (chatPanel.visibility == View.VISIBLE || !prefs.chatPopups || solo) emptyList()
         else chat.takeLast(6).filter { serverNow - it.ts < CHAT_FADE_MS }
         chatOverlay.removeAllViews()
         for (m in recent) {
@@ -1455,6 +1468,13 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun confirmLeave() {
+        // Watching alone, Leave just saves the spot (Pick up where you left off) without asking.
+        if (solo) {
+            ended = true
+            connection.send(Protocol.end(save = true))
+            finish()
+            return
+        }
         if (!host) {
             present(
                 dialog()
@@ -1473,6 +1493,69 @@ class RoomActivity : ComponentActivity() {
                 .setNegativeButton("Cancel", null),
             danger = AlertDialog.BUTTON_NEUTRAL,
         )
+    }
+
+    /** Watching alone or not: alone, there's Invite in place of Chat and Join voice, and no party code. */
+    private fun setSolo(on: Boolean) {
+        solo = on && host
+        if (link != null) PartyLink.solo = solo
+        val party = if (solo) View.GONE else View.VISIBLE
+        chatButtons.forEach { it.visibility = party }
+        if (voice == null) voiceButton.visibility = party
+        inviteButtons.forEach { it.visibility = if (solo) View.VISIBLE else View.GONE }
+        renderPlayerInfo()
+        if (lastMedia == null) titleText.text = nothingPlaying()
+        renderChatOverlay()
+    }
+
+    /** Invite (watching alone): asks first, then makes it a party and shows the code (ui-redesign/solo/tv-invite-alone). */
+    private fun askInvite() {
+        present(
+            dialog()
+                .setTitle("Invite friends?")
+                .setMessage("This turns your viewing into a party. Friends join with the code, chat and voice appear, and you keep your place.")
+                .setPositiveButton("Make it a party") { _, _ -> makeParty() }
+                .setNegativeButton("Cancel", null),
+        )
+    }
+
+    private fun makeParty() {
+        connection.send(Protocol.invite())
+        setSolo(false)
+        val link = inviteLink()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(4), dp(24), 0)
+            addView(text(36f, ON_SURFACE).apply {
+                text = roomCode
+                typeface = Typeface.create(MEDIUM, Typeface.BOLD)
+                letterSpacing = 0.12f
+            })
+            addView(ImageView(this@RoomActivity).apply {
+                setImageBitmap(qrBitmap(link).asAndroidBitmap())
+                background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(12).toFloat() }
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+            }, LinearLayout.LayoutParams(dp(if (isTv) 180 else 200), dp(if (isTv) 180 else 200)).apply { topMargin = dp(12) })
+        }
+        val builder = dialog()
+            .setTitle("It's a party")
+            .setMessage("Friends join with this code, or by scanning the code with their phone.")
+            .setView(content)
+            .setPositiveButton("Done", null)
+        if (!isTv) builder.setNeutralButton("Copy invite link") { _, _ ->
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Invite link", link))
+            Toast.makeText(this, "Invite link copied", Toast.LENGTH_SHORT).show()
+        }
+        present(builder)
+    }
+
+    /** The party's invite link: on the host's own domain for the built-in server, as on the web. */
+    private fun inviteLink(): String {
+        val server = Prefs.normalizeUrl(prefs.serverUrl)
+        val builtIn = server == Prefs.normalizeUrl(BuildConfig.DEFAULT_SERVER)
+        val base = if (builtIn && BuildConfig.INVITE_HOST.isNotBlank()) "https://${BuildConfig.INVITE_HOST}" else server
+        return "$base/join/${roomCode.lowercase()}"
     }
 
     /** Seconds into the video: the party's, on a phone that's only for chat. */

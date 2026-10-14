@@ -33,6 +33,11 @@ class Prefs(context: Context) {
         get() = sp.getFloat("start_lag", 0f).toDouble()
         set(v) = sp.edit().putFloat("start_lag", v.toFloat()).apply()
 
+    /** Together / Alone switch: when on, Play starts just for this host, off the party list. */
+    var alone: Boolean
+        get() = sp.getBoolean("alone", false)
+        set(v) = sp.edit().putBoolean("alone", v).apply()
+
     val isSetUp: Boolean
         get() = serverUrl.isNotBlank() && name.isNotBlank() && sp.getBoolean("signed_in", false)
 

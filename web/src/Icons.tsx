@@ -185,6 +185,23 @@ export const TvIcon = (p: Props) => (
   </Svg>
 );
 
+/** Watching alone. */
+export const UserIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="8" r="5" />
+    <path d="M20 21a8 8 0 0 0-16 0" />
+  </Svg>
+);
+
+/** Invite friends into what you're watching alone. */
+export const UserPlusIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M19 8v6M22 11h-6" />
+  </Svg>
+);
+
 export const UsersIcon = (p: Props) => (
   <Svg {...p}>
     <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
