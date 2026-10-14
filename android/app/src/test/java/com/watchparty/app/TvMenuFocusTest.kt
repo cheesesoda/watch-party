@@ -12,6 +12,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
@@ -52,10 +54,14 @@ class TvMenuFocusTest {
         page(alone) { card = it }
         rule.onNodeWithContentDescription("Movies").performSemanticsAction(SemanticsActions.RequestFocus)
         rule.waitForIdle()
+        val before = focusedNow()
         rule.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
         rule.waitForIdle()
-        assertTrue("Right from the menu didn't reach the page", card >= 0)
+        assertTrue("Right from the menu didn't reach the page (focused before: $before; after: ${focusedNow()})", card >= 0)
     }
+
+    private fun focusedNow(): String =
+        rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
 
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)

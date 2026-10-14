@@ -96,22 +96,35 @@ class TvScreensTest {
         prefs.token = "test"
         prefs.name = "Jake"
         prefs.markSignedIn(true)
+        // The banner and progress keep asking for frames, so the clock only moves when told to.
+        rule.mainClock.autoAdvance = false
         rule.setContent {
             PopcornTheme {
                 Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}, forceTv = true) }
             }
         }
-        rule.waitUntil(15_000) { rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty() }
+        settle { rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty() }
         // Let the posters arrive.
-        Thread.sleep(1500)
-        rule.mainClock.advanceTimeBy(500)
-        rule.waitForIdle()
+        settle(2_000) { false }
+    }
+
+    /** Runs the app (network threads, main looper, a moving clock) until [done] or [ms] pass. */
+    private fun settle(ms: Long = 15_000, done: () -> Boolean) {
+        val until = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < until) {
+            Thread.sleep(50)
+            rule.mainClock.advanceTimeBy(50)
+            rule.waitForIdle()
+            if (done()) return
+        }
+        if (ms >= 5_000) throw AssertionError("Gave up waiting after $ms ms")
     }
 
     @After
     fun stop() = server.shutdown()
 
     private fun shot(name: String) {
+        rule.mainClock.advanceTimeBy(600)
         rule.waitForIdle()
         val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
         File(out, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -119,8 +132,7 @@ class TvScreensTest {
 
     private fun press(key: Key, times: Int = 1) = repeat(times) {
         rule.onRoot().performKeyInput { pressKey(key) }
-        rule.mainClock.advanceTimeBy(400)
-        rule.waitForIdle()
+        settle(400) { false }
     }
 
     /** The side menu is open (its labels show) only while the remote is on it. */
