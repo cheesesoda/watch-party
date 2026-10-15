@@ -115,6 +115,9 @@ class TvMenuFocusTest {
         assertTrue("Focus went to the menu instead of the page (focused: ${focusedNow()})", card >= 0)
     }
 
+    private fun focusedNow(): String =
+        rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
+
     private val composeView get() = (rule.activity.findViewById<android.view.ViewGroup>(android.R.id.content)).getChildAt(0)
 
     private fun viewRetakes(direction: Int) {
@@ -125,6 +128,7 @@ class TvMenuFocusTest {
     @Test
     fun lostFocusThenKeyRightStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Right) }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     @Test
     fun lostFocusThenEnterStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Enter) }
 
