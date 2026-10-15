@@ -98,6 +98,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -684,34 +686,53 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
     }
 }
 
-/** The TV's Together / Alone switch, last in the menu: lit orange while on Alone; OK flips it. */
+/**
+ * The TV's Watch alone switch, last in the menu: a row like the others with a switch at its end, orange while on
+ * (like the phone's ⋮ menu). Folded, its icon turns orange. OK flips it.
+ */
 @Composable
 private fun TvModeItem(alone: Boolean, open: Boolean, page: FocusRequester, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
         Modifier
-            .padding(top = 6.dp)
             .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(if (focused) FocusFill else if (alone) Color(0x38E09A62) else Color.Transparent)
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (focused) FocusFill else Color.Transparent)
             .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .semantics { stateDescription = if (alone) "On" else "Off" }
+            .padding(start = 14.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Icon(
-            painterResource(if (alone) R.drawable.ic_user else R.drawable.ic_nav_parties),
-            contentDescription = if (alone) "Watching alone" else "Watching together",
-            tint = if (focused) OnFocus else if (alone) Color.White else Muted,
+            painterResource(R.drawable.ic_user),
+            contentDescription = "Watch alone",
+            tint = if (focused) OnFocus else if (alone) Accent else Muted,
             modifier = Modifier.size(20.dp),
         )
-        if (open) Column {
-            Text(if (alone) "Watching alone" else "Watching together", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(if (alone) "OK: switch to together" else "OK: switch to alone", color = if (focused) OnFocus.copy(alpha = 0.7f) else Muted, fontSize = 12.sp, maxLines = 1)
+        if (open) {
+            Text("Watch alone", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+            ModeSwitch(alone)
         }
+    }
+}
+
+/** A drawn switch (the row takes the remote's focus, not the switch): orange with a dark knob on the right when on. */
+@Composable
+private fun ModeSwitch(on: Boolean) {
+    val off = Color(0xFF6F667C)
+    Box(
+        Modifier
+            .size(width = 40.dp, height = 24.dp)
+            .clip(CircleShape)
+            .then(if (on) Modifier.background(Accent) else Modifier.border(2.dp, off, CircleShape))
+            .padding(horizontal = 4.dp),
+        contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Box(Modifier.size(if (on) 16.dp else 12.dp).clip(CircleShape).background(if (on) Color(0xFF2A1A10) else off))
     }
 }
 

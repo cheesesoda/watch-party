@@ -261,7 +261,14 @@ class TvScreensTest {
     fun settings() {
         press(FocusDirection.Left)
         press(FocusDirection.Down, 12)
-        // Up from the bottom (Together / Alone) to Settings.
+        // The bottom row: Watch alone, off, then on.
+        shot("22-menu-on-watch-alone")
+        ok()
+        shot("23-menu-watch-alone-on")
+        check(menuOpen(), "Watch alone closed the menu")
+        rule.onNode(isFocused()).performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
+        // Up from Watch alone to Settings.
         press(FocusDirection.Up)
         shot("20-menu-on-settings")
         ok()
