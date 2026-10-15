@@ -248,6 +248,7 @@ class TvScreensTest {
         shot("10b-shows-first-card")
         ok()
         shot("11-show-page")
+        val titleTop = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         press(FocusDirection.Up)
         shot("12-show-page-up")
         check(!menuOpen(), "Up from Binge went to the menu")
@@ -260,13 +261,13 @@ class TvScreensTest {
         shot("12c-show-back-to-binge")
         check(rule.onAllNodesWithText("Binge all 2 seasons").fetchSemanticsNodes().isNotEmpty(), "The show's page didn't open")
         val top = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
-        check(top >= 0f, "Back up to Binge left the show's name cut off (top $top)")
+        check(top == titleTop, "Back up to Binge left the page scrolled (name at $top, not $titleTop)")
         // A page left scrolled down (like coming back from the player) with the remote on Binge scrolls back up.
         rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and hasAnyDescendant(hasText("Letterkenny"))).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 150f) }
         settle(1_000) { false }
         shot("12d-show-scrolled-with-binge")
         val top2 = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
-        check(top2 >= 0f, "A scrolled page with the remote on Binge left the show's name cut off (top $top2)")
+        check(top2 == titleTop, "A scrolled page with the remote on Binge stayed scrolled (name at $top2, not $titleTop)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }
