@@ -295,6 +295,10 @@ class RoomActivity : ComponentActivity() {
     override fun onStop() {
         // Android doesn't let a backgrounded app keep the mic, so leave voice when the player goes away.
         stopVoice()
+        // Watching alone, nobody else is watching: pause the party where it is, so it's there on return.
+        if (solo && !ended && ::connection.isInitialized) {
+            connection.send(Protocol.position("pause", player.currentPosition / 1000.0))
+        }
         // Stop listening first so pausing here isn't broadcast as "paused" to everyone.
         sync.stop()
         player.playWhenReady = false
@@ -345,9 +349,9 @@ class RoomActivity : ComponentActivity() {
         if (companion || !isMediaKey(event.keyCode)) return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             when (event.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> player.playWhenReady = !player.playWhenReady
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> sync.playPausePressed()
                 KeyEvent.KEYCODE_MEDIA_PLAY -> player.playWhenReady = true
-                KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> player.playWhenReady = false
+                KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> sync.pausePressed()
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> sync.seekTo(player.currentPosition + SKIP_MS)
                 KeyEvent.KEYCODE_MEDIA_REWIND -> sync.seekTo(player.currentPosition - SKIP_MS)
                 KeyEvent.KEYCODE_MEDIA_NEXT -> bingeStep(1)?.let { playForEveryone(it) }

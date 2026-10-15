@@ -375,6 +375,28 @@ test("the log says when a screen the hold gave up on catches up, and which copy 
   assert.equal(lines.length, count);
 });
 
+test("watching alone, the party pauses where it was when its screen goes", () => {
+  let now = 1_000;
+  const mgr = new RoomManager((id) => (id === movie.id ? { ...movie, duration: 7200 } : undefined), () => now, 1000);
+  const room = mgr.create(movie.id, undefined, 0, true);
+  const lines: string[] = [];
+  room.log = (l) => lines.push(l);
+  const host = room.join("Host", () => {}, "tv");
+  room.handle(host.id, { type: "play", position: 600 });
+  now += 30_000;
+  room.leave(host.id);
+  assert.deepEqual([room.state.paused, room.state.position], [true, 630]);
+  assert.deepEqual(lines, ["Host (tv) pressed play at 10:00", "paused at 10:30: nobody is watching"]);
+  now += 60_000;
+  assert.equal(room.position(), 630, "still there on return");
+  // A party with friends plays on when someone steps out.
+  const party = mgr.create(movie.id);
+  const a = party.join("A", () => {});
+  party.handle(a.id, { type: "play", position: 600 });
+  party.leave(a.id);
+  assert.equal(party.state.paused, false);
+});
+
 test("ending with Save spot keeps where the party is, and a new party picks up there", () => {
   let now = 1_000;
   const ep = (n: number): MediaItem => ({ ...movie, id: `e${n}`, title: `Ep ${n}`, duration: 3000, episode: { show: "Show", season: 1, episode: n, title: null } });
