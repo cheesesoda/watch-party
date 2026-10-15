@@ -412,9 +412,11 @@ export class Markers {
     }
     // Version 1 entries for files that haven't changed: brought up to date cheaply, without listening again.
     const old = entries.filter((e) => !e.item.extra && this.cache[e.item.id]?.v === 1 && this.cache[e.item.id].key === Markers.key(e.item));
-    for (const e of old) {
+    if (old.length) this.log(`updating ${old.length} earlier results (chapters joined, credits by picture)`);
+    for (const [n, e] of old.entries()) {
       if (this.closed) return;
       await this.upgrade(e);
+      if ((n + 1) % 25 === 0 && n + 1 < old.length) this.log(`updated ${n + 1} of ${old.length} earlier results`);
     }
     if (old.length) {
       this.log(`updated ${old.length} earlier results (chapters joined, credits by picture)`);
@@ -442,6 +444,9 @@ export class Markers {
   private async season(list: MarkersEntry[]): Promise<void> {
     const started = Date.now();
     const ep = list[0].item.episode!;
+    const name = `${ep.show} ${ep.season === 0 ? "specials" : `season ${ep.season}`}`;
+    const listen = list.filter((e) => !this.heard(e.item, list.length)).length;
+    this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : "checking for recaps"}`);
     const probes = await Promise.all(list.map((e) => this.probe(e.absPath)));
     const heads = new Map<number, Uint32Array | null>();
     const tails = new Map<number, Uint32Array | null>();
@@ -547,6 +552,7 @@ export class Markers {
       const intro = marks[i].intro ?? null;
       let detected: TimeRange | null = null;
       if (head && i > 0 && ep.season !== 0) {
+        this.log(`${name}: recap check, episode ${e.item.episode!.episode} (${i + 1} of ${list.length})`);
         const sources: RecapSource[] = [];
         const before = await fullOf(i - 1);
         if (before) sources.push({ points: before, from: 0, ignore: ignoreIn(i - 1) });
@@ -572,7 +578,6 @@ export class Markers {
         recapLooked: true,
       });
     }
-    const name = `${ep.show} ${ep.season === 0 ? "specials" : `season ${ep.season}`}`;
     this.log(`${name}: intros in ${intros} of ${list.length}, recaps in ${recaps}, credits in ${credits} (${Math.round((Date.now() - started) / 1000)} s)`);
   }
 

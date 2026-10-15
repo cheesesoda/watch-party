@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
@@ -27,7 +28,20 @@ const app = createApp(config);
 await app.library.scan();
 const count = (await app.library.list()).length;
 
+/** Which update this is: the last merged PR, commit and date, from the checkout the tray's Update now pulls. */
+function version(): string {
+  try {
+    const repo = fileURLToPath(new URL("../..", import.meta.url));
+    const [hash, date, subject] = execFileSync("git", ["log", "-1", "--format=%h%n%cs%n%s"], { cwd: repo, encoding: "utf8", windowsHide: true }).trim().split("\n");
+    const pr = /#(\d+)/.exec(subject ?? "")?.[1];
+    return pr ? `#${pr} (${hash}, ${date})` : `${hash} (${date})`;
+  } catch {
+    return "unknown (not a git checkout)";
+  }
+}
+
 app.server.listen(config.port, config.host, () => {
+  console.log(`Popcorn Club server: ${version()}`);
   console.log(`Popcorn Club listening on http://${config.host}:${config.port}`);
   console.log(`library: ${count} video(s) in ${config.mediaDirs.join(", ")}`);
   console.log(app.metadata.enabled ? "movie details: on (TMDB)" : "movie details: off (add TMDB_TOKEN to .env to turn them on)");
