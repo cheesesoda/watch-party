@@ -203,6 +203,32 @@ function extractSubtitle(ffmpeg: string, file: string, stream: number): Promise<
   });
 }
 
+/** One JPEG frame from `seconds` into a file, 640 px wide, or null when ffmpeg can't read it there. */
+function grabFrame(ffmpeg: string, file: string, seconds: number): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    let proc: ChildProcess;
+    try {
+      // -ss before -i seeks by keyframe, so it's quick even hours in.
+      const args = ["-hide_banner", "-nostdin", "-loglevel", "error", "-ss", String(Math.max(0, seconds)), "-i", file, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"];
+      proc = spawn(ffmpeg, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    } catch {
+      return resolve(null);
+    }
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => proc.kill(), 30_000);
+    proc.stdout!.on("data", (d: Buffer) => chunks.push(d));
+    proc.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      const jpg = Buffer.concat(chunks);
+      resolve(code === 0 && jpg.length > 0 ? jpg : null);
+    });
+  });
+}
+
 interface Job {
   proc: ChildProcess;
   start: number;
@@ -261,6 +287,15 @@ export class Transcoder {
   }
 
   /** Duration from an earlier probe, without touching the disk. Undefined when the file hasn't been probed. */
+  /**
+   * A still from the video near `seconds`, for cards with no TMDB art. Right at the start is often a black frame, so a
+   * spot there shows a minute in; past the end (a short file), it falls back to the first seconds.
+   */
+  async frame(file: string, seconds: number): Promise<Buffer | null> {
+    const at = seconds >= 10 ? seconds : 60;
+    return (await grabFrame(this.config.ffmpeg, file, at)) ?? (at > 5 ? grabFrame(this.config.ffmpeg, file, 5) : null);
+  }
+
   cachedDuration(file: string): number | null | undefined {
     const cached = this.probes.get(file);
     return cached ? cached.result.duration || null : undefined;

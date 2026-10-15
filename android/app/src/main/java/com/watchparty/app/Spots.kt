@@ -41,6 +41,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -103,14 +104,25 @@ fun spotFacts(s: Spot, withWhen: Boolean = true): String =
 private fun progress(media: MediaItem, position: Double): Float? =
     media.duration?.takeIf { it > 0 }?.let { (position / it).toFloat().coerceIn(0f, 1f) }
 
-/** Wide art for a spot: the episode's still, else the backdrop, with how far in along the bottom. */
+/**
+ * Wide art for a spot: the episode's still, else the backdrop, else a still from the video where it stopped, with how far
+ * in along the bottom. With no picture at all, the title over the gradient.
+ */
 @Composable
 private fun SpotArt(api: Api, details: Boolean, s: Spot, modifier: Modifier) {
     val m = s.media.meta
     val path = if (details) m?.stillPath ?: m?.backdropPath else null
-    val image by produceState<ImageBitmap?>(null, path) { value = path?.let { api.image(it, "w780") } }
+    // (loaded, picture): the title only shows once both pictures turned out missing, not while they load.
+    val art by produceState<Pair<Boolean, ImageBitmap?>>(false to null, path, s.id) { value = true to (path?.let { api.image(it, "w780") } ?: api.spotFrame(s.id)) }
+    val image = art.second
     Box(modifier.background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
-        image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        if (image != null) Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else if (art.first) Text(
+                m?.show ?: s.media.episode?.show ?: m?.title ?: s.media.title,
+                color = Color.White.copy(alpha = 0.85f), fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 22.sp,
+                textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.Center).padding(horizontal = 14.dp),
+            )
         progress(s.media, s.position)?.let { p ->
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.White.copy(alpha = 0.25f)))
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(p).height(4.dp).background(Accent))

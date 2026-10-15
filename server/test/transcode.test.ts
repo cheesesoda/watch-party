@@ -144,3 +144,21 @@ test("pulls a subtitle track out of the file as WebVTT", { skip: !hasFfmpeg && "
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("grabs a still from the video for cards without TMDB art", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-frame-"));
+  try {
+    const input = path.join(dir, "a.mp4");
+    const made = spawnSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=10:d=20", "-c:v", "mpeg4", input]);
+    assert.equal(made.status, 0);
+    const tc = new Transcoder({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: path.join(dir, "out"), encoder: "off" });
+    const jpg = await tc.frame(input, 12);
+    assert.ok(jpg && jpg[0] === 0xff && jpg[1] === 0xd8, "a JPEG");
+    // A spot at the start would show a minute in, past the end of this 20 s file: it falls back to the first seconds.
+    assert.ok(await tc.frame(input, 0), "a short file still gets a frame");
+    assert.equal(await tc.frame(path.join(dir, "missing.mp4"), 12), null);
+    await tc.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

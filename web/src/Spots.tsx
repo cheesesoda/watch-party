@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { episodeLabel } from "../../shared/specials.ts";
 import { nearEnd, type MediaItem, type Spot } from "../../shared/protocol.ts";
-import { imageUrl } from "./api.ts";
+import { imageUrl, spotFrameUrl } from "./api.ts";
 import { fmtRuntime } from "./catalog.ts";
 import { CloseIcon, PlayIcon } from "./Icons.tsx";
 
@@ -29,14 +29,23 @@ function when(ts: number, now = Date.now()): string {
 
 const art = (m: MediaItem) => m.meta?.stillPath ?? m.meta?.backdropPath ?? null;
 
-/** The art with a bar showing how far in. */
-function Thumb(props: { media: MediaItem; position: number; details: boolean; size: "w300" | "w780" }) {
-  const [failed, setFailed] = useState(false);
-  const path = props.details ? art(props.media) : null;
+/**
+ * The art with a bar showing how far in. Without TMDB art, a saved spot shows a still from the video where it stopped;
+ * with neither, [label] (the title) over the gradient.
+ */
+function Thumb(props: { media: MediaItem; position: number; details: boolean; size: "w300" | "w780"; spotId?: string; label?: string }) {
+  const tmdb = props.details ? art(props.media) : null;
+  const sources = [tmdb && imageUrl(tmdb, props.size), props.spotId && spotFrameUrl(props.spotId)].filter((u): u is string => !!u);
+  const [tried, setTried] = useState(0);
+  const src = sources[tried];
   const d = props.media.duration;
   return (
     <span className="spot-art">
-      {path && !failed && <img src={imageUrl(path, props.size)} alt="" loading="lazy" onError={() => setFailed(true)} />}
+      {src ? (
+        <img key={src} src={src} alt="" loading="lazy" onError={() => setTried((n) => n + 1)} />
+      ) : props.label ? (
+        <span className="spot-fallback">{props.label}</span>
+      ) : null}
       {d ? (
         <span className="spot-bar">
           <span style={{ width: `${Math.min(100, (props.position / d) * 100)}%` }} />
@@ -72,7 +81,7 @@ export function SpotRow(props: {
               {/* Covers the whole card, so clicking anywhere on it opens the page. */}
               <button className="spot-open" onClick={() => props.onOpen(s)} aria-label={`Open ${title}`} />
               <div className="spot-top">
-                <Thumb media={s.media} position={s.position} details={props.details} size="w780" />
+                <Thumb media={s.media} position={s.position} details={props.details} size="w780" spotId={s.id} label={s.media.meta?.show ?? s.media.episode?.show ?? s.media.meta?.title ?? s.media.title} />
                 <button className="pill primary small spot-start" onClick={() => props.onStart(s)}>
                   <PlayIcon size={14} /> {props.startLabel}
                 </button>
@@ -100,7 +109,7 @@ export function SpotLine(props: { spot: Spot; details: boolean }) {
   const saved = when(spot.savedAt);
   return (
     <div className="spot-line">
-      <Thumb media={m} position={spot.position} details={props.details} size="w300" />
+      <Thumb media={m} position={spot.position} details={props.details} size="w300" spotId={spot.id} />
       <span>
         <b>Pick up where you left off</b>
         <small>{[ep, howFar(spot.position), lined(spot.next.length), `saved ${saved === "Today" || saved === "Yesterday" ? saved.toLowerCase() : saved}`].filter(Boolean).join(" · ")}</small>

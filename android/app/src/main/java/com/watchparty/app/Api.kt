@@ -145,8 +145,12 @@ class Api(private val baseUrl: String, private val token: String) {
      * A TMDB poster or still (a path like "/abc.jpg"), through the server so the device never contacts TMDB.
      * null if it can't be loaded.
      */
-    suspend fun image(path: String, size: String): ImageBitmap? {
-        val url = "$baseUrl/api/images/$size$path"
+    suspend fun image(path: String, size: String): ImageBitmap? = bitmap("$baseUrl/api/images/$size$path")
+
+    /** A still from the video where a saved spot stopped, for videos without TMDB art. null if the server can't grab one. */
+    suspend fun spotFrame(spotId: String): ImageBitmap? = bitmap("$baseUrl/api/spots/$spotId/frame.jpg")
+
+    private suspend fun bitmap(url: String): ImageBitmap? {
         images.get(url)?.let { return it }
         return withContext(Dispatchers.IO) {
             runCatching {

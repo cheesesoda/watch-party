@@ -74,8 +74,15 @@ class TvScreensTest {
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
         listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
 
-    /** Saved spots: two movies, so removing one leaves a neighbor. */
-    private val spots = listOf(Spot("s1", items[0], 1200.0, savedAt = 2000), Spot("s2", items[1], 3000.0, savedAt = 1990))
+    /**
+     * Saved spots: movies, so removing one leaves a neighbor. The second and third have no TMDB art: the server grabs a
+     * frame from the second's video, and the third's can't be read, so it shows its title.
+     */
+    private val spots = listOf(
+        Spot("s1", items[0], 1200.0, savedAt = 2000),
+        Spot("s2", items[1].copy(meta = null), 3000.0, savedAt = 1990),
+        Spot("s3", items[2].copy(meta = null, title = "Inception"), 600.0, savedAt = 1980),
+    )
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -94,6 +101,8 @@ class TvScreensTest {
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
+                    path.startsWith("/api/spots/s2/frame.jpg") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(5))
+                    path.endsWith("/frame.jpg") -> MockResponse().setResponseCode(404)
                     path.startsWith("/api/spots/") -> json("{}")
                     path.startsWith("/api/spots") -> json("""{"spots":${Protocol.json.encodeToString(spots)}}""")
                     path.startsWith("/api/images/") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(path.hashCode() and 0xFF))
