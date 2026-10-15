@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { expectedPosition } from "../../shared/protocol.ts";
 import { checkPassword, tokenFor } from "../src/auth.ts";
-import { findFolderExtras, linkExtras, linkParts, nameFromFolder, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
+import { findFolderExtras, Library, linkExtras, linkParts, nameFromFolder, parseName, subtitleTag, titleFromFilename } from "../src/library.ts";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { parseRange } from "../src/range.ts";
 import { FailureLimiter } from "../src/ratelimit.ts";
@@ -238,4 +241,29 @@ test("worthSaving: partway in, or with more lined up", async () => {
   assert.equal(worthSaving(2700, 3000, 0, 2650), false);
   assert.equal(worthSaving(2600, 3000, 0, 2650), true);
   assert.equal(worthSaving(2700, 3000, 1, 2650), true);
+});
+
+test("the library says when a later scan finds new or changed videos", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-lib-"));
+  try {
+    await fs.writeFile(path.join(dir, "A Movie (2001).mp4"), "a");
+    const library = new Library([dir]);
+    let calls = 0;
+    library.onNew = () => calls++;
+    await library.scan();
+    assert.equal(calls, 0, "not the first scan: the server looks at everything on start");
+    await library.scan();
+    assert.equal(calls, 0, "nothing new");
+    await fs.writeFile(path.join(dir, "B Movie (2002).mkv"), "b");
+    await library.scan();
+    assert.equal(calls, 1, "a file added");
+    await fs.writeFile(path.join(dir, "B Movie (2002).mkv"), "bigger");
+    await library.scan();
+    assert.equal(calls, 2, "a file replaced");
+    await fs.rm(path.join(dir, "A Movie (2001).mp4"));
+    await library.scan();
+    assert.equal(calls, 2, "a file removed needs no scan");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
