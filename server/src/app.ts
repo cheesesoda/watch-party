@@ -45,6 +45,11 @@ export function createApp(config: Config): App {
     const items = await library.list();
     await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
   };
+  // Videos added while the server runs get their details and skip times without a Rescan.
+  library.onNew = () => {
+    void library.list().then((items) => metadata.warm(items));
+    void findMarks();
+  };
   const app = express();
   app.disable("x-powered-by");
 

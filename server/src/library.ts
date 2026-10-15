@@ -271,6 +271,8 @@ export class Library {
   private entries = new Map<string, LibraryEntry>();
   private lastScan = 0;
   private scanning: Promise<void> | null = null;
+  /** Called after a scan (not the first) that found new or changed videos, for the skip scan and TMDB. */
+  onNew: (() => void) | null = null;
 
   constructor(
     private roots: string[],
@@ -341,8 +343,15 @@ export class Library {
     findFolderExtras(all, extraOwners);
     nameFromFolder(all, extraOwners);
     linkExtras(all, extraOwners);
+    const before = this.entries;
+    const first = this.lastScan === 0;
     this.entries = next;
     this.lastScan = Date.now();
+    const changed = (e: LibraryEntry) => {
+      const old = before.get(e.item.id)?.item;
+      return !old || old.size !== e.item.size || old.addedAt !== e.item.addedAt;
+    };
+    if (!first && [...next.values()].some(changed)) this.onNew?.();
   }
 
   private async fresh(): Promise<void> {
