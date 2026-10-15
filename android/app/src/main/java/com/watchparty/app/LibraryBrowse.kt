@@ -1,7 +1,7 @@
 package com.watchparty.app
 
 /** Which part of the library is showing. */
-enum class LibraryView(val label: String) { All("All videos"), Movies("Movies"), Shows("TV shows") }
+enum class LibraryView(val label: String) { All("All videos"), Movies("Movies"), Shows("TV Shows") }
 
 enum class LibrarySort(val label: String) { Recent("Recently added"), AZ("A–Z"), Length("Length"), Size("Size") }
 

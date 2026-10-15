@@ -135,8 +135,8 @@ fun TvSpotCard(api: Api, details: Boolean, s: Spot, width: Dp, onClick: () -> Un
                 .clip(shape)
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         )
-        Text(spotTitle(s.media), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
-        Text(spotFacts(s, withWhen = false), color = Muted, fontSize = 12.sp, maxLines = 1)
+        Text(spotTitle(s.media), color = Color.White, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
+        Text(spotFacts(s, withWhen = false), color = Muted, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -206,7 +206,7 @@ fun SpotOptions(api: Api, s: Spot, startLabel: String, onStart: () -> Unit, onOp
                 }
             }
             OptionRow(R.drawable.ic_play_filled, startLabel, Modifier.focusRequester(first), onClick = onStart)
-            if (s.media.episode != null) OptionRow(R.drawable.ic_nav_shows, "Go to show", onClick = onOpen)
+            if (s.media.episode != null || s.media.extra?.show != null) OptionRow(R.drawable.ic_nav_shows, "Go to show", onClick = onOpen)
             else OptionRow(R.drawable.ic_nav_movies, "Go to movie", onClick = onOpen)
             OptionRow(R.drawable.ic_trash, "Remove", danger = true, onClick = onRemove)
         }

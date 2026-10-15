@@ -19,8 +19,8 @@ export const inviteLink = (code: string) =>
 const NAV: [string, string, (p: { size?: number }) => ReactNode][] = [
   ["/", "Home", HomeIcon],
   ["/movies", "Movies", FilmIcon],
-  ["/shows", "TV shows", TvIcon],
-  ["/parties", "Watch parties", UsersIcon],
+  ["/shows", "TV Shows", TvIcon],
+  ["/parties", "Watch Parties", UsersIcon],
   ["/subtitles", "Has subtitles", CaptionsIcon],
 ];
 
@@ -150,8 +150,10 @@ export function Home(props: {
   // Clicking a spot opens its show or movie page.
   const openSpot = (spot: Spot) => {
     const m = cat.byId.get(spot.media.id) ?? spot.media;
-    const show = m.episode && cat.shows.find((s) => s.episodes.some((e) => e.id === m.id));
-    go(show ? showLink(show) : movieLink(m));
+    // An extra opens the show or movie it belongs to.
+    const show = cat.shows.find((s) => s.episodes.some((e) => e.id === m.id) || s.extras.some((e) => e.id === m.id));
+    const owner = m.extra?.of ? cat.byId.get(m.extra.of) : undefined;
+    go(show ? showLink(show) : movieLink(owner ?? m));
   };
 
   const join = (e: FormEvent) => {
@@ -354,7 +356,7 @@ export function Home(props: {
         {route === "/" && !query.trim() && rooms.length > 0 && (
           <section className="dash-section">
             <div className="dash-section-head">
-              <h2>Watch parties</h2>
+              <h2>Watch Parties</h2>
             </div>
             {partyCards}
           </section>
@@ -363,7 +365,7 @@ export function Home(props: {
         {route === "/parties" && !query.trim() ? (
           <>
             <div className="page-head">
-              <h1>Watch parties</h1>
+              <h1>Watch Parties</h1>
               <span className="count">{rooms.length}</span>
             </div>
             {rooms.length === 0 ? <p className="muted">No parties right now. Start one from any movie or episode.</p> : partyCards}

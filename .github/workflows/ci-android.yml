@@ -6,6 +6,11 @@ on:
       - "android/**"
   # Run from the Actions tab to build an APK from any branch.
   workflow_dispatch:
+    inputs:
+      screens:
+        description: Push the TV screen tests' pictures to the ci-screens branch
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +20,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: android
@@ -34,6 +41,32 @@ jobs:
             [ -n "$errors" ] && echo "::error title=Compile errors::$errors"
             exit 1
           }
+      # Failed tests become annotations too.
+      - name: Report failed tests
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          lines = []
+          for f in glob.glob("app/build/test-results/testDebugUnitTest/*.xml"):
+              for case in ET.parse(f).getroot().iter("testcase"):
+                  for fail in case.findall("failure") + case.findall("error"):
+                      msg = (fail.get("message") or "").strip()[:700]
+                      # Where it failed: the first frames in the app's own code.
+                      frames = [l.strip() for l in (fail.text or "").splitlines() if "com.watchparty" in l][:3]
+                      lines.append(f"{case.get('classname').split('.')[-1]}.{case.get('name')}: {msg} | {' | '.join(frames)}"[:1200])
+          if lines:
+              print("::error title=Failed tests::" + "%0A".join(lines[:20]))
+          PY
+      # Run by hand with "screens" ticked, the TV screen tests' pictures go to the ci-screens branch, so they can be
+      # looked at from anywhere GitHub's code is reachable (artifact downloads aren't always).
+      - name: Publish TV screenshots
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.screens
+        run: |
+          cd app/build/tv-screens 2>/dev/null || { echo "No screenshots"; exit 0; }
+          git init -q && git checkout -q -b ci-screens
+          git add . && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "TV screens from ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-screens
       # Android TV has no camera or touchscreen: a library that marks either as required would hide
       # the app from TVs on Play. Lists the merged manifest's features and fails if any is required.
       - name: Check the app still installs on TVs

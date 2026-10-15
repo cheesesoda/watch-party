@@ -7,6 +7,9 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -72,7 +75,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -99,7 +106,7 @@ import kotlinx.coroutines.launch
  */
 
 /** Where the dashboard is: "home", "movies", "shows", "parties", "search", "movie/<id>" or "show/<name>". */
-private typealias Route = String
+internal typealias Route = String
 
 private const val TMDB_CREDIT = "Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB."
 /** See-through white for tonal buttons and the selected menu item. */
@@ -186,11 +193,12 @@ private class Actions(
  * [adding], it's the library for the open party's Up next ([AddVideosActivity]), and [onBackToParty] returns to it.
  */
 @Composable
-fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = false, onBackToParty: () -> Unit = {}) {
+fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = false, onBackToParty: () -> Unit = {}, forceTv: Boolean = false) {
     val api = remember { Api(prefs.serverUrl, prefs.token) }
     val context = LocalContext.current
+    // forceTv: the TV layout without a TV, for the screen tests.
     val tv = remember {
-        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        forceTv || context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
@@ -296,8 +304,10 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         open = { spot ->
             spotOptions = null
             val m = spot.media
+            // An extra opens the show or movie it belongs to.
             val show = m.episode?.let { library?.shows?.firstOrNull { s -> s.episodes.any { it.id == m.id } } }
-            go(if (show != null) "show/${show.name}" else "movie/${m.id}")
+                ?: m.extra?.show?.let { name -> library?.shows?.firstOrNull { name in it.aliases } }
+            go(if (show != null) "show/${show.name}" else "movie/${m.extra?.of ?: m.id}")
         },
         remove = { spot ->
             spotOptions = null
@@ -354,13 +364,14 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         val movie = route.removePrefix("movie/").takeIf { route.startsWith("movie/") }?.let { lib?.byId?.get(it) }
         val show = route.removePrefix("show/").takeIf { route.startsWith("show/") }?.let { lib?.show(it) }
         when {
+            route == "settings" -> SettingsPage(prefs, tv, onSignOut = { onSignedOut(null) })
             route == "parties" -> PartiesPage(rooms, sinceFetch, lib?.details == true, actions, gridState)
             lib == null -> Message(error ?: "Loading library…", error != null)
             lib.items.isEmpty() -> Message("No videos found. Put files in the server's media folder.", false)
             movie != null -> MoviePage(lib, movie, actions, listState)
             show != null -> ShowPage(lib, show, actions, listState)
             route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
-            route == "shows" -> PosterGrid(lib, "TV shows", emptyList(), lib.shows, actions, gridState)
+            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
             else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
@@ -368,14 +379,14 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     }
 
     if (tv) {
-        TvShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go) {
+        TvShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 if (adding) PartyPill(tv = true, Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 32.dp), onBackToParty)
             }
         }
     } else {
-        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, onBack = onBackToParty, go = go) {
+        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, onBack = onBackToParty, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 // The top pages show it in their bar; movie and show pages over their backdrop.
@@ -462,7 +473,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
 /** What Home's "Pick up where you left off" cards do. [options] is a TV's OK. */
 private class SpotActions(val start: (Spot) -> Unit, val open: (Spot) -> Unit, val remove: (Spot) -> Unit, val options: (Spot) -> Unit)
 
-private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search")
+private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search", "settings")
 
 // ---------- Shells: the phone's bottom bar and the TV's side menu ----------
 
@@ -471,7 +482,7 @@ private data class NavItem(val route: Route, val label: String, val icon: Int)
 private val NAV = listOf(
     NavItem("home", "Home", R.drawable.ic_nav_home),
     NavItem("movies", "Movies", R.drawable.ic_nav_movies),
-    NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
+    NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
     NavItem("parties", "Parties", R.drawable.ic_nav_parties),
 )
 
@@ -566,11 +577,24 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
-private fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
+    // The page reaches under the menu (its backdrop shows through), so to the remote's Right search it starts left of
+    // the menu and never counts as "to the right": the menu sends Right to the page itself.
+    // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
+    val page = remember { FocusRequester() }
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize()) { content() }
+        @OptIn(ExperimentalComposeUiApi::class)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .focusRequester(page)
+                // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
+                // Left still opens it.
+                .focusProperties { exit = { direction -> if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel else FocusRequester.Default } }
+                .focusGroup(),
+        ) { content() }
         Column(
             Modifier
                 .fillMaxHeight()
@@ -580,31 +604,32 @@ private fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Bo
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
                 .onFocusChanged { open = it.hasFocus }
-                .padding(horizontal = 12.dp, vertical = 24.dp),
+                // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
+                .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(Modifier.padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(start = 11.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (open) LogoTitle(fontSize = 20.sp, markSize = 26.dp) else LogoMark(26.dp)
             }
-            TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open) { go("search") }
+            TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open, page) { go("search") }
             // While adding to a party there's no other party to go to, and no signing out from under it.
             listOfNotNull(
                 NavItem("home", "Home", R.drawable.ic_nav_home),
                 NavItem("movies", "Movies", R.drawable.ic_nav_movies),
-                NavItem("shows", "TV shows", R.drawable.ic_nav_shows),
-                NavItem("parties", "Watch parties", R.drawable.ic_nav_parties).takeIf { !adding },
-            ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open) { go(item.route) } }
-            if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
+                NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
+                NavItem("parties", "Watch Parties", R.drawable.ic_nav_parties).takeIf { !adding },
+            ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open, page) { go(item.route) } }
+            if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, page, onCode)
             Spacer(Modifier.weight(1f))
-            TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, onRefresh)
-            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
-            if (!adding) TvModeItem(alone, open) { setAlone(!alone) }
+            TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, page, onRefresh)
+            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", section(route) == "settings", open, page, onSettings)
+            if (!adding) TvModeItem(alone, open, page) { setAlone(!alone) }
         }
     }
 }
 
 @Composable
-private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolean, onClick: () -> Unit) {
+private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolean, page: FocusRequester, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
@@ -613,6 +638,7 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
+            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -625,16 +651,17 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
 
 /** The TV's Together / Alone switch, last in the menu: lit orange while on Alone; OK flips it. */
 @Composable
-private fun TvModeItem(alone: Boolean, open: Boolean, onClick: () -> Unit) {
+private fun TvModeItem(alone: Boolean, open: Boolean, page: FocusRequester, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
         Modifier
             .padding(top = 6.dp)
             .fillMaxWidth()
-            .height(52.dp)
-            .clip(RoundedCornerShape(26.dp))
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(if (focused) FocusFill else if (alone) Color(0x38E09A62) else Color.Transparent)
+            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -649,6 +676,97 @@ private fun TvModeItem(alone: Boolean, open: Boolean, onClick: () -> Unit) {
         if (open) Column {
             Text(if (alone) "Watching alone" else "Watching together", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Text(if (alone) "OK: switch to together" else "OK: switch to alone", color = if (focused) OnFocus.copy(alpha = 0.7f) else Muted, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+// ---------- Settings ----------
+
+/** Your name, the server, and Sign out (which asks first), instead of the menu's Settings signing you out. */
+@Composable
+private fun SettingsPage(prefs: Prefs, tv: Boolean, onSignOut: () -> Unit) {
+    var name by remember { mutableStateOf(prefs.name) }
+    var editing by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(false) }
+    val first = remember { FocusRequester() }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = if (tv) 128.dp else 16.dp, end = if (tv) 48.dp else 16.dp, top = if (tv) 40.dp else 8.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        PageTitle("Settings", null)
+        Spacer(Modifier.height(4.dp))
+        SettingsRow(R.drawable.ic_user, "Your name", name, Modifier.focusRequester(first)) { editing = true }
+        SettingsRow(R.drawable.ic_tv, "Server", prefs.serverUrl.substringAfter("://"), Modifier, onClick = null)
+        SettingsRow(R.drawable.ic_leave, "Sign out", if (tv) "Sign in again later with your phone or the password" else "Sign in again later with the password", Modifier) { confirming = true }
+    }
+    if (tv) LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+
+    if (editing) {
+        var draft by remember { mutableStateOf(name) }
+        val field = remember { FocusRequester() }
+        val save = {
+            val clean = draft.trim().take(32)
+            if (clean.isNotEmpty()) {
+                prefs.name = clean
+                name = clean
+                editing = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("Your name") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("Shown to everyone in a party") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                    modifier = Modifier.focusRequester(field),
+                )
+            },
+            confirmButton = { DialogButton("Save") { save() } },
+            dismissButton = { DialogButton("Cancel") { editing = false } },
+            containerColor = DialogSurface,
+        )
+        LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Sign out?") },
+            text = { Text(if (tv) "This TV goes back to the start screen. To sign in again, choose Sign in with your phone, or enter the password." else "This phone goes back to the start screen. To sign in again, enter the password.") },
+            confirmButton = { DialogButton("Sign out", danger = true) { confirming = false; onSignOut() } },
+            dismissButton = { DialogButton("Cancel") { confirming = false } },
+            containerColor = DialogSurface,
+        )
+    }
+}
+
+/** A settings row: icon, label and value; white while the remote is on it. [onClick] null: information only. */
+@Composable
+private fun SettingsRow(icon: Int, label: String, value: String, modifier: Modifier, onClick: (() -> Unit)?) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(
+        modifier
+            .widthIn(max = 640.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (focused) FocusFill else Panel)
+            .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(painterResource(icon), contentDescription = null, tint = if (focused) OnFocus else Muted, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = if (focused) OnFocus else Color.White, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(value, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -699,7 +817,7 @@ private fun HomePage(
             }
             if (rooms.isNotEmpty()) {
                 item(key = "parties") {
-                    ShelfRow("Watch parties", null, a) {
+                    ShelfRow("Watch Parties", null, a) {
                         items(rooms, key = { it.id }) { PartyCard(it, sinceFetch, lib.details, a, width = if (tv) 300.dp else 290.dp) }
                     }
                 }
@@ -722,7 +840,7 @@ private fun HomePage(
             }
             if (lib.shows.isNotEmpty()) {
                 item(key = "shows") {
-                    ShelfRow("TV shows", "shows", a) { items(lib.shows.take(24), key = { it.name }) { ShowCard(it, lib, a) } }
+                    ShelfRow("TV Shows", "shows", a) { items(lib.shows.take(24), key = { it.name }) { ShowCard(it, lib, a) } }
                 }
             }
             if (lib.details) item(key = "credit") { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp) }
@@ -852,8 +970,15 @@ private fun ShelfRow(title: String, seeAll: Route?, a: Actions, content: LazyLis
             // On a TV, See all is the menu item; on a phone it's a tap here.
             if (seeAll != null && !a.tv) Text("See all", color = Muted, fontSize = 13.sp, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { a.go(seeAll) }.padding(8.dp))
         }
-        // Room for a focused card to grow without being clipped.
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(if (a.tv) 18.dp else 12.dp), contentPadding = PaddingValues(vertical = if (a.tv) 8.dp else 0.dp), content = content)
+        // Room for a focused card to grow without its white edge being clipped: the row reaches 12dp further out on the
+        // left, and its padding brings the first card back in line with the title.
+        val grow = if (a.tv) 12.dp else 0.dp
+        LazyRow(
+            modifier = Modifier.offset(x = -grow),
+            horizontalArrangement = Arrangement.spacedBy(if (a.tv) 18.dp else 12.dp),
+            contentPadding = PaddingValues(start = grow, end = grow, top = if (a.tv) 10.dp else 0.dp, bottom = if (a.tv) 10.dp else 0.dp),
+            content = content,
+        )
     }
 }
 
@@ -883,8 +1008,10 @@ private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, s
                 Text(it, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(CircleShape).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp))
             }
         }
-        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 10.dp else 6.dp))
-        sub?.let { Text(it, color = Muted, fontSize = 12.sp, maxLines = 1) }
+        // The body style's 24sp lines left a wide gap between the title and the line under it on the TV.
+        val tight = if (tv) 16.sp else TextUnit.Unspecified
+        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = tight, modifier = Modifier.padding(top = if (focused) 10.dp else 6.dp))
+        sub?.let { Text(it, color = Muted, fontSize = 12.sp, maxLines = 1, lineHeight = tight, modifier = Modifier.padding(top = if (tv) 2.dp else 0.dp)) }
     }
 }
 
@@ -1009,7 +1136,8 @@ private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, sho
 @Composable
 private fun PageTitle(title: String, count: String?) {
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 32.sp, color = Color.White)
+        // The body style's 24sp lines are shorter than 32sp letters, which cut off their tops.
+        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, color = Color.White)
         count?.let { Text(it, color = Muted, fontSize = 16.sp, modifier = Modifier.padding(bottom = 5.dp)) }
     }
 }
@@ -1024,7 +1152,7 @@ private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boo
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch parties", rooms.size.toString()) }
+        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch Parties", rooms.size.toString()) }
         if (rooms.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No parties right now. Start one from any movie or episode.", color = Muted) }
         items(rooms, key = { it.id }) { room ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1046,7 +1174,7 @@ private fun SearchPage(lib: Library, a: Actions, state: LazyGridState) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Movies and TV shows") },
+            placeholder = { Text("Movies and TV Shows") },
             singleLine = true,
             leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -1184,10 +1312,10 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
     val tabs = show.seasons + listOfNotNull((-2).takeIf { show.specials.isNotEmpty() }, (-1).takeIf { extras != null })
     var season by rememberSaveable(show.name) { mutableStateOf(tabs.first()) }
     val shown = season.takeIf { it in tabs } ?: tabs.first()
-    val binge = if (shown == -1) tabs.first() else shown
+    val binge = shown
     // A season's list has the specials that aired during it, where they aired (ui-redesign/specials/).
-    val inSeason = { n: Int -> if (n == -2) show.specials else show.bySeason[n].orEmpty() }
-    val bingeName = if (binge == -2) "specials" else "season $binge"
+    val inSeason = { n: Int -> if (n == -1) extras.orEmpty() else if (n == -2) show.specials else show.bySeason[n].orEmpty() }
+    val bingeName = if (binge == -1) "extras" else if (binge == -2) "specials" else "season $binge"
     // A saved spot puts Continue binge first (ui-redesign/resume/*-show-continue).
     val spot = if (a.adding) null else a.spotOf(show)
     DetailPage(

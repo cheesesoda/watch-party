@@ -171,7 +171,7 @@ export function Library(props: {
   const menu: [View, string, number][] = [
     ["all", "All videos", listed.length],
     ["movies", "Movies", movieCount],
-    ...(shows.length > 0 ? [["shows", "TV shows", shows.length] as [View, string, number]] : []),
+    ...(shows.length > 0 ? [["shows", "TV Shows", shows.length] as [View, string, number]] : []),
   ];
 
   const extraRow = (e: MediaItem) => (
