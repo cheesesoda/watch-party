@@ -11,6 +11,11 @@ export interface SavedSpot {
   savedAt: number;
   /** One spot per show (or movie): saving again replaces the older one. */
   key: string;
+  /**
+   * The party still playing it: kept up to date while it plays, so a restart (which ends every party without asking)
+   * still leaves it to pick up. Dropped when the server starts, since its party is gone.
+   */
+  room?: string;
 }
 
 /** How many spots Home shows, and how long one is kept. */
@@ -31,7 +36,16 @@ export class Spots {
     if (!file) return;
     try {
       const saved: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (Array.isArray(saved)) this.spots = saved.filter(isSpot);
+      if (Array.isArray(saved)) {
+        // A party that was playing ended with the server: its spot becomes an ordinary one, replacing the show's older.
+        const keys = new Set<string>();
+        this.spots = saved
+          .filter(isSpot)
+          .sort((a, b) => b.savedAt - a.savedAt)
+          .filter((s) => !keys.has(s.key) && keys.add(s.key))
+          .map(({ room: _, ...spot }) => spot)
+          .slice(0, MAX_SPOTS);
+      }
     } catch {
       // No file yet, or an unreadable one: start empty.
     }
@@ -52,6 +66,26 @@ export class Spots {
     this.spots = [saved, ...this.spots.filter((s) => s.key !== spot.key)].slice(0, MAX_SPOTS);
     this.write();
     return saved;
+  }
+
+  /** Where a party still playing is now ([spot]), or null when there's nothing worth coming back to there. */
+  live(room: string, spot: Omit<SavedSpot, "id" | "savedAt" | "room"> | null): void {
+    const old = this.spots.find((s) => s.room === room);
+    if (!spot) {
+      if (old) this.remove(old.id);
+      return;
+    }
+    if (old && old.key === spot.key && old.mediaId === spot.mediaId && Math.abs(old.position - spot.position) < 1 && old.next.join() === spot.next.join()) return;
+    const saved: SavedSpot = { ...spot, id: old?.id ?? crypto.randomBytes(6).toString("base64url"), savedAt: this.now(), room };
+    // The show's older spot stays until the party ends with Save spot, in case it ends with Don't save.
+    this.spots = [saved, ...this.spots.filter((s) => s.room !== room)];
+    this.write();
+  }
+
+  /** A party ended: its spot, if one was kept while it played, goes (Save spot keeps a spot of its own). */
+  ended(room: string): void {
+    const old = this.spots.find((s) => s.room === room);
+    if (old) this.remove(old.id);
   }
 
   get(id: string): SavedSpot | undefined {
