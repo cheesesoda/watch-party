@@ -53,6 +53,13 @@ class NextCardShotTest {
         rule.mainClock.advanceTimeBy(500)
         rule.waitForIdle()
         assertTrue(rule.onAllNodesWithText("UP NEXT · IN 4").fetchSemanticsNodes().isNotEmpty())
+        if (host) {
+            // The countdown bar must not stretch Play now: it stays about as wide as Stay here (it has an icon too).
+            val density = rule.activity.resources.displayMetrics.density
+            val play = rule.onAllNodesWithText("Play now")[0].fetchSemanticsNode().boundsInRoot.width / density
+            val stay = rule.onAllNodesWithText("Stay here")[0].fetchSemanticsNode().boundsInRoot.width / density
+            assertTrue("Play now is $play dp wide next to Stay here's $stay dp", play - stay < 40f)
+        }
         val view = rule.activity.window.decorView
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         rule.runOnIdle { view.draw(Canvas(bitmap)) }
