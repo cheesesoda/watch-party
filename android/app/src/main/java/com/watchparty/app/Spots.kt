@@ -66,7 +66,7 @@ data class SpotPreview(val media: MediaItem, val position: Double, val more: Int
 
 /** At the credits with more lined up, the spot is the start of the next video (as the server saves it). */
 fun spotPreview(media: MediaItem, position: Double, duration: Double?, next: MediaItem?, upcoming: Int): SpotPreview =
-    if (nearEnd(position, duration) && next != null) SpotPreview(next, 0.0, upcoming - 1) else SpotPreview(media, position, upcoming)
+    if (nearEnd(position, duration, media.marks?.credits) && next != null) SpotPreview(next, 0.0, upcoming - 1) else SpotPreview(media, position, upcoming)
 
 /** "Severance · S2 E3 Who Is Alive?", or the movie's title. */
 fun spotTitle(m: MediaItem): String {

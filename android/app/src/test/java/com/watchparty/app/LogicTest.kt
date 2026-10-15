@@ -1,5 +1,6 @@
 package com.watchparty.app
 
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -177,6 +178,10 @@ class LogicTest {
         assertEquals(true, worthSaving(2950.0, 3000.0, 2))
         assertEquals(true, worthSaving(0.0, null, 1))
         assertEquals(true, worthSaving(90.0, null, 0))
+        // In the credits (where the server found them start) counts as the end too.
+        assertEquals(false, worthSaving(2700.0, 3000.0, 0, 2650.0))
+        assertEquals(true, worthSaving(2600.0, 3000.0, 0, 2650.0))
+        assertEquals(true, worthSaving(2700.0, 3000.0, 1, 2650.0))
         // At the credits, the spot is the start of the next one.
         fun ep(n: Int) = MediaItem(id = "e$n", title = "Ep $n", relPath = "e$n.mkv", duration = 3000.0, episode = EpisodeInfo("Severance", 2, n, "Ep $n"))
         assertEquals(SpotPreview(ep(4), 0.0, 1), spotPreview(ep(3), 2990.0, 3000.0, ep(4), 2))
@@ -199,5 +204,21 @@ class LogicTest {
         assertEquals("3 weeks ago", savedWhen(now - 22 * day, now, zone))
         assertTrue(Protocol.end(save = true).contains("\"save\":true"))
         assertTrue(!Protocol.end().contains("save"))
+    }
+
+    @Test
+    fun skipsIntrosAndRecapsWhileTheyreOn() {
+        val marks = Json { ignoreUnknownKeys = true }.decodeFromString(
+            MediaItem.serializer(),
+            """{"id":"e1","title":"E1","relPath":"e1.mkv","marks":{"intro":{"start":60,"end":95.5},"recap":{"start":0,"end":40},"credits":2500}}""",
+        ).marks
+        assertEquals(2500.0, marks?.credits)
+        assertEquals("recap" to 40.0, skippable(marks, 0.0))
+        assertEquals(null, skippable(marks, 39.0))
+        assertEquals(null, skippable(marks, 50.0))
+        assertEquals("intro" to 95.5, skippable(marks, 60.0))
+        assertEquals("intro" to 95.5, skippable(marks, 93.0))
+        assertEquals(null, skippable(marks, 94.0))
+        assertEquals(null, skippable(null, 70.0))
     }
 }

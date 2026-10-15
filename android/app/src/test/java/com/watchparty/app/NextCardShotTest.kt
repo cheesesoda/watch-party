@@ -11,6 +11,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
@@ -71,4 +77,32 @@ class NextCardShotTest {
 
     @Test
     fun guest() = card(false, "41-up-next-guest")
+
+    /** Skip intro over the video, with the remote on it (white) as it is when it appears. */
+    @Test
+    fun skipIntro() {
+        val focusKey = mutableStateOf(0)
+        rule.setContent {
+            // A TV remote's D-pad: keyboard mode, where buttons take focus.
+            val inputMode = LocalInputModeManager.current
+            SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
+            PopcornTheme {
+                Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF8E6A4A), Color(0xFF2A1A12))))) {
+                    Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
+                        SkipPartButton(kind = "intro", tv = true, focusKey = focusKey.value) {}
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        // As the player does when it appears, once the remote's input mode is in.
+        focusKey.value = 1
+        rule.waitForIdle()
+        assertTrue(rule.onAllNodesWithText("Skip intro").fetchSemanticsNodes().isNotEmpty())
+        rule.onAllNodesWithText("Skip intro")[0].assertIsFocused()
+        val view = rule.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        rule.runOnIdle { view.draw(Canvas(bitmap)) }
+        File("build/tv-screens").apply { mkdirs() }.let { File(it, "43-skip-intro.png") }.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
 }

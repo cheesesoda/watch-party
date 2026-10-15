@@ -439,7 +439,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         val position = p?.let { it.position + if (it.paused) 0.0 else sinceFetch / 1000.0 } ?: 0.0
         val duration = p?.duration ?: room.media?.duration
         val upcoming = room.upNext?.count ?: 0
-        if (room.media != null && worthSaving(position, duration, upcoming)) {
+        if (room.media != null && worthSaving(position, duration, upcoming, room.media.marks?.credits)) {
             SaveSpotDialog(
                 api,
                 spotPreview(room.media, position, duration, room.upNext?.item, upcoming),

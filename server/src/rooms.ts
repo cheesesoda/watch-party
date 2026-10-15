@@ -365,7 +365,7 @@ export class Room {
       }
 
       case "ended": {
-        // Every screen reports the end; the first report for the current video starts the countdown.
+        // Every screen reports the end (or the credits starting); the first report for the current video starts the countdown.
         if (msg.mediaId !== this.state.mediaId || this.advance) return;
         const next = this.queue[this.queue.indexOf(msg.mediaId) + 1];
         if (!next || !this.lookup(next)) return;
@@ -376,12 +376,18 @@ export class Room {
         return;
       }
 
+      // Anyone can Stay here or Play now on the Up next card, as anyone can skip an intro.
       case "cancel-advance": {
-        if (guest) return send({ type: "error", message: "Only the host can change the video." });
         if (!this.advance) return;
         this.cancelAdvance();
         this.broadcastQueue();
         this.notice(`${member.name} stopped the binge from moving on`);
+        return;
+      }
+
+      case "advance-now": {
+        if (!this.advance) return;
+        this.moveOn(this.advance.mediaId);
         return;
       }
 
@@ -427,7 +433,8 @@ export class Room {
           if (msg.type === "seek") this.log(`${member.name} jumped to ${fmtTime(msg.position)}; no wait (${paused ? "paused" : "no screens say when they've loaded"})`);
         }
         this.broadcastState(member.name);
-        if (msg.type === "seek") this.notice(`${member.name} jumped to ${fmtTime(msg.position)}`);
+        if (msg.type === "seek" && (msg.skip === "intro" || msg.skip === "recap")) this.notice(`${member.name} skipped the ${msg.skip}`);
+        else if (msg.type === "seek") this.notice(`${member.name} jumped to ${fmtTime(msg.position)}`);
         else if (wasPaused !== paused) this.notice(`${member.name} ${paused ? "paused" : "resumed"} at ${fmtTime(msg.position)}`);
         return;
       }
@@ -459,8 +466,9 @@ export class Room {
     if (!this.media) return null;
     const next = this.upcoming();
     const position = this.members.size === 0 && this.emptyAt !== null ? this.emptyAt : this.position();
-    if (!worthSaving(position, this.media.duration, next.length)) return null;
-    if (nearEnd(position, this.media.duration)) return { mediaId: next[0], position: 0, next: next.slice(1) };
+    const credits = this.media.marks?.credits;
+    if (!worthSaving(position, this.media.duration, next.length, credits)) return null;
+    if (nearEnd(position, this.media.duration, credits)) return { mediaId: next[0], position: 0, next: next.slice(1) };
     return { mediaId: this.media.id, position, next };
   }
 
@@ -471,7 +479,7 @@ export class Room {
 
   /** The countdown ran out: the next video in the binge starts playing for everyone. */
   private moveOn(mediaId: string): void {
-    this.advance = null;
+    this.cancelAdvance();
     if (this.ended || !this.select(mediaId)) return;
     this.state = { ...this.state, paused: false, updatedAt: this.now() };
     this.broadcastState(null);

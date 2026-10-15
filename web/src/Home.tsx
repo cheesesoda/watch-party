@@ -127,7 +127,7 @@ export function Home(props: {
   const end = (room: RoomSummary) => {
     const p = room.playback;
     const position = p ? (p.paused ? p.position : p.position + Math.max(0, (Date.now() - fetchedAt) / 1000)) : 0;
-    if (room.media && worthSaving(position, p?.duration ?? room.media.duration, room.upNext?.count ?? 0)) return setEnding(room);
+    if (room.media && worthSaving(position, p?.duration ?? room.media.duration, room.upNext?.count ?? 0, room.media.marks?.credits)) return setEnding(room);
     const title = room.media?.title ?? "this party";
     if (confirm(`End ${title} for everyone? Anyone watching goes back to the start screen.`)) void finish(room, false);
   };

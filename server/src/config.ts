@@ -34,6 +34,8 @@ export interface Config {
   metadata?: MetadataConfig;
   /** Where "Pick up where you left off" spots are kept; left out, they're forgotten on restart. */
   spotsFile?: string;
+  /** Where found intros and credits are kept (data/markers.json). */
+  markersFile?: string;
   /**
    * Where invite links point, e.g. https://tv.chzsda.com, when that address forwards /join/CODE to this server.
    * Empty: invite links use the address the page was opened on.
@@ -99,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       file: path.resolve(env.METADATA_FILE?.trim() || fileURLToPath(new URL("../../data/metadata.json", import.meta.url))),
     },
     spotsFile: path.resolve(env.SPOTS_FILE?.trim() || fileURLToPath(new URL("../../data/spots.json", import.meta.url))),
+    markersFile: path.resolve(env.MARKERS_FILE?.trim() || fileURLToPath(new URL("../../data/markers.json", import.meta.url))),
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,
     proxyKey: env.PROXY_KEY?.trim() || undefined,

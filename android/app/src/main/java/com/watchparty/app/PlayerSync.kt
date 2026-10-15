@@ -14,8 +14,11 @@ import kotlin.math.abs
  */
 class PlayerSync(
     private val player: Player,
-    /** [at]: the server's clock when it happened here, or null before a ping has measured it. */
-    private val send: (type: String, position: Double, at: Long?) -> Unit,
+    /**
+     * [at]: the server's clock when it happened here, or null before a ping has measured it. [skip]: "intro" or "recap"
+     * when the jump was Skip intro / Skip recap.
+     */
+    private val send: (type: String, position: Double, at: Long?, skip: String?) -> Unit,
 ) {
     val clock = ClockOffset()
     /**
@@ -128,22 +131,25 @@ class PlayerSync(
         reconcile()
     }
 
-    private fun sent(type: String, position: Double) {
+    private fun sent(type: String, position: Double, skip: String? = null) {
         unechoed++
         lastSentAt = SystemClock.uptimeMillis()
-        send(type, position, sentAt())
+        send(type, position, sentAt(), skip)
     }
+
+    /** Skip intro / Skip recap: a jump to [positionMs] that tells friends what it skipped. */
+    fun skip(positionMs: Long, kind: String) = seekTo(positionMs, kind)
 
     /**
      * A seek the user asked for (the skip buttons, a remote's rewind key). The room is told first, so a sync
      * check can't pull the player back to the old spot before the seek is noticed.
      */
-    fun seekTo(positionMs: Long) {
+    fun seekTo(positionMs: Long, skip: String? = null) {
         val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
         val to = positionMs.coerceIn(0L, duration)
         state?.let { s ->
             state = held(s).copy(position = to / 1000.0, updatedAt = clock.serverNow())
-            sent("seek", to / 1000.0)
+            sent("seek", to / 1000.0, skip)
         }
         waitUntil = null
         seek(minOf(to + (state?.let { (holdLead(it) * 1000).toLong() } ?: 0L), duration))
@@ -233,7 +239,7 @@ class PlayerSync(
                 val key = "${s.updatedAt}:${s.position}"
                 if (readyFor != key) {
                     readyFor = key
-                    send("ready", target, null)
+                    send("ready", target, null, null)
                 }
             }
             return

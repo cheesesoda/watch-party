@@ -32,6 +32,8 @@ export class VideoSync {
   private scrubbing: number | undefined;
   private timer: number | undefined;
   private detach: () => void;
+  /** Set by [skip] until its jump goes out, so friends hear what it skipped. */
+  private skipping: "intro" | "recap" | undefined;
   /** Set when the browser refused to autoplay; the UI asks for a click. */
   onAutoplayBlocked: (blocked: boolean) => void = () => {};
 
@@ -100,6 +102,12 @@ export class VideoSync {
     this.reconcile();
   }
 
+  /** Skip intro / Skip recap: a jump to [position] that says what it skipped. */
+  skip(position: number, kind: "intro" | "recap"): void {
+    this.skipping = kind;
+    this.video.currentTime = position;
+  }
+
   /** Where the room's playback is right now. */
   expected(): number {
     return this.target();
@@ -126,8 +134,11 @@ export class VideoSync {
     // A jump while playing holds everyone at the new spot until each screen has loaded it (the server decides when).
     const hold = type === "seek" && (this.state.hold || !this.state.paused);
     this.state = { ...this.state, paused: paused || hold, position, updatedAt: this.serverNow(), hold: hold || undefined };
+    const skip = type === "seek" ? this.skipping : undefined;
+    this.skipping = undefined;
     // Our estimate of the server's clock right now, once a ping has measured it.
-    this.send(this.offsets.length > 0 ? { type, position, at: Math.round(this.serverNow()) } : { type, position });
+    const at = this.offsets.length > 0 ? Math.round(this.serverNow()) : undefined;
+    this.send(type === "seek" ? { type, position, at, skip } : { type, position, at });
   }
 
   private reconcile(): void {

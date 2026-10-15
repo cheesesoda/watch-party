@@ -10,6 +10,7 @@ import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
+import { Markers } from "./markers.ts";
 import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
@@ -24,17 +25,26 @@ export interface App {
   rooms: RoomManager;
   transcoder: Transcoder;
   metadata: Metadata;
+  markers: Markers;
+  /** Looks for intros and credits in files not looked at yet, in the background. */
+  findMarks(): Promise<void>;
   close(): Promise<void>;
 }
 
 export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
   const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
+  const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
+  const markers = new Markers({ ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg", ffprobe: config.transcode?.ffprobe ?? "ffprobe", file: config.markersFile ?? "" });
+  // What parties play carries its intro and credits times, for Skip intro and the Up next card.
   const rooms = new RoomManager((id) => {
     const item = library.peek(id)?.item;
-    return item && metadata.enrich(item);
+    return item && markers.attach(metadata.enrich(item));
   }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile));
-  const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
+  const findMarks = async () => {
+    const items = await library.list();
+    await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
+  };
   const app = express();
   app.disable("x-powered-by");
 
@@ -250,6 +260,7 @@ export function createApp(config: Config): App {
   app.post("/api/library/rescan", async (_req, res) => {
     await library.scan();
     void metadata.warm(await library.list());
+    void findMarks();
     res.json(await libraryResponse());
   });
 
@@ -582,8 +593,11 @@ export function createApp(config: Config): App {
     rooms,
     transcoder,
     metadata,
+    markers,
+    findMarks,
     async close() {
       clearInterval(sweeper);
+      await markers.close();
       await transcoder.close();
       await metadata.close();
       for (const client of wss.clients) client.terminate();

@@ -182,12 +182,23 @@ test("a binge plays its videos in order, moving on after a countdown the host ca
   assert.equal(room.media?.id, "e2");
   assert.equal(room.state.paused, false, "the next one starts playing");
 
-  // The host cancels the next countdown; a viewer can't.
+  // Anyone can stay (a guest too, as anyone can skip an intro).
   room.handle(host.id, { type: "ended", mediaId: "e2" });
   room.handle(viewer.id, { type: "cancel-advance" });
-  room.handle(host.id, { type: "cancel-advance" });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(room.media?.id, "e2");
+  assert.ok(room.chat.at(-1)?.text.includes("Viewer stopped the binge from moving on"));
+
+  // ...or play the next one now, without waiting out the countdown.
+  room.advanceDelayMs = 60_000;
+  room.handle(host.id, { type: "ended", mediaId: "e2" });
+  room.handle(viewer.id, { type: "advance-now" });
+  assert.equal(room.media?.id, "e3");
+  assert.equal(room.state.paused, false);
+  assert.equal(room.queueInfo()?.advance, null);
+  room.handle(viewer.id, { type: "advance-now" });
+  assert.equal(room.media?.id, "e3", "nothing happens with no countdown");
+  room.advanceDelayMs = 5;
 
   // Going back within the binge keeps it; picking another video ends it.
   room.handle(host.id, { type: "select", mediaId: "e1" });
@@ -352,6 +363,19 @@ test("ending with Save spot keeps where the party is, and a new party picks up t
   const h = plain.join("Host", () => {});
   plain.handle(h.id, { type: "end", save: true });
   assert.equal(mgr.spots.list().length, 1, "the first minute of a single video isn't worth saving");
+
+  // The last video in its credits (where the server found them start, well before the last minute) isn't either.
+  lib.set("e3", { ...ep(3), marks: { credits: 2700 } });
+  const last = mgr.create("e3");
+  const l = last.join("Host", () => {});
+  last.handle(l.id, { type: "seek", position: 2750 });
+  last.handle(l.id, { type: "end", save: true });
+  assert.equal(mgr.spots.list().length, 1, "the credits of the last video aren't worth saving");
+  const before = mgr.create("e3");
+  const b = before.join("Host", () => {});
+  before.handle(b.id, { type: "seek", position: 2650 });
+  before.handle(b.id, { type: "end", save: true });
+  assert.deepEqual(mgr.spots.list()[0].position, 2650, "just before them is");
 });
 
 test("a party that empties out saves its spot when it's dropped, at the moment everyone left", () => {
@@ -402,4 +426,16 @@ test("watching alone plays by itself once the host's screen has loaded the video
   const jake = party.join("Jake", () => {});
   party.handle(jake.id, { type: "player", on: true });
   assert.equal(party.state.paused, true);
+});
+
+test("Skip intro is a jump anyone can make, and friends see what it skipped", () => {
+  const { room, b, alice, bob } = setup();
+  room.handle(bob.id, { type: "seek", position: 95, skip: "intro" });
+  const st = b.filter((m) => m.type === "state").at(-1);
+  assert.ok(st?.type === "state" && st.state.position === 95);
+  assert.equal(room.chat.at(-1)?.text, "Guest skipped the intro");
+  room.handle(alice.id, { type: "seek", position: 20, skip: "recap" });
+  assert.equal(room.chat.at(-1)?.text, "Alice skipped the recap");
+  room.handle(alice.id, { type: "seek", position: 30, skip: "nonsense" as any });
+  assert.equal(room.chat.at(-1)?.text, "Alice jumped to 0:30");
 });
