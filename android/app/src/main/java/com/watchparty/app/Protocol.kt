@@ -343,6 +343,13 @@ object Protocol {
         if (skip != null) put("skip", skip)
     }.toString()
 
+    /** A jump's wait gave up on this device before it loaded; now it has caught up (for the server's log). */
+    fun caughtUp(position: Double): String = buildJsonObject {
+        put("type", "ready")
+        put("position", position)
+        put("late", true)
+    }.toString()
+
     /** Whether this device plays the video (false while it's only for chat), so jumps wait for it to load. */
     fun player(on: Boolean): String = buildJsonObject {
         put("type", "player")

@@ -24,6 +24,10 @@ export class VideoSync {
   private offsets: Array<{ rtt: number; offset: number }> = [];
   private offset = 0;
   /** The hold this page last said it was ready for, so it says so once. */
+  /** Playing the server's converted copy (said in "ready", for the server's log). */
+  converted = false;
+  /** The last hold seen, so a screen it gave up on can say when it caught up. */
+  private lastHold = "";
   private readyFor = "";
   /**
    * Dragging along the browser's own seek bar pauses the video, seeks, then plays again. Treated as one jump, so
@@ -148,6 +152,7 @@ export class VideoSync {
     const target = Math.min(this.target(), Number.isFinite(video.duration) ? video.duration : Infinity);
     const drift = video.currentTime - target;
 
+    if (state.hold) this.lastHold = `${state.updatedAt}:${state.position}`;
     if (state.paused) {
       video.playbackRate = 1;
       if (!video.paused) video.pause();
@@ -156,12 +161,17 @@ export class VideoSync {
         const key = `${state.updatedAt}:${state.position}`;
         if (this.readyFor !== key) {
           this.readyFor = key;
-          this.send({ type: "ready", position: video.currentTime });
+          this.send({ type: "ready", position: video.currentTime, converted: this.converted || undefined });
         }
       }
       return;
     }
 
+    // The hold gave up on this screen before it loaded: now it plays in step, say so once (for the server's log).
+    if (this.lastHold && this.readyFor !== this.lastHold && !video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && Math.abs(drift) <= HARD_DRIFT) {
+      this.readyFor = this.lastHold;
+      this.send({ type: "ready", position: video.currentTime, late: true, converted: this.converted || undefined });
+    }
     if (Math.abs(drift) > HARD_DRIFT) {
       video.playbackRate = 1;
       video.currentTime = target;

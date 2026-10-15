@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { Library } from "../src/library.ts";
-import { blackCredits, chapterMarks, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, chapterMarks, findClip, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -101,6 +101,18 @@ test("a recap is the run of clips from earlier episodes at the start, however lo
   // Silence matches any other quiet stretch; it isn't a clip.
   const quiet = new Array(seconds(20)).fill(0);
   assert.equal(findRecap(Uint32Array.from([...quiet, ...points(43, seconds(100))]), [], [{ points: Uint32Array.from([...points(44, 50), ...quiet]), from: 0, ignore: () => false }]), null);
+});
+
+test("a known outro is found even when no point matches exactly, and a short piece of it will do", () => {
+  const outro = points(77, seconds(30));
+  // Every point a bit or two off, as can happen between two encodes: nothing for sharedStretch to start from.
+  const reencoded = outro.map((p, i) => (p ^ (i % 2 ? 0b1 : 0b110)) >>> 0);
+  const tail = Uint32Array.from([...points(5, seconds(200)), ...reencoded.slice(0, seconds(12)), ...points(6, seconds(3))]);
+  assert.equal(sharedStretch(tail, Uint32Array.from(outro), 10), null);
+  const hit = findClip(tail, Uint32Array.from(outro), 10);
+  assert.ok(hit && Math.abs(hit.start - 200) < 0.5 && Math.abs(hit.end - 212) < 0.5, JSON.stringify(hit));
+  assert.equal(findClip(tail, Uint32Array.from(outro), 15), null, "shorter than asked for");
+  assert.equal(findClip(Uint32Array.from(points(8, seconds(200))), Uint32Array.from(outro), 10), null);
 });
 
 test("credits by the picture: the last long stretch of black keyframes", () => {
@@ -273,5 +285,38 @@ test("finds recaps in real files by matching earlier episodes, ending where the 
   }
   assert.equal(markers.get(eps[0])?.intro ?? null, null, JSON.stringify(markers.get(eps[0])));
   assert.ok(lines.some((l) => l.includes("Show season 1: intros in 0 of 3, recaps in 2, credits in 3")), lines.join("\n"));
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("an episode whose outro is too short to find by comparing endings gets it from the episodes that have it", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-outro-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // Episodes 1 and 2 end with the 30 s outro; episode 3 cuts it to 12 s, then a 5 s tag scene.
+  const story = (n: number, length: number) => ["-f", "lavfi", "-i", melody(n * 3.1 + 0.4, length)];
+  const pieces: Record<number, string[]> = {
+    1: [...story(1, 250), "-f", "lavfi", "-i", melody(8.8, 30)],
+    2: [...story(2, 250), "-f", "lavfi", "-i", melody(8.8, 30)],
+    3: [...story(3, 260), "-f", "lavfi", "-i", melody(8.8, 12), ...story(4, 5)],
+  };
+  for (const n of [1, 2, 3]) {
+    const inputs = pieces[n].filter((a) => a === "-i").length;
+    const r = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y", ...pieces[n],
+      "-filter_complex", `${Array.from({ length: inputs }, (_, i) => `[${i}:a]`).join("")}concat=n=${inputs}:v=0:a=1[a]`,
+      "-map", "[a]", "-c:a", "aac", path.join(season, `Show S01E0${n}.mp4`),
+    ]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const lines: string[] = [];
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file: path.join(dir, "markers.json") }, (l) => lines.push(l));
+  await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  const credits = eps.map((ep) => markers.get(ep)?.credits);
+  assert.ok(credits[0] != null && Math.abs(credits[0] - 250) < 4, JSON.stringify(credits));
+  assert.ok(credits[2] != null && Math.abs(credits[2] - 260) < 4, JSON.stringify(credits));
+  assert.ok(lines.some((l) => l.includes("credits in 3")), lines.join("\n"));
   await fs.rm(dir, { recursive: true, force: true });
 });

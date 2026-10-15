@@ -223,8 +223,11 @@ export type ClientMessage =
   | { type: "pause"; position: number; at?: number }
   /** `skip`: the jump was Skip intro or Skip recap, so friends see "Jake skipped the intro". */
   | { type: "seek"; position: number; at?: number; skip?: "intro" | "recap" }
-  /** This screen has loaded `position` during a hold (see PlaybackState.hold). */
-  | { type: "ready"; position: number }
+  /**
+   * This screen has loaded `position` during a hold (see PlaybackState.hold). `late`: the hold had already given up on
+   * it, and it has now caught up (for the log). `converted`: it plays the server's converted copy.
+   */
+  | { type: "ready"; position: number; late?: boolean; converted?: boolean }
   /** This member's screen plays the video (false for a phone that's only for chat). Holds wait for these screens. */
   | { type: "player"; on: boolean }
   | { type: "select"; mediaId: string }
