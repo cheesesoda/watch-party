@@ -152,18 +152,36 @@ class PhoneScreensTest {
         settle(800) { false }
     }
 
+    /** A poster card: its click is on the poster, just above the title. */
+    private fun tapPoster(title: String) {
+        val label = rule.onAllNodesWithText(title)[0].fetchSemanticsNode().boundsInRoot
+        val x = label.center.x
+        val y = label.top - 40f
+        val nodes = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes()
+        val i = nodes.indexOfFirst { it.boundsInRoot.contains(androidx.compose.ui.geometry.Offset(x, y)) }
+        assertTrue("No poster above $title", i >= 0)
+        rule.onAllNodes(hasClickAction())[i].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_500) { false }
+    }
+
     @Test
     fun watchingAlone() {
         shot("p01-home-alone")
         assertTrue("No Watching alone line", rule.onAllNodesWithText("Watching alone").fetchSemanticsNodes().isNotEmpty())
+        // The menu is a popup window, which the screenshot doesn't include; check it has the switch.
         rule.onNodeWithContentDescription("More").performSemanticsAction(SemanticsActions.OnClick)
         settle(800) { false }
-        shot("p02-menu")
+        assertTrue("No Watch alone in the menu", rule.onAllNodesWithText("Watch alone").fetchSemanticsNodes().isNotEmpty())
+        rule.onAllNodesWithText("Watch alone")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
+        assertTrue("Watch alone didn't switch to together", rule.onAllNodesWithText("Watching alone").fetchSemanticsNodes().isEmpty())
+        rule.onAllNodesWithText("Watch alone")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         settle(800) { false }
         tap("TV Shows")
         shot("p03-shows")
-        tap("Letterkenny")
+        tapPoster("Letterkenny")
         shot("p04-show-alone")
     }
 }
