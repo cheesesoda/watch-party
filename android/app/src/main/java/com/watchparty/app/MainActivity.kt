@@ -173,7 +173,7 @@ class MainActivity : ComponentActivity() {
                         joinLink.value = null
                     }
                     if (link != null) {
-                        PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null })
+                        PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null; setUp = prefs.isSetUp })
                     } else if (invite != null) {
                         JoinForm(prefs, invite = invite, onBack = { joinLink.value = null })
                     } else if (setUp) {
@@ -551,6 +551,17 @@ private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: (
                     code = if (asHost) null else Prefs.roomCode(code),
                     password = if (asHost && !signedInHost) password else null,
                 )
+                // The password just signed in the TV, so it signs in this phone as the host too.
+                if (asHost && !signedInHost) {
+                    try {
+                        prefs.token = api.login(password)
+                        prefs.serverUrl = server
+                        if (prefs.name.isBlank()) prefs.name = name.trim().take(32)
+                        prefs.markSignedIn(true)
+                    } catch (_: Exception) {
+                        // The TV is signed in either way; the phone can still sign in by itself later.
+                    }
+                }
                 tvParty = if (asHost) null else Prefs.roomCode(code)
                 done = true
             } catch (e: Exception) {
