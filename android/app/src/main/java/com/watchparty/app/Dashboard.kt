@@ -512,7 +512,14 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
             }
         } else if (route in TOP_PAGES) {
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LogoMark(30.dp)
+                    Column {
+                        Text("Popcorn Club", fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 24.sp, color = Color.White)
+                        // A quiet but plain sign that Play is just for you (see ui-redesign/phone-top-bar).
+                        if (alone) Text("Watching alone", color = Accent, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 var menu by remember { mutableStateOf(false) }
                 Box {
@@ -1238,22 +1245,21 @@ private fun DetailPage(
             Box(Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x730A070E)).clickable { a.go("back") }, contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
             }
-            // While on Alone, so playing just for yourself is never a surprise; tap to switch back.
+            // While on Alone, the same quiet orange "Watching alone" as Home's top bar, on the Back button's dark glass so it
+            // reads over any backdrop; tap to switch back to together.
             if (a.alone && !a.adding) {
-                Row(
+                Box(
                     Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 12.dp)
                         .height(36.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE09A62))
+                        .background(Color(0x730A070E))
                         .clickable { a.setAlone(false) }
                         .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(painterResource(R.drawable.ic_user), contentDescription = null, tint = Color(0xFF2A1A0E), modifier = Modifier.size(16.dp))
-                    Text("Alone", color = Color(0xFF2A1A0E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Watching alone", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
