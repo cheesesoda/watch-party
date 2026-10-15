@@ -1117,7 +1117,8 @@ private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, sho
 @Composable
 private fun PageTitle(title: String, count: String?) {
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 32.sp, color = Color.White)
+        // The body style's 24sp lines are shorter than 32sp letters, which cut off their tops.
+        Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, color = Color.White)
         count?.let { Text(it, color = Muted, fontSize = 16.sp, modifier = Modifier.padding(bottom = 5.dp)) }
     }
 }
