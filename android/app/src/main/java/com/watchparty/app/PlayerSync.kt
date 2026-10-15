@@ -239,7 +239,7 @@ class PlayerSync(
                 val key = "${s.updatedAt}:${s.position}"
                 if (readyFor != key) {
                     readyFor = key
-                    send("ready", target, null)
+                    send("ready", target, null, null)
                 }
             }
             return
