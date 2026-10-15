@@ -261,6 +261,7 @@ class TvScreensTest {
     }
 
     /** Left into the menu from a row further down Home, then the remote's Right, goes back to the same card. */
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     @Test
     fun rightFromTheMenuReturnsToTheSameCard() {
         // Banner, Pick up where you left off, Recently added; then along it.
