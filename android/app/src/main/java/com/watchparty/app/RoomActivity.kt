@@ -97,6 +97,9 @@ class RoomActivity : ComponentActivity() {
     private lateinit var titleText: TextView
     private lateinit var membersText: TextView
     private lateinit var statusText: TextView
+    /** "Paused at 13:33" / "Playing" for a moment once the server confirms a press, so one that didn't land shows. */
+    private lateinit var playedText: TextView
+    private val hidePlayed = Runnable { playedText.visibility = View.GONE }
     private lateinit var chatOverlay: LinearLayout
     private lateinit var voiceButton: Button
     private lateinit var muteButton: Button
@@ -452,7 +455,16 @@ class RoomActivity : ComponentActivity() {
     }
 
     private fun applyState(state: PlaybackState, media: MediaItem?, mine: Boolean = false) {
+        val before = lastState
         lastState = state
+        // Paused or playing by someone's press. A jump's wait (hold) counts as playing, so it shows nothing.
+        val paused = state.paused && !state.hold
+        if (!companion && ::playedText.isInitialized && before != null && before.mediaId == state.mediaId && (before.paused && !before.hold) != paused) {
+            playedText.text = if (paused) "Paused at ${clock(state.position)}" else "Playing"
+            playedText.visibility = View.VISIBLE
+            main.removeCallbacks(hidePlayed)
+            main.postDelayed(hidePlayed, PLAYED_SHOWN_MS)
+        }
         lastMedia = media
         upNextMedia.value = media
         if (link != null) PartyLink.playing = media?.id
@@ -623,6 +635,15 @@ class RoomActivity : ComponentActivity() {
             visibility = View.GONE
         }
         root.addView(statusText, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER))
+        playedText = text(14f, ON_SURFACE).apply {
+            background = pill(Color.argb(220, 0x18, 0x13, 0x1F))
+            setPadding(dp(20), dp(10), dp(20), dp(10))
+            visibility = View.GONE
+        }
+        // At the top, clear of the phone's big play button and the TV's seek bar.
+        root.addView(playedText, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dp(if (isTv) 48 else 24)
+        })
 
         setContentView(root)
     }
@@ -2138,6 +2159,7 @@ class RoomActivity : ComponentActivity() {
         private const val CENTER_GAP_DP = 48
         /** How far the remote's fast-forward and rewind buttons, and a double-tap on the phone, jump. */
         private const val SKIP_MS = 10_000L
+        private const val PLAYED_SHOWN_MS = 2_000L
         /** How long the server counts down before a binge's next video (its advanceDelayMs). */
         private const val ADVANCE_MS = 10_000L
         /** How long after a double-tap jump another tap on that side adds 10 seconds more, as on YouTube. */
