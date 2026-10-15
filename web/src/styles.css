@@ -1493,7 +1493,8 @@ button.link:focus-visible {
 }
 .dash-top {
   position: relative;
-  z-index: 2;
+  /* Above a movie or show page's hero (z-index 2), which reaches up under the bar. */
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 16px;
