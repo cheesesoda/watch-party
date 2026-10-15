@@ -407,6 +407,24 @@ export function createApp(config: Config): App {
     res.json({ spots });
   });
 
+  // A still from the video where a spot stopped, for cards whose video has no TMDB art. Kept in memory per spot (they're
+  // small, there are at most a handful, and a restart just grabs them again).
+  const frames = new Map<string, Promise<Buffer | null>>();
+  app.get("/api/spots/:id/frame.jpg", async (req, res) => {
+    const spot = rooms.spots.get(req.params.id);
+    const entry = spot && (await library.list(), library.peek(spot.mediaId));
+    if (!spot || !entry) return void res.status(404).end();
+    for (const id of frames.keys()) if (!rooms.spots.get(id)) frames.delete(id);
+    let jpg = frames.get(spot.id);
+    if (!jpg) frames.set(spot.id, (jpg = transcoder.frame(entry.absPath, spot.position)));
+    const bytes = await jpg;
+    if (!bytes) {
+      frames.delete(spot.id);
+      return void res.status(404).end();
+    }
+    res.set("Cache-Control", "private, max-age=86400").type("jpeg").send(bytes);
+  });
+
   app.delete("/api/spots/:id", (req, res) => {
     if (!rooms.spots.remove(req.params.id)) return void res.status(404).json({ error: "No such spot." });
     res.status(204).end();

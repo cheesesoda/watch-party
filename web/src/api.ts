@@ -93,6 +93,8 @@ export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
 export const hlsUrl = (id: string) => media(`/api/media/${id}/hls/index.m3u8`);
 /** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
 export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300" | "w780" | "w1280") => media(`/api/images/${size}${path}`);
+/** A still from the video where a saved spot stopped, for videos without TMDB art (host only). */
+export const spotFrameUrl = (id: string) => media(`/api/spots/${id}/frame.jpg`);
 /** `index` is a sidecar file's number, or "e2" for the third subtitle track inside the video file. */
 export const subtitleUrl = (id: string, index: number | string) => media(`/api/media/${id}/subtitles/${index}.vtt`);
 

@@ -283,6 +283,9 @@ test("saved spots are listed, start a party where they stopped, and can be remov
   assert.equal((await post({ spot: gone.id })).status, 400);
 
   const third = app.rooms.spots.add({ mediaId: items[0].id, position: 7, next: [], key: "third" });
+  const frame = await fetch(`${base}/api/spots/${third.id}/frame.jpg`, { headers: auth() });
+  assert.ok(frame.status === 200 || frame.status === 404, "a frame, or 404 when ffmpeg can't read the test file");
+  assert.equal((await fetch(`${base}/api/spots/nope/frame.jpg`, { headers: auth() })).status, 404);
   assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 204);
   assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 404);
 });
