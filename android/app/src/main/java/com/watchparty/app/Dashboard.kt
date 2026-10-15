@@ -63,6 +63,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.composed
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
@@ -593,6 +596,21 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
     }
 }
 
+/** The card the remote was last on in the TV's page, so leaving the menu goes back to it. */
+internal class FocusMemory {
+    var last: FocusRequester? = null
+}
+
+internal val LocalFocusMemory = staticCompositionLocalOf<FocusMemory?> { null }
+
+/** Inside the TV's page, notes this card as the last one the remote was on (see TvShell). Elsewhere it does nothing. */
+internal fun Modifier.remembersFocus(): Modifier = composed {
+    val memory = LocalFocusMemory.current ?: return@composed this
+    val requester = remember { FocusRequester() }
+    DisposableEffect(memory) { onDispose { if (memory.last === requester) memory.last = null } }
+    focusRequester(requester).onFocusChanged { if (it.isFocused) memory.last = requester }
+}
+
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -606,10 +624,11 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     val page = remember { FocusRequester() }
     // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
     // Right or Back from the menu: to the card the remote left the page from, or the page's first if it has gone.
-    // (Outside the menu's focus move: restoring inside it gets cancelled.)
+    val memory = remember { FocusMemory() }
     val backToPage = {
         scope.launch {
-            if (!runCatching { page.restoreFocusedChild() }.getOrDefault(false)) runCatching { page.requestFocus() }
+            val card = memory.last
+            if (card == null || runCatching { card.requestFocus() }.isFailure) runCatching { page.requestFocus() }
         }
         Unit
     }
@@ -642,18 +661,15 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                 .fillMaxSize()
                 .focusRequester(page)
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
-                // Left still opens it, remembering the card it left (see backToPage).
+                // Left still opens it.
                 .focusProperties {
                     exit = { direction ->
                         if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel
-                        else {
-                            page.saveFocusedChild()
-                            FocusRequester.Default
-                        }
+                        else FocusRequester.Default
                     }
                 }
                 .focusGroup(),
-        ) { content() }
+        ) { CompositionLocalProvider(LocalFocusMemory provides memory) { content() } }
         Column(
             Modifier
                 .fillMaxHeight()
@@ -706,6 +722,7 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
             .focusProperties { right = page }
+            .remembersFocus()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -731,6 +748,7 @@ private fun TvModeItem(alone: Boolean, open: Boolean, page: FocusRequester, onCl
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else Color.Transparent)
             .focusProperties { right = page }
+            .remembersFocus()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .semantics { stateDescription = if (alone) "On" else "Off" }
             .padding(start = 14.dp, end = 10.dp),
@@ -844,6 +862,7 @@ private fun SettingsRow(icon: Int, label: String, value: String, modifier: Modif
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(if (focused) FocusFill else Panel)
+            .remembersFocus()
             .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1097,6 +1116,7 @@ private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, s
                 .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
                 .clip(shape)
                 .background(Brush.linearGradient(listOf(Color(0xFF3A2F4A), Color(0xFF211A2A))))
+                .remembersFocus()
                 .clickable(interactionSource = interaction, indication = if (tv) null else androidx.compose.material3.ripple(), onClick = onClick),
         ) {
             val art = if (details && poster != null) rememberImage(api, poster, "w342") else null
@@ -1144,6 +1164,7 @@ private fun PartyCard(room: RoomSummary, sinceFetch: Long, details: Boolean, a: 
             .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
             .clip(shape)
             .background(Panel)
+            .remembersFocus()
             .clickable(interactionSource = interaction, indication = if (a.tv) null else androidx.compose.material3.ripple()) { a.join(room) },
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(2.6f).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
@@ -1531,6 +1552,7 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean
                 .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
                 .clip(shape)
                 .background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))
+                .remembersFocus()
                 .clickable(interactionSource = interaction, indication = null) { a.info(m) },
         ) {
             val still = m.meta?.stillPath
@@ -1631,6 +1653,7 @@ private fun Pill(
             .scale(if (focused) 1.06f else 1f)
             .clip(CircleShape)
             .background(bg)
+            .remembersFocus()
             .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), enabled = enabled, onClick = onClick)
             .heightIn(min = if (small) 38.dp else 46.dp)
             .padding(horizontal = if (small) 16.dp else 22.dp),
@@ -1655,6 +1678,7 @@ private fun MoreButton(actions: List<Pair<String, () -> Unit>>) {
                 .size(46.dp)
                 .clip(CircleShape)
                 .background(if (focused) FocusFill else Tonal)
+                .remembersFocus()
                 .clickable(interactionSource = interaction, indication = null) { open = true },
             contentAlignment = Alignment.Center,
         ) {
@@ -1684,6 +1708,7 @@ private fun PartyPill(tv: Boolean, modifier: Modifier, onBack: () -> Unit) {
                 .scale(if (focused) 1.05f else 1f)
                 .clip(CircleShape)
                 .background(if (focused) FocusFill else Color(0xE6100C15))
+                .remembersFocus()
                 .clickable(interactionSource = interaction, indication = null, onClick = onBack)
                 .heightIn(min = 44.dp)
                 .padding(horizontal = 18.dp),
@@ -1728,6 +1753,7 @@ private fun Chip(label: String, selected: Boolean, tv: Boolean, onClick: () -> U
             .clip(shape)
             .background(if (focused) FocusFill else if (selected) Color(0xFFEEEAF3) else Color.Transparent)
             .border(1.dp, if (focused || selected) Color.Transparent else Muted.copy(alpha = 0.35f), shape)
+            .remembersFocus()
             .clickable(interactionSource = interaction, indication = if (tv) null else androidx.compose.material3.ripple(), onClick = onClick)
             .heightIn(min = 34.dp)
             .padding(horizontal = 14.dp, vertical = 7.dp),
