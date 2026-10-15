@@ -330,6 +330,8 @@ export class Markers {
   private latest: MarkersEntry[] | null = null;
   private busy = false;
   private closed = false;
+  /** Seasons whose missing credits have been listed in the log since the server started. */
+  private listed = new Set<string>();
 
   constructor(
     private config: MarkersConfig,
@@ -429,7 +431,14 @@ export class Markers {
     for (const list of seasons.values()) {
       if (this.closed) return;
       list.sort((x, y) => x.item.episode!.episode - y.item.episode!.episode);
-      if (list.every((e) => this.fresh(e.item, list.length))) continue;
+      if (list.every((e) => this.fresh(e.item, list.length))) {
+        // Looked at before: no listening, but name the episodes still without credits once per start.
+        const missing = this.missingCredits(list);
+        const key = `${list[0].item.episode!.show}|${list[0].item.episode!.season}`;
+        if (missing && !this.listed.has(key)) this.log(`${Markers.seasonName(list)}: credits in ${list.length - missing.count} of ${list.length} ${missing.text}`);
+        this.listed.add(key);
+        continue;
+      }
       await this.season(list);
       await this.save();
     }
@@ -448,7 +457,7 @@ export class Markers {
   private async season(list: MarkersEntry[]): Promise<void> {
     const started = Date.now();
     const ep = list[0].item.episode!;
-    const name = `${ep.show} ${ep.season === 0 ? "specials" : `season ${ep.season}`}`;
+    const name = Markers.seasonName(list);
     const listen = list.filter((e) => !this.heard(e.item, list.length)).length;
     this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : "checking for recaps"}`);
     const probes = await Promise.all(list.map((e) => this.probe(e.absPath)));
@@ -582,7 +591,21 @@ export class Markers {
         recapLooked: true,
       });
     }
-    this.log(`${name}: intros in ${intros} of ${list.length}, recaps in ${recaps}, credits in ${credits} (${Math.round((Date.now() - started) / 1000)} s)`);
+    const missing = this.missingCredits(list);
+    this.listed.add(`${ep.show}|${ep.season}`);
+    this.log(`${name}: intros in ${intros} of ${list.length}, recaps in ${recaps}, credits in ${credits} (${Math.round((Date.now() - started) / 1000)} s)${missing ? ` ${missing.text}` : ""}`);
+  }
+
+  private static seasonName(list: MarkersEntry[]): string {
+    const ep = list[0].item.episode!;
+    return `${ep.show} ${ep.season === 0 ? "specials" : `season ${ep.season}`}`;
+  }
+
+  /** The season's episodes without credits, as "(none found in E03, E07)", when some have them and some don't. */
+  private missingCredits(list: MarkersEntry[]): { count: number; text: string } | null {
+    const without = list.filter((e) => this.get(e.item)?.credits == null).map((e) => `E${String(e.item.episode!.episode).padStart(2, "0")}`);
+    if (!without.length || without.length === list.length) return null;
+    return { count: without.length, text: `(none found in ${without.join(", ")})` };
   }
 
   /**
