@@ -53,6 +53,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -510,14 +513,26 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
         } else if (route in TOP_PAGES) {
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
-                ModeSwitch(alone, setAlone)
-                Spacer(Modifier.width(4.dp))
-                IconAction(R.drawable.ic_keypad, "Join with a party code", onCode)
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 var menu by remember { mutableStateOf(false) }
                 Box {
                     IconAction(R.drawable.ic_more_vert, "More") { menu = true }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Panel) {
+                        // Together / Alone lives here (Jake: the top bar was too crowded); the menu stays open so the switch is seen to flip.
+                        DropdownMenuItem(
+                            text = { Text("Watch alone") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_user), null) },
+                            trailingIcon = {
+                                Switch(
+                                    checked = alone,
+                                    onCheckedChange = null,
+                                    colors = SwitchDefaults.colors(checkedTrackColor = Accent, checkedThumbColor = Color(0xFF1C1520), checkedBorderColor = Accent),
+                                )
+                            },
+                            onClick = { setAlone(!alone) },
+                        )
+                        HorizontalDivider(color = Muted.copy(alpha = 0.2f))
+                        DropdownMenuItem(text = { Text("Join with code") }, leadingIcon = { Icon(painterResource(R.drawable.ic_keypad), null) }, onClick = { menu = false; onCode() })
                         DropdownMenuItem(text = { Text("Scan TV code") }, leadingIcon = { Icon(painterResource(R.drawable.ic_scan), null) }, onClick = {
                             menu = false
                             (context as? MainActivity)?.scanCode()
@@ -544,26 +559,6 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
                         unselectedTextColor = Muted,
                     ),
                 )
-            }
-        }
-    }
-}
-
-/** The phone's Together / Alone switch: people and person in a pill, the chosen one lit. */
-@Composable
-private fun ModeSwitch(alone: Boolean, setAlone: (Boolean) -> Unit) {
-    Row(Modifier.clip(CircleShape).background(Color(0xFF2A2333)).padding(3.dp)) {
-        listOf(false to R.drawable.ic_nav_parties, true to R.drawable.ic_user).forEach { (mode, icon) ->
-            val on = alone == mode
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(if (on) Color(0xFFF1ECF4) else Color.Transparent)
-                    .clickable { if (!on) setAlone(mode) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(painterResource(icon), contentDescription = if (mode) "Watch alone" else "Watch together", tint = if (on) Color(0xFF1A1420) else Muted, modifier = Modifier.size(20.dp))
             }
         }
     }
