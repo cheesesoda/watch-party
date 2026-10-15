@@ -80,7 +80,6 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -582,7 +581,8 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     var open by remember { mutableStateOf(false) }
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     // The page reaches under the menu (its backdrop shows through), so to the remote's Right search it starts left of
-    // the menu and never counts as "to the right": the menu sends Right to the page itself, back to where you were.
+    // the menu and never counts as "to the right": the menu sends Right to the page itself.
+    // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
     val page = remember { FocusRequester() }
     Box(Modifier.fillMaxSize()) {
         @OptIn(ExperimentalComposeUiApi::class)
@@ -590,7 +590,6 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
             Modifier
                 .fillMaxSize()
                 .focusRequester(page)
-                .focusRestorer()
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
                 // Left still opens it.
                 .focusProperties { exit = { direction -> if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel else FocusRequester.Default } }
