@@ -63,6 +63,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -586,12 +589,7 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
 internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
-    var inMenu by remember { mutableStateOf(false) }
-    // Nothing had focus: the focused card went away, like a party that ended while you were in it. Android's next
-    // focus search then starts at the top-left corner of the screen, which is the menu's Search, and that used to open
-    // the menu after leaving a party. Focus arriving in the menu like that goes back to the page instead.
-    var adrift by remember { mutableStateOf(true) }
-    val open = inMenu && !adrift
+    var open by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     // The page reaches under the menu (its backdrop shows through), so to the remote's Right search it starts left of
@@ -600,20 +598,29 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     val page = remember { FocusRequester() }
     // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
     BackHandler(enabled = open) { runCatching { page.requestFocus() } }
+    // Coming back from the player lands on the page, not the menu. The card that started the party may have gone
+    // while you watched (a party that ended, a spot that was used), and with nothing focused Android hands focus to
+    // the top-left of the screen: the menu's Search.
+    @Suppress("DEPRECATION")
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) scope.launch {
+                // After the window has its focus back.
+                withFrameNanos {}
+                delay(150)
+                if (open) runCatching { page.requestFocus() }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     Box(Modifier.fillMaxSize()) {
         @OptIn(ExperimentalComposeUiApi::class)
         Box(
             Modifier
                 .fillMaxSize()
                 .focusRequester(page)
-                .onFocusChanged { state ->
-                    if (state.hasFocus) adrift = false
-                    // Focus left the page; a frame later, if it isn't in the menu (Left), nothing has it.
-                    else scope.launch {
-                        withFrameNanos {}
-                        if (!inMenu) adrift = true
-                    }
-                }
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
                 // Left still opens it.
                 .focusProperties { exit = { direction -> if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel else FocusRequester.Default } }
@@ -627,15 +634,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     if (open) Brush.horizontalGradient(listOf(Color(0xFA100C15), Color(0xEB100C15)))
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
-                .onFocusChanged {
-                    inMenu = it.hasFocus
-                    if (it.hasFocus && adrift) scope.launch {
-                        runCatching { page.requestFocus() }
-                        withFrameNanos {}
-                        // A page with nothing to focus (still loading, or empty) leaves it in the menu, open as usual.
-                        adrift = false
-                    }
-                }
+                .onFocusChanged { open = it.hasFocus }
                 // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
                 .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
