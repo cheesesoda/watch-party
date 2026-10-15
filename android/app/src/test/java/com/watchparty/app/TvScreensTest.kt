@@ -71,6 +71,9 @@ class TvScreensTest {
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
         listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
 
+    /** Saved spots: two movies, so removing one leaves a neighbor. */
+    private val spots = listOf(Spot("s1", items[0], 1200.0, savedAt = 2000), Spot("s2", items[1], 3000.0, savedAt = 1990))
+
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
         val paint = Paint().apply { shader = LinearGradient(0f, 0f, 300f, 300f, colors[seed % colors.size], colors[(seed + 2) % colors.size], Shader.TileMode.CLAMP) }
@@ -88,7 +91,8 @@ class TvScreensTest {
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
-                    path.startsWith("/api/spots") -> json("""{"spots":[]}""")
+                    path.startsWith("/api/spots/") -> json("{}")
+                    path.startsWith("/api/spots") -> json("""{"spots":${Protocol.json.encodeToString(spots)}}""")
                     path.startsWith("/api/images/") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(path.hashCode() and 0xFF))
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -189,6 +193,19 @@ class TvScreensTest {
         settle(800) { false }
         shot("07-movies-back")
         check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back on Movies didn't go Home")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    @Test
+    fun removingASpotStaysOnThePage() {
+        // Banner, then down to Pick up where you left off.
+        press(FocusDirection.Down)
+        shot("30-spot-focused")
+        ok()
+        rule.onAllNodesWithText("Remove")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_500) { false }
+        shot("31-spot-removed")
+        check(!menuOpen(), "Removing a spot opened the menu")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 

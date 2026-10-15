@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -214,6 +215,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     // Pick up where you left off, and the one whose options are open on a TV.
     var spots by remember { mutableStateOf<List<Spot>>(emptyList()) }
     var spotOptions by remember { mutableStateOf<Spot?>(null) }
+    /** On a TV, where the removed spot was, so the remote lands on its neighbor instead of falling into the side menu. */
+    var removedAt by remember { mutableStateOf<Int?>(null) }
     var askCode by remember { mutableStateOf(false) }
     // Together / Alone: remembered on this device.
     var alone by remember { mutableStateOf(prefs.alone) }
@@ -315,6 +318,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         },
         remove = { spot ->
             spotOptions = null
+            removedAt = spots.indexOfFirst { it.id == spot.id }
             spots = spots.filter { it.id != spot.id }
             scope.launch { guard { api.removeSpot(spot.id) } ?: guard { api.spots() }?.let { spots = it } }
         },
@@ -378,7 +382,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState, sortable = true)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
-            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
+            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null }, removedAt = removedAt, onRefocused = { removedAt = null })
         }
     }
 
@@ -788,10 +792,22 @@ private fun HomePage(
     a: Actions,
     state: LazyListState,
     onDismissStarted: () -> Unit,
+    removedAt: Int? = null,
+    onRefocused: () -> Unit = {},
 ) {
     val tv = a.tv
     val side = if (tv) 64.dp else 16.dp
     val firstFocus = remember { FocusRequester() }
+    val spotFocus = remember { mutableMapOf<String, FocusRequester>() }
+    // Removing a spot takes away the card the remote was on: go to the next one (or the one before), or the banner.
+    if (tv && removedAt != null) LaunchedEffect(removedAt, spots) {
+        // After the options dialog has closed and handed the window back.
+        withFrameNanos { }
+        delay(150)
+        val next = spots.getOrNull(minOf(removedAt, spots.lastIndex))
+        runCatching { (next?.let { spotFocus[it.id] } ?: firstFocus).requestFocus() }
+        onRefocused()
+    }
     Box(Modifier.fillMaxSize()) {
         // On a TV the newest title's backdrop fills the top of the screen behind the banner, fading as you scroll.
         var shown by remember { mutableStateOf(0) }
@@ -812,7 +828,7 @@ private fun HomePage(
                 item(key = "spots") {
                     ShelfRow("Pick up where you left off", null, a) {
                         items(spots, key = { it.id }) { s ->
-                            if (tv) TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) }
+                            if (tv) Box(Modifier.focusRequester(spotFocus.getOrPut(s.id) { FocusRequester() })) { TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) } }
                             else PhoneSpotCard(a.api, lib.details, s, 250.dp, onOpen = { sa.open(s) }, onStart = { sa.start(s) }, onRemove = { sa.remove(s) })
                         }
                     }
