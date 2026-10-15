@@ -257,6 +257,27 @@ class TvScreensTest {
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
+    /** Left into the menu from a row further down Home, then Right, goes back to the same card. */
+    @Test
+    fun rightFromTheMenuReturnsToTheSameCard() {
+        // Banner, Pick up where you left off, Recently added; then along to its second card.
+        press(FocusDirection.Down, 2)
+        press(FocusDirection.Right)
+        val before = rule.onNode(isFocused()).fetchSemanticsNode().boundsInRoot
+        shot("08-recent-second-card")
+        press(FocusDirection.Left)
+        // The first card, then the menu.
+        val first = rule.onNode(isFocused()).fetchSemanticsNode().boundsInRoot
+        press(FocusDirection.Left)
+        check(menuOpen(), "Left from the first card didn't open the menu")
+        press(FocusDirection.Right)
+        shot("09-back-from-menu")
+        val after = rule.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+        check(!menuOpen(), "Right from the menu didn't leave it")
+        check(after == first, "Right from the menu went to $after, not the card it left ($first; second card $before)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
     @Test
     fun settings() {
         press(FocusDirection.Left)

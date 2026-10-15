@@ -628,8 +628,18 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                 .fillMaxSize()
                 .focusRequester(page)
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
-                // Left still opens it.
-                .focusProperties { exit = { direction -> if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel else FocusRequester.Default } }
+                // Left still opens it, remembering the card it left, so Right (or Back) from the menu returns there
+                // (or, if that card has scrolled away, to the page's first).
+                .focusProperties {
+                    exit = { direction ->
+                        if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel
+                        else {
+                            page.saveFocusedChild()
+                            FocusRequester.Default
+                        }
+                    }
+                    enter = { if (page.restoreFocusedChild()) FocusRequester.Cancel else FocusRequester.Default }
+                }
                 .focusGroup(),
         ) { content() }
         Column(
