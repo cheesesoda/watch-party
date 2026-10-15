@@ -80,24 +80,34 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
 
 const round = (s: number) => Math.round(s * 10) / 10;
 
-/** The second credits search: this much of a known outro is looked for, and this much of it has to match. */
+/**
+ * The second credits search: this much of a known outro is looked for, and this much of it has to match, starting
+ * within OUTRO_START of the outro's start. A later part matching alone (the logos at the very end, STING_MIN of it is
+ * enough) means the credits play over something else, so they're found by walking back from it through the picture.
+ */
 const OUTRO_CLIP = 60;
 const CREDITS_RETRY_MIN = 10;
+const OUTRO_START = 5;
+const STING_MIN = 8;
+/** Credit cards over a dark picture before the end logos: this % black is enough when the logos anchor them. */
+const STING_DARK = 50;
+/** Bumped when the second search changes, so episodes it gave credits to are looked at again. */
+const CREDITS_RETRY = 2;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
  * exactly): the longest stretch of at least [min] seconds where at least half the points match, in seconds into
- * [within], or null.
+ * [within], with [from], how far into [clip] the stretch starts, or null.
  */
-export function findClip(within: Uint32Array, clip: Uint32Array, min: number): TimeRange | null {
+export function findClip(within: Uint32Array, clip: Uint32Array, min: number): (TimeRange & { from: number }) | null {
   const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
-  let best: { start: number; end: number } | null = null;
+  let best: { start: number; end: number; offset: number } | null = null;
   for (let offset = -clip.length + 1; offset < within.length; offset++) {
     let start = -1;
     let last = -1;
     let hits = 0;
     const close = () => {
-      if (start >= 0 && hits * 2 >= last - start + 1 && (!best || last - start > best.end - best.start)) best = { start, end: last };
+      if (start >= 0 && hits * 2 >= last - start + 1 && (!best || last - start > best.end - best.start)) best = { start, end: last, offset };
     };
     for (let k = Math.max(0, -offset); k < clip.length && offset + k < within.length; k++) {
       const i = offset + k;
@@ -113,9 +123,9 @@ export function findClip(within: Uint32Array, clip: Uint32Array, min: number): T
     close();
   }
   if (!best) return null;
-  const { start, end } = best as { start: number; end: number };
+  const { start, end, offset } = best as { start: number; end: number; offset: number };
   if ((end - start + 1) * POINT_SECONDS < min) return null;
-  return { start: round(start * POINT_SECONDS), end: round((end + 1) * POINT_SECONDS) };
+  return { start: round(start * POINT_SECONDS), end: round((end + 1) * POINT_SECONDS), from: round((start - offset) * POINT_SECONDS) };
 }
 
 /**
@@ -306,6 +316,29 @@ export function blackCredits(frames: { t: number; black: number }[], length: num
   return lastDark - frames[start].t >= 20 ? frames[start].t : null;
 }
 
+/**
+ * Where credits that end at known logos start, going by the picture: walking back from the logos ([end], seconds into
+ * the window) through keyframes that are mostly dark (credit cards over a dim scene), one odd keyframe allowed, two
+ * in a row or a gap over 12 s ending it. The stretch has to reach the logos and last at least 10 s.
+ */
+export function creditsBefore(frames: { t: number; black: number }[], end: number): number | null {
+  const dark = (i: number) => frames[i].black >= STING_DARK;
+  let i = frames.length - 1;
+  while (i >= 0 && frames[i].t > end) i--;
+  while (i >= 0 && !dark(i) && end - frames[i].t <= 8) i--;
+  if (i < 0 || !dark(i) || end - frames[i].t > 8) return null;
+  let start = i;
+  let bright = 0;
+  for (let j = i - 1; j >= 0; j--) {
+    if (frames[start].t - frames[j].t > 12) break;
+    if (dark(j)) {
+      start = j;
+      bright = 0;
+    } else if (++bright >= 2) break;
+  }
+  return end - frames[start].t >= 10 ? frames[start].t : null;
+}
+
 function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; out: Buffer }> {
   return new Promise((resolve) => {
     let proc: ChildProcess;
@@ -346,8 +379,11 @@ interface Entry {
   sound?: SkipMarks;
   /** Whether the episode's opening has been checked against earlier episodes for a recap. */
   recapLooked?: boolean;
-  /** Whether an episode without credits has been checked against the outro of the season's episodes that have them. */
-  creditsRetried?: boolean;
+  /**
+   * Which second credits search an episode without them has had (true: the first, which also took the end logos
+   * alone for the start of the credits).
+   */
+  creditsRetried?: boolean | number;
 }
 
 export interface MarkersEntry {
@@ -437,7 +473,12 @@ export class Markers {
   private fresh(item: MediaItem, peers: number): boolean {
     if (!this.heard(item, peers)) return false;
     const entry = this.cache[item.id];
-    return !item.episode || (!!entry.recapLooked && (entry.marks.credits != null || !!entry.creditsRetried));
+    return !item.episode || (!!entry.recapLooked && (entry.creditsRetried === CREDITS_RETRY || (entry.marks.credits != null && !Markers.retried(entry))));
+  }
+
+  /** Credits the first second search may have given (it took the end logos alone for their start). */
+  private static retried(entry: Entry): boolean {
+    return entry.creditsRetried === true && entry.sound?.credits == null;
   }
 
   private async pass(entries: MarkersEntry[]): Promise<void> {
@@ -502,7 +543,7 @@ export class Markers {
     const name = Markers.seasonName(list);
     const listen = list.filter((e) => !this.heard(e.item, list.length)).length;
     const recapsDue = list.some((e) => !this.cache[e.item.id]?.recapLooked);
-    const retries = list.filter((e) => this.cache[e.item.id]?.marks.credits == null).length;
+    const retries = list.filter((e) => !this.fresh(e.item, list.length)).length;
     this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : recapsDue ? "checking for recaps" : `looking again for credits in ${retries} of ${list.length} episodes`}`);
     const probes = await Promise.all(list.map((e) => this.probe(e.absPath)));
     const heads = new Map<number, Uint32Array | null>();
@@ -555,27 +596,41 @@ export class Markers {
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
       const e = list[i];
-      if (this.heard(e.item, list.length)) marks[i] = { ...this.cache[e.item.id].marks };
+      const entry = this.heard(e.item, list.length) ? this.cache[e.item.id] : null;
+      if (entry && Markers.retried(entry)) marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], entry.sound ?? {}, probes[i]?.duration ?? 0, tailStart(i));
+      else if (entry) marks[i] = { ...entry.marks };
       else marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], found[i], probes[i]?.duration ?? 0, tailStart(i));
     }
     // Credits a second time: an episode still without them is searched for the outro of the nearest episodes that
     // have them, at every offset (two encodes of the same music don't always share the exact points the first search
-    // starts from), and a shorter stretch will do, since it's known to be the outro.
+    // starts from), and a shorter stretch will do, since it's known to be the outro. Only a match on the outro's start
+    // says where the credits start; when only the logos at its end match, the credits play over other music and are
+    // found by walking back from the logos through the picture.
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
       if (marks[i].credits != null || this.fresh(list[i].item, list.length)) continue;
       const tail = await tailOf(i);
       if (!tail) continue;
       const known = list.map((_, j) => j).filter((j) => j !== i && marks[j].credits != null).sort((x, y) => Math.abs(x - i) - Math.abs(y - i)).slice(0, 4);
+      let sting: number | null = null;
       for (const j of known) {
         const theirs = await tailOf(j);
         const from = Math.round((marks[j].credits! - tailStart(j)) / POINT_SECONDS);
         if (!theirs || from < 0 || from >= theirs.length) continue;
-        const hit = findClip(tail, theirs.subarray(from, from + Math.round(OUTRO_CLIP / POINT_SECONDS)), CREDITS_RETRY_MIN);
-        if (hit) {
+        const hit = findClip(tail, theirs.subarray(from, from + Math.round(OUTRO_CLIP / POINT_SECONDS)), STING_MIN);
+        if (!hit) continue;
+        if (hit.from <= OUTRO_START && hit.end - hit.start >= CREDITS_RETRY_MIN) {
           marks[i].credits = round(tailStart(i) + hit.start);
+          sting = null;
           break;
         }
+        if (hit.from > OUTRO_START) sting ??= tailStart(i) + hit.start;
+      }
+      if (sting != null) {
+        const start = Math.max(tailStart(i), sting - 180);
+        const frames = await this.blackness(list[i].absPath, start, sting - start);
+        const at = frames ? creditsBefore(frames, sting - start) : null;
+        if (at != null) marks[i].credits = round(start + at);
       }
     }
     // Recaps: each episode's opening against the episode before it (all of it) and the openings and endings of the
@@ -657,7 +712,7 @@ export class Markers {
         peers: entry ? entry.peers ?? list.length : list.length,
         sound: entry ? entry.sound : { intro: found[i].intro ?? null, credits: found[i].credits ?? null },
         recapLooked: true,
-        creditsRetried: true,
+        creditsRetried: CREDITS_RETRY,
       });
     }
     const missing = this.missingCredits(list);
@@ -730,7 +785,7 @@ export class Markers {
     this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null } });
   }
 
-  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean }): void {
+  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean | number }): void {
     this.cache[item.id] = { key: Markers.key(item), v: VERSION, ...entry };
   }
 
