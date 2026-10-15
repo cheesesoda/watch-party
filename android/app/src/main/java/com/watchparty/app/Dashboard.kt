@@ -1234,6 +1234,7 @@ private fun DetailPage(
 ) {
     val primary = remember { FocusRequester() }
     val tv = a.tv
+    val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
         if (lib.details && backdrop != null) {
             if (tv) BackdropBehind(a.api, backdrop, height = 0.9f)
@@ -1241,7 +1242,14 @@ private fun DetailPage(
         LazyColumn(state = state, contentPadding = PaddingValues(bottom = 32.dp)) {
             item(key = "head") {
                 if (tv) {
-                    Column(Modifier.padding(start = 128.dp, end = 48.dp, top = 56.dp).width(560.dp)) {
+                    // Coming back up from the episodes, bring-into-view only reveals the button, leaving the name cut off at the
+                    // top; scroll the whole header back instead.
+                    Column(
+                        Modifier
+                            .onFocusChanged { if (it.hasFocus && (state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 0)) scope.launch { state.animateScrollToItem(0) } }
+                            .padding(start = 128.dp, end = 48.dp, top = 56.dp)
+                            .width(560.dp),
+                    ) {
                         Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 52.sp, lineHeight = 54.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                         overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }

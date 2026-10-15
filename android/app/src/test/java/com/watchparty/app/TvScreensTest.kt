@@ -118,10 +118,13 @@ class TvScreensTest {
             }
         }
         rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
-        settle { rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty() }
+        // With saved spots, Recently added sits below the fold, so either row means Home is up.
+        settle { onHome() }
         // Let the posters arrive.
         settle(2_000) { false }
     }
+
+    private fun onHome() = listOf("Pick up where you left off", "Recently added").any { rule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
 
     /** Runs the app (network threads, main looper, a moving clock) until [done] or [ms] pass. */
     private fun settle(ms: Long = 15_000, done: () -> Boolean) {
@@ -198,7 +201,7 @@ class TvScreensTest {
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         settle(800) { false }
         shot("07-movies-back")
-        check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back on Movies didn't go Home")
+        check(onHome(), "Back on Movies didn't go Home")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
@@ -239,11 +242,25 @@ class TvScreensTest {
         // Right lands on the sort chips; Down reaches the first show.
         press(FocusDirection.Right)
         press(FocusDirection.Down)
+        shot("10b-shows-first-card")
+        press(FocusDirection.Down)
+        shot("10c-shows-second-row")
+        press(FocusDirection.Up)
+        shot("10d-shows-back-up")
         ok()
         shot("11-show-page")
         press(FocusDirection.Up)
         shot("12-show-page-up")
         check(!menuOpen(), "Up from Binge went to the menu")
+        // Down into the episodes and back up to Binge: the page scrolls back so the show's name isn't cut off.
+        press(FocusDirection.Right)
+        press(FocusDirection.Down, 2)
+        shot("12b-show-episodes")
+        press(FocusDirection.Up, 2)
+        settle(1_000) { false }
+        shot("12c-show-back-to-binge")
+        val top = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
+        check(top >= 0f, "Back up to Binge left the show's name cut off (top $top)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }
