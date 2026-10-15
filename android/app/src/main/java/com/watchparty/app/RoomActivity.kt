@@ -867,7 +867,8 @@ class RoomActivity : ComponentActivity() {
         val items = queue?.items.orEmpty()
         val at = items.indexOfFirst { it.id == media?.id }
         val next = if (at < 0) null else items.getOrNull(at + 1)
-        upNextText?.text = next?.let { "Up next: ${it.episode?.episode ?: (at + 2)}. ${playerTitle(it)}" } ?: ""
+        // "Up next: First Dance (S1 E2)": its name, and which episode, but not its place in the list.
+        upNextText?.text = next?.let { n -> "Up next: ${playerTitle(n)}" + (n.episode?.let { " (${episodeLabel(it.season, it.episode)})" } ?: "") } ?: ""
     }
 
     private fun nothingPlaying(): String = when {

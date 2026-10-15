@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { episodeLabel } from "../../shared/specials.ts";
 import type { ClientMessage, MediaItem, Queue } from "../../shared/protocol.ts";
 import { api, type LibraryResponse } from "./api.ts";
 import { MovieCard, MoviePage, SearchResults, ShowCard, ShowPage, type Browse } from "./Browse.tsx";
@@ -261,13 +262,16 @@ function UpNextList(props: {
     <div className="un-wrap">
       {props.media && (
         <div className="un-row un-now">
-          <span className="un-lead">
-            <PlayIcon size={16} />
-          </span>
+          {/* Lined up with the rows below, which only have a lead (the drag handle) for the host. */}
+          {edit && (
+            <span className="un-lead">
+              <PlayIcon size={16} />
+            </span>
+          )}
           <Thumb item={props.media} details={props.details} />
           <span className="un-text">
             <span className="un-label">Playing now</span>
-            <span className="un-title">{props.media.title}</span>
+            <span className="un-title">{name(props.media)}</span>
             <span className="un-facts">{facts(props.media)}</span>
           </span>
         </div>
@@ -298,10 +302,14 @@ function UpNextList(props: {
                   setOver(e.clientY < box.top + box.height / 2 ? i : i + 1);
                 }}
               >
-                <span className="un-lead">{edit ? <GripIcon size={18} /> : i + 1}</span>
+                {edit && (
+                  <span className="un-lead">
+                    <GripIcon size={18} />
+                  </span>
+                )}
                 <Thumb item={item} details={props.details} />
                 <span className="un-text">
-                  <span className="un-title">{item.title}</span>
+                  <span className="un-title">{name(item)}</span>
                   <span className="un-facts">{facts(item)}</span>
                 </span>
                 {edit && (
@@ -333,10 +341,15 @@ function Thumb(props: { item: MediaItem; details: boolean }) {
 }
 
 /** "Who Is Alive? · 55 m" for an episode, "Movie · 1995 · 2 h 50 m" for a movie. */
+/** The episode's or movie's own name; the show and episode number go in [facts]. */
+function name(item: MediaItem): string {
+  if (item.episode) return item.episode.title ?? item.meta?.title ?? item.title;
+  return item.meta?.title ?? item.title;
+}
+
 function facts(item: MediaItem): string {
   const length = item.duration ? fmtRuntime(item.duration) : "";
-  // The server puts episode names in titles ("Show S1 E2 · Name") when the file name lacks them; don't say it twice.
-  const name = item.episode?.title && !item.title.includes(item.episode.title) ? item.episode.title : "";
-  if (item.episode) return [name, item.part ? `Part ${item.part.index}` : "", length].filter(Boolean).join(" · ");
+  const ep = item.episode;
+  if (ep) return [`${item.meta?.show ?? ep.show} ${episodeLabel(ep.season, ep.episode)}`, item.part ? `Part ${item.part.index}` : "", length].filter(Boolean).join(" · ");
   return [item.extra ? item.extra.kind : "Movie", item.part ? `Part ${item.part.index}` : "", String(item.meta?.year ?? item.year ?? ""), length].filter(Boolean).join(" · ");
 }
