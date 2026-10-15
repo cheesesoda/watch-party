@@ -5,7 +5,7 @@ import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
 import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
-import { Details, fmtSize } from "./Library.tsx";
+import { Details } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 import { useArtTone } from "./artTone.ts";
@@ -423,7 +423,7 @@ export function Home(props: {
 }
 
 function detailsLine(item: { duration?: number | null; size: number; subtitles: unknown[]; extra?: { kind: string } | null }) {
-  const length = item.duration ? clock(item.duration) : fmtSize(item.size);
+  const length = item.duration ? clock(item.duration) : "";
   return [item.extra?.kind, length, item.subtitles.length > 0 ? "Subtitles" : ""].filter(Boolean).join(" · ");
 }
 

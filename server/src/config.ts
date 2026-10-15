@@ -110,6 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ffprobe: env.FFPROBE_PATH?.trim() || "ffprobe",
       dir: path.resolve(env.TRANSCODE_DIR?.trim() || path.join(os.tmpdir(), "watch-party-transcode")),
       encoder: env.TRANSCODE_ENCODER?.trim() || "auto",
+      durationsFile: path.resolve(env.DURATIONS_FILE?.trim() || fileURLToPath(new URL("../../data/durations.json", import.meta.url))),
     },
   };
 }

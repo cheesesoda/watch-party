@@ -162,3 +162,24 @@ test("grabs a still from the video for cards without TMDB art", { skip: !hasFfmp
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("lengths are kept on disk, so a restart shows them before probing again", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-len-"));
+  const input = path.join(dir, "in.mp4");
+  const made = spawnSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=3", "-c:v", "libx264", input]);
+  if (made.status !== 0) return void (await fs.rm(dir, { recursive: true, force: true }));
+  const durationsFile = path.join(dir, "durations.json");
+  const tc = new Transcoder({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: path.join(dir, "out"), encoder: "off", durationsFile });
+  try {
+    assert.equal(tc.knownDuration(input), null);
+    await tc.probe(input);
+    await new Promise((r) => setTimeout(r, 5_200));
+    const again = new Transcoder({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: path.join(dir, "out"), encoder: "off", durationsFile });
+    assert.equal(again.cachedDuration(input), undefined, "not probed by this run");
+    assert.ok(Math.abs(again.knownDuration(input)! - 3) < 0.2);
+    await again.close();
+  } finally {
+    await tc.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

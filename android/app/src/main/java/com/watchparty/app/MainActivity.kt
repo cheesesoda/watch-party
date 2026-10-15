@@ -873,8 +873,3 @@ internal fun clock(seconds: Double): String {
     val sec = s % 60
     return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
 }
-
-internal fun formatSize(bytes: Long): String {
-    val gb = bytes / (1024.0 * 1024 * 1024)
-    return if (gb >= 1) String.format("%.1f GB", gb) else "${maxOf(1, bytes / (1024 * 1024))} MB"
-}

@@ -20,6 +20,8 @@ export interface TranscodeConfig {
   dir: string;
   /** "auto" picks NVENC when the GPU has it, else libx264; "off" disables converting. */
   encoder: string;
+  /** Where files' lengths are kept, so they show right after a restart instead of once each file is probed again. */
+  durationsFile?: string;
 }
 
 export interface ProbeResult extends MediaInfo {
@@ -255,8 +257,21 @@ export class Transcoder {
   private encoder: Promise<string | null>;
   private encoderUsed: string | null = null;
   private sweeper: NodeJS.Timeout;
+  /** Lengths from earlier runs (seconds by path), until this run probes the file itself. */
+  private durations: Record<string, number> = {};
+  private durationsTimer: NodeJS.Timeout | null = null;
 
   constructor(private config: TranscodeConfig) {
+    if (config.durationsFile) {
+      try {
+        const saved: unknown = JSON.parse(fs.readFileSync(config.durationsFile, "utf8"));
+        if (saved && typeof saved === "object") {
+          for (const [file, d] of Object.entries(saved)) if (typeof d === "number" && d > 0) this.durations[file] = d;
+        }
+      } catch {
+        // No file yet, or an unreadable one: lengths come back as files are probed.
+      }
+    }
     this.encoder = (config.encoder === "off" ? Promise.resolve(null) : this.pickEncoder()).then((e) => (this.encoderUsed = e));
     this.sweeper = setInterval(() => void this.sweep(), 30_000);
     this.sweeper.unref();
@@ -286,7 +301,6 @@ export class Transcoder {
     return null;
   }
 
-  /** Duration from an earlier probe, without touching the disk. Undefined when the file hasn't been probed. */
   /**
    * A still from the video near `seconds`, for cards with no TMDB art. Right at the start is often a black frame, so a
    * spot there shows a minute in; past the end (a short file), it falls back to the first seconds.
@@ -296,9 +310,33 @@ export class Transcoder {
     return (await grabFrame(this.config.ffmpeg, file, at)) ?? (at > 5 ? grabFrame(this.config.ffmpeg, file, 5) : null);
   }
 
+  /** Duration from an earlier probe, without touching the disk. Undefined when the file hasn't been probed. */
   cachedDuration(file: string): number | null | undefined {
     const cached = this.probes.get(file);
     return cached ? cached.result.duration || null : undefined;
+  }
+
+  /** The length from this run's probe, or else the one kept from an earlier run. */
+  knownDuration(file: string): number | null {
+    return this.cachedDuration(file) || this.durations[file] || null;
+  }
+
+  private keepDuration(file: string, duration: number): void {
+    if (!this.config.durationsFile || !(duration > 0) || this.durations[file] === duration) return;
+    this.durations[file] = duration;
+    if (this.durationsTimer) return;
+    this.durationsTimer = setTimeout(() => {
+      this.durationsTimer = null;
+      const file = this.config.durationsFile!;
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(`${file}.tmp`, JSON.stringify(this.durations));
+        fs.renameSync(`${file}.tmp`, file);
+      } catch (e) {
+        console.warn(`couldn't save ${file}: ${(e as Error).message}`);
+      }
+    }, 5_000);
+    this.durationsTimer.unref();
   }
 
   /** Codecs and duration, cached until the file changes. Null when ffprobe is missing or fails. */
@@ -318,6 +356,7 @@ export class Transcoder {
     }
     result.convert = (await this.encoder) !== null && result.duration > 0;
     this.probes.set(file, { key, result });
+    this.keepDuration(file, result.duration);
     return result;
   }
 
