@@ -411,7 +411,7 @@ export function createApp(config: Config): App {
       return item && metadata.enrich(item);
     };
     const spots: Spot[] = [];
-    for (const s of rooms.spots.list()) {
+    for (const s of rooms.savedSpots()) {
       const media = lookup(s.mediaId);
       if (media) spots.push({ id: s.id, media, position: s.position, next: s.next.map(lookup).filter((m): m is MediaItem => !!m), savedAt: s.savedAt });
     }
@@ -422,7 +422,7 @@ export function createApp(config: Config): App {
   // small, there are at most a handful, and a restart just grabs them again).
   const frames = new Map<string, Promise<Buffer | null>>();
   app.get("/api/spots/:id/frame.jpg", async (req, res) => {
-    const spot = rooms.spots.get(req.params.id);
+    const spot = rooms.savedSpots().find((s) => s.id === req.params.id);
     const entry = spot && (await library.list(), library.peek(spot.mediaId));
     if (!spot || !entry) return void res.status(404).end();
     for (const id of frames.keys()) if (!rooms.spots.get(id)) frames.delete(id);
@@ -447,7 +447,7 @@ export function createApp(config: Config): App {
     // Picking up a saved spot: its video, from where it stopped, with the rest lined up. The spot is used up.
     const spotId = req.body?.spot;
     if (spotId !== undefined) {
-      const spot = typeof spotId === "string" ? rooms.spots.get(spotId) : undefined;
+      const spot = typeof spotId === "string" ? rooms.savedSpots().find((s) => s.id === spotId) : undefined;
       if (!spot) return void res.status(404).json({ error: "That spot isn't saved anymore." });
       await library.list();
       const room = rooms.create(undefined, [spot.mediaId, ...spot.next], spot.position, solo);
@@ -586,6 +586,8 @@ export function createApp(config: Config): App {
     for (const id of pairings.keys()) pending(id);
   }, 60_000);
   sweeper.unref();
+  const keeper = setInterval(() => rooms.keepSpots(), 15_000);
+  keeper.unref();
 
   return {
     server,
@@ -597,6 +599,8 @@ export function createApp(config: Config): App {
     findMarks,
     async close() {
       clearInterval(sweeper);
+      clearInterval(keeper);
+      rooms.keepSpots();
       await markers.close();
       await transcoder.close();
       await metadata.close();

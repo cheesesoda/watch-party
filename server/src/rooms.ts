@@ -13,7 +13,7 @@ import type {
   SignalData,
 } from "../../shared/protocol.ts";
 import { expectedPosition, nearEnd, worthSaving } from "../../shared/protocol.ts";
-import { Spots } from "./spots.ts";
+import { Spots, type SavedSpot } from "./spots.ts";
 
 export type Send = (msg: ServerMessage) => void;
 export type Close = () => void;
@@ -605,7 +605,10 @@ export class RoomManager {
     const room = new Room(id, this.lookup, this.now, this.iceServers);
     room.solo = solo;
     room.autoplay = solo;
-    room.onEnded = () => this.rooms.delete(id);
+    room.onEnded = () => {
+      this.rooms.delete(id);
+      this.spots.ended(id);
+    };
     room.onSave = (spot) => this.save(spot);
     if (queue && queue.length > 0) room.setQueue(queue);
     else if (mediaId) room.select(mediaId);
@@ -632,6 +635,7 @@ export class RoomManager {
     const now = this.now();
     for (const [id, room] of this.rooms) {
       if (room.members.size === 0 && now - room.emptySince > this.idleMs) {
+        this.spots.ended(id);
         const spot = room.spot();
         if (spot) this.save(spot);
         this.rooms.delete(id);
@@ -639,12 +643,34 @@ export class RoomManager {
     }
   }
 
+  /**
+   * Keeps where each party is on disk as it plays, so stopping the server (which ends every party without asking:
+   * the tray just ends the process) still leaves a spot to pick up. Home hides it while the party goes on.
+   */
+  keepSpots(): void {
+    for (const [id, room] of this.rooms) {
+      const spot = room.spot();
+      const key = spot && this.key(spot.mediaId);
+      this.spots.live(id, spot && key ? { ...spot, key } : null);
+    }
+  }
+
+  /** Saved spots, without the ones of parties still playing. */
+  savedSpots(): SavedSpot[] {
+    return this.spots.list().filter((s) => !s.room || !this.rooms.has(s.room));
+  }
+
   /** One spot per show (or movie): a later one replaces it. */
   private save(spot: RoomSpot): void {
-    const media = this.lookup(spot.mediaId);
-    if (!media) return;
+    const key = this.key(spot.mediaId);
+    if (key) this.spots.add({ ...spot, key });
+  }
+
+  private key(mediaId: string): string | null {
+    const media = this.lookup(mediaId);
+    if (!media) return null;
     const show = media.episode && (media.meta?.show ?? media.episode.show);
-    this.spots.add({ ...spot, key: show ? `show:${show.toLowerCase()}` : `media:${media.id}` });
+    return show ? `show:${show.toLowerCase()}` : `media:${media.id}`;
   }
 
   /** The parties, without the host's own solo viewing. */

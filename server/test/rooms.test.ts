@@ -420,6 +420,39 @@ test("ending with Save spot keeps where the party is, and a new party picks up t
   assert.deepEqual(mgr.spots.list()[0].position, 2650, "just before them is");
 });
 
+test("a playing party's spot is kept on disk, hidden until the server restarts", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { Spots } = await import("../src/spots.ts");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "spots-")), "spots.json");
+  let now = 1_000;
+  const ep = (n: number): MediaItem => ({ ...movie, id: `e${n}`, title: `Ep ${n}`, duration: 3000, episode: { show: "Show", season: 1, episode: n, title: null } });
+  const lib = new Map([1, 2].map((n) => [`e${n}`, ep(n)]));
+  const mgr = new RoomManager((id) => lib.get(id), () => now, 1000, undefined, new Spots(file, () => now));
+  // An older spot for the show, from an earlier party.
+  const old = mgr.create("e1");
+  const o = old.join("Host", () => {});
+  old.handle(o.id, { type: "play", position: 100 });
+  old.handle(o.id, { type: "end", save: true });
+
+  const room = mgr.create(undefined, ["e1", "e2"]);
+  const host = room.join("Host", () => {});
+  room.handle(host.id, { type: "play", position: 600 });
+  now += 30_000;
+  mgr.keepSpots();
+  assert.deepEqual(mgr.savedSpots().map((s) => s.position), [100], "Home doesn't show the party that's still on");
+
+  // The server stops without asking anyone: the next one has the party's spot, in place of the show's older one.
+  const after = new Spots(file, () => now);
+  assert.deepEqual(after.list().map((s) => [s.mediaId, s.position, s.next, s.room]), [["e1", 630, ["e2"], undefined]]);
+
+  // Ending with Don't save drops it, and the older spot is still there.
+  room.handle(host.id, { type: "end", save: false });
+  assert.deepEqual(mgr.savedSpots().map((s) => s.position), [100]);
+  assert.deepEqual(new Spots(file, () => now).list().map((s) => s.position), [100]);
+});
+
 test("a party that empties out saves its spot when it's dropped, at the moment everyone left", () => {
   let now = 1_000;
   const long: MediaItem = { ...movie, duration: 7200 };
