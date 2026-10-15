@@ -139,7 +139,7 @@ private fun TvUpNext(screen: UpNextScreen, upcoming: List<MediaItem>, playing: M
                 upcoming.forEachIndexed { i, item ->
                     key(item.id) {
                         TvRow(
-                            screen.api, item, i + 1,
+                            screen.api, item,
                             modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
                             onClick = screen.edit?.let { { onOptions(item.id) } },
                         )
@@ -169,12 +169,7 @@ private fun PlayingNow(screen: UpNextScreen, media: MediaItem) {
             .padding(horizontal = if (tv) 12.dp else 16.dp, vertical = if (tv) 8.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (tv) {
-            Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_play_filled), contentDescription = null, tint = Accent, modifier = Modifier.size(14.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-        }
+        // No lead column: the rows below have no place numbers, so the pictures line up.
         Thumb(screen.api, media, progress)
         Column(Modifier.padding(start = 14.dp).weight(1f)) {
             Text("PLAYING NOW", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -208,7 +203,7 @@ private fun rememberProgress(screen: UpNextScreen, media: MediaItem): Float? {
 
 /** A video in Up next on the TV: its place, picture, title and facts. White while the remote is on it. */
 @Composable
-private fun TvRow(api: Api, item: MediaItem, place: Int, modifier: Modifier, onClick: (() -> Unit)?) {
+private fun TvRow(api: Api, item: MediaItem, modifier: Modifier, onClick: (() -> Unit)?) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val ep = item.episode
@@ -224,12 +219,11 @@ private fun TvRow(api: Api, item: MediaItem, place: Int, modifier: Modifier, onC
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("$place", color = if (focused) OnFocusMuted else Muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(24.dp))
-        Spacer(Modifier.width(12.dp))
         Thumb(api, item, null)
         Column(Modifier.padding(start = 14.dp).weight(1f)) {
-            val title = if (ep != null) episodeLabel(ep.season, ep.episode) else rowTitle(item)
-            val sub = if (ep != null) listOfNotNull(ep.title ?: item.meta?.title, item.duration?.let(::runtime)).joinToString(" · ") else movieLine(item, withLength = true)
+            // Its name, then "Severance S2 E3 · 52 m" for an episode (like the phone's rows), no place number.
+            val title = rowTitle(item)
+            val sub = showLine(item)?.let { s -> listOfNotNull(s, item.duration?.let(::runtime)).joinToString(" · ") } ?: movieLine(item, withLength = true)
             Text(title, color = if (focused) OnFocus else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
