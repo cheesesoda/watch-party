@@ -98,11 +98,11 @@ class TvMenuFocusTest {
     }
 
     /**
-     * Back from a party, the card that started it may be gone (the party ended), leaving nothing focused. The next
-     * focus search starts from the top-left corner of the screen, where the menu's Search is; that used to open the
-     * menu. It should land on the page instead.
+     * Back from a party, the card that started it may be gone (the party ended, or its spot was used), leaving nothing
+     * focused, and the screen gets focus back. Android's search for something to focus starts at the top-left corner of
+     * the screen, where the menu's Search is; that opened the menu. It should land on the page instead.
      */
-    private fun lostFocusStaysOnThePage(direction: FocusDirection) {
+    private fun lostFocusStaysOnThePage(retake: () -> Unit) {
         var card = -1
         page(alone = false) { card = it }
         windowFocus()
@@ -110,18 +110,38 @@ class TvMenuFocusTest {
         rule.runOnIdle { focus.clearFocus(force = true) }
         rule.waitForIdle()
         card = -1
-        move(direction)
+        rule.runOnIdle { retake() }
+        rule.waitForIdle()
         assertTrue("Focus went to the menu instead of the page (focused: ${focusedNow()})", card >= 0)
     }
 
-    @Test
-    fun lostFocusAndRightStaysOnThePage() = lostFocusStaysOnThePage(FocusDirection.Right)
+    private val composeView get() = (rule.activity.findViewById<android.view.ViewGroup>(android.R.id.content)).getChildAt(0)
+
+    private fun viewRetakes(direction: Int) {
+        composeView.clearFocus()
+        composeView.requestFocus(direction)
+    }
 
     @Test
-    fun lostFocusAndDownStaysOnThePage() = lostFocusStaysOnThePage(FocusDirection.Down)
+    fun lostFocusThenKeyRightStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Right) }
 
-    private fun focusedNow(): String =
-        rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
+    @Test
+    fun lostFocusThenEnterStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Enter) }
+
+    @Test
+    fun screenRetakesFocusForwardStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_FORWARD) }
+
+    @Test
+    fun screenRetakesFocusRightStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_RIGHT) }
+
+    @Test
+    fun screenRetakesFocusDownStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_DOWN) }
+
+    @Test
+    fun windowRefocusStaysOnThePage() = lostFocusStaysOnThePage {
+        rule.activity.window.decorView.dispatchWindowFocusChanged(false)
+        rule.activity.window.decorView.dispatchWindowFocusChanged(true)
+    }
 
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)
