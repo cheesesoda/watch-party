@@ -7,6 +7,9 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -357,6 +360,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         val movie = route.removePrefix("movie/").takeIf { route.startsWith("movie/") }?.let { lib?.byId?.get(it) }
         val show = route.removePrefix("show/").takeIf { route.startsWith("show/") }?.let { lib?.show(it) }
         when {
+            route == "settings" -> SettingsPage(prefs, tv, onSignOut = { onSignedOut(null) })
             route == "parties" -> PartiesPage(rooms, sinceFetch, lib?.details == true, actions, gridState)
             lib == null -> Message(error ?: "Loading library…", error != null)
             lib.items.isEmpty() -> Message("No videos found. Put files in the server's media folder.", false)
@@ -371,14 +375,14 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     }
 
     if (tv) {
-        TvShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, go = go) {
+        TvShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 if (adding) PartyPill(tv = true, Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 32.dp), onBackToParty)
             }
         }
     } else {
-        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { onSignedOut(null) }, onBack = onBackToParty, go = go) {
+        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, onBack = onBackToParty, go = go) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 // The top pages show it in their bar; movie and show pages over their backdrop.
@@ -465,7 +469,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
 /** What Home's "Pick up where you left off" cards do. [options] is a TV's OK. */
 private class SpotActions(val start: (Spot) -> Unit, val open: (Spot) -> Unit, val remove: (Spot) -> Unit, val options: (Spot) -> Unit)
 
-private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search")
+private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search", "settings")
 
 // ---------- Shells: the phone's bottom bar and the TV's side menu ----------
 
@@ -601,7 +605,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
             if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, onCode)
             Spacer(Modifier.weight(1f))
             TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, onRefresh)
-            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", false, open, onSettings)
+            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", section(route) == "settings", open, onSettings)
             if (!adding) TvModeItem(alone, open) { setAlone(!alone) }
         }
     }
@@ -653,6 +657,97 @@ private fun TvModeItem(alone: Boolean, open: Boolean, onClick: () -> Unit) {
         if (open) Column {
             Text(if (alone) "Watching alone" else "Watching together", color = if (focused) OnFocus else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Text(if (alone) "OK: switch to together" else "OK: switch to alone", color = if (focused) OnFocus.copy(alpha = 0.7f) else Muted, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+// ---------- Settings ----------
+
+/** Your name, the server, and Sign out (which asks first), instead of the menu's Settings signing you out. */
+@Composable
+private fun SettingsPage(prefs: Prefs, tv: Boolean, onSignOut: () -> Unit) {
+    var name by remember { mutableStateOf(prefs.name) }
+    var editing by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(false) }
+    val first = remember { FocusRequester() }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = if (tv) 128.dp else 16.dp, end = if (tv) 48.dp else 16.dp, top = if (tv) 40.dp else 8.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        PageTitle("Settings", null)
+        Spacer(Modifier.height(4.dp))
+        SettingsRow(R.drawable.ic_user, "Your name", name, Modifier.focusRequester(first)) { editing = true }
+        SettingsRow(R.drawable.ic_tv, "Server", prefs.serverUrl.substringAfter("://"), Modifier, onClick = null)
+        SettingsRow(R.drawable.ic_leave, "Sign out", if (tv) "Sign in again later with your phone or the password" else "Sign in again later with the password", Modifier) { confirming = true }
+    }
+    if (tv) LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+
+    if (editing) {
+        var draft by remember { mutableStateOf(name) }
+        val field = remember { FocusRequester() }
+        val save = {
+            val clean = draft.trim().take(32)
+            if (clean.isNotEmpty()) {
+                prefs.name = clean
+                name = clean
+                editing = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("Your name") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("Shown to everyone in a party") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                    modifier = Modifier.focusRequester(field),
+                )
+            },
+            confirmButton = { DialogButton("Save") { save() } },
+            dismissButton = { DialogButton("Cancel") { editing = false } },
+            containerColor = DialogSurface,
+        )
+        LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Sign out?") },
+            text = { Text(if (tv) "This TV goes back to the start screen. To sign in again, choose Sign in with your phone, or enter the password." else "This phone goes back to the start screen. To sign in again, enter the password.") },
+            confirmButton = { DialogButton("Sign out", danger = true) { confirming = false; onSignOut() } },
+            dismissButton = { DialogButton("Cancel") { confirming = false } },
+            containerColor = DialogSurface,
+        )
+    }
+}
+
+/** A settings row: icon, label and value; white while the remote is on it. [onClick] null: information only. */
+@Composable
+private fun SettingsRow(icon: Int, label: String, value: String, modifier: Modifier, onClick: (() -> Unit)?) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Row(
+        modifier
+            .widthIn(max = 640.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (focused) FocusFill else Panel)
+            .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(painterResource(icon), contentDescription = null, tint = if (focused) OnFocus else Muted, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = if (focused) OnFocus else Color.White, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(value, color = if (focused) OnFocusMuted else Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -19,6 +19,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -167,6 +168,10 @@ class MainActivity : ComponentActivity() {
                         .then(if (home) Modifier.background(Bg) else Modifier.background(BrandGradient))
                         .safeDrawingPadding(),
                 ) {
+                    BackHandler(enabled = link != null || invite != null) {
+                        pairLink.value = null
+                        joinLink.value = null
+                    }
                     if (link != null) {
                         PhonePairScreen(prefs, server = link.first, id = link.second, onClose = { pairLink.value = null })
                     } else if (invite != null) {
@@ -216,6 +221,8 @@ private fun SetupScreen(prefs: Prefs, notice: String?, onDone: () -> Unit) {
         context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }
     var mode by remember { mutableStateOf<String?>(null) }
+    // Back from a sign-in screen returns to this first screen instead of leaving the app.
+    BackHandler(enabled = mode != null) { mode = null }
     when (mode) {
         "start" -> StartForm(prefs, notice, onDone, onBack = { mode = null })
         "join" -> JoinForm(prefs, onBack = { mode = null })
@@ -508,7 +515,8 @@ private fun TvPairScreen(prefs: Prefs, onDone: () -> Unit, onBack: () -> Unit) {
 @Composable
 private fun PhonePairScreen(prefs: Prefs, server: String, id: String, onClose: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val signedInHost = prefs.isSetUp && prefs.serverUrl == server
+    // Same server however the address is written (case, a trailing slash), so a signed-in host isn't asked for the password.
+    val signedInHost = prefs.isSetUp && Prefs.normalizeUrl(prefs.serverUrl).equals(Prefs.normalizeUrl(server), ignoreCase = true)
     val api = remember { Api(server, if (signedInHost) prefs.token else "") }
     val scope = rememberCoroutineScope()
     var asHost by remember { mutableStateOf(false) }

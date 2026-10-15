@@ -17,7 +17,10 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Before
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performSemanticsAction
@@ -37,7 +40,15 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvMenuFocusTest {
     @get:Rule
-    val rule = createComposeRule()
+    val rule = createAndroidComposeRule<ComponentActivity>()
+
+    @Before
+    fun noTouch() {
+        // A TV has no touch screen; in touch mode Android won't move focus around.
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
+    }
+
+    private fun windowFocus() = rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
     private lateinit var focus: FocusManager
 
     /** What the remote's arrow keys do (key events don't reach the app under Robolectric). */
@@ -63,6 +74,7 @@ class TvMenuFocusTest {
     private fun rightReachesThePage(alone: Boolean) {
         var card = -1
         page(alone) { card = it }
+        windowFocus()
         rule.onNodeWithContentDescription("Movies").performSemanticsAction(SemanticsActions.RequestFocus)
         rule.waitForIdle()
         val before = focusedNow()
@@ -91,6 +103,7 @@ class TvMenuFocusTest {
                 Box(Modifier.padding(start = 14.dp, top = 160.dp).size(48.dp).semantics { contentDescription = "Plain" }.clickable {})
             }
         }
+        windowFocus()
         rule.onNodeWithContentDescription("Plain").performSemanticsAction(SemanticsActions.RequestFocus)
         rule.waitForIdle()
         val before = focusedNow()

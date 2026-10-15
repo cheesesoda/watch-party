@@ -15,7 +15,9 @@ import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -95,6 +97,8 @@ class TvScreensTest {
         prefs.token = "test"
         prefs.name = "Jake"
         prefs.markSignedIn(true)
+        // A TV has no touch screen: out of touch mode, and with the window focused, the remote's focus works.
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
         // The banner and progress keep asking for frames, so the clock only moves when told to.
         rule.mainClock.autoAdvance = false
         rule.setContent {
@@ -103,6 +107,7 @@ class TvScreensTest {
                 Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}, forceTv = true) }
             }
         }
+        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
         settle { rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty() }
         // Let the posters arrive.
         settle(2_000) { false }
@@ -140,7 +145,7 @@ class TvScreensTest {
 
     /** OK on the remote. */
     private fun ok() {
-        rule.onNode(isFocused()).performClick()
+        rule.onNode(isFocused()).performSemanticsAction(SemanticsActions.OnClick)
         settle(800) { false }
     }
 
@@ -171,6 +176,23 @@ class TvScreensTest {
         press(FocusDirection.Right)
         shot("06-movies-right")
         check(!menuOpen(), "Right from the menu on Movies didn't reach the page")
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        settle(800) { false }
+        shot("07-movies-back")
+        check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back on Movies didn't go Home")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    @Test
+    fun settings() {
+        press(FocusDirection.Left)
+        press(FocusDirection.Down, 12)
+        // Up from the bottom (Together / Alone) to Settings.
+        press(FocusDirection.Up)
+        shot("20-menu-on-settings")
+        ok()
+        shot("21-settings")
+        check(rule.onAllNodesWithText("Sign out").fetchSemanticsNodes().isNotEmpty(), "Settings didn't open")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
