@@ -72,7 +72,7 @@ class TvMenuFocusTest {
                 horizontalArrangement = Arrangement.spacedBy(22.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                items(18) { i -> Box(Modifier.aspectRatio(2f / 3f).onFocusChanged { if (it.isFocused) focused(i) }.clickable {}) }
+                items(18) { i -> Box(Modifier.aspectRatio(2f / 3f).semantics { contentDescription = "Card $i" }.onFocusChanged { if (it.isFocused) focused(i) }.clickable {}) }
             }
         }
     }
@@ -81,12 +81,44 @@ class TvMenuFocusTest {
         var card = -1
         page(alone) { card = it }
         windowFocus()
-        rule.onNodeWithContentDescription("Movies").performSemanticsAction(SemanticsActions.RequestFocus)
-        rule.waitForIdle()
+        focusCard(0)
+        // Left from the page opens the menu…
+        move(FocusDirection.Left)
+        assertTrue("Left from the page didn't reach the menu (focused: ${focusedNow()})", "Card" !in focusedNow())
+        card = -1
         val before = focusedNow()
+        // …and Right goes back.
         move(FocusDirection.Right)
         assertTrue("Right from the menu didn't reach the page (focused before: $before; after: ${focusedNow()})", card >= 0)
     }
+
+    private fun focusCard(i: Int) {
+        rule.onNodeWithContentDescription("Card $i").performSemanticsAction(SemanticsActions.RequestFocus)
+        rule.waitForIdle()
+    }
+
+    /**
+     * Back from a party, the card that started it may be gone (the party ended), leaving nothing focused. The next
+     * focus search starts from the top-left corner of the screen, where the menu's Search is; that used to open the
+     * menu. It should land on the page instead.
+     */
+    private fun lostFocusStaysOnThePage(direction: FocusDirection) {
+        var card = -1
+        page(alone = false) { card = it }
+        windowFocus()
+        focusCard(3)
+        rule.runOnIdle { focus.clearFocus(force = true) }
+        rule.waitForIdle()
+        card = -1
+        move(direction)
+        assertTrue("Focus went to the menu instead of the page (focused: ${focusedNow()})", card >= 0)
+    }
+
+    @Test
+    fun lostFocusAndRightStaysOnThePage() = lostFocusStaysOnThePage(FocusDirection.Right)
+
+    @Test
+    fun lostFocusAndDownStaysOnThePage() = lostFocusStaysOnThePage(FocusDirection.Down)
 
     private fun focusedNow(): String =
         rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
