@@ -63,6 +63,11 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -658,14 +663,14 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
                 .onFocusChanged { open = it.hasFocus }
-                // Right leaves for the page (see backToPage); Up and Down at the ends, and Left, stay put.
-                .focusProperties {
-                    exit = { direction ->
-                        if (direction == FocusDirection.Right) backToPage()
-                        FocusRequester.Cancel
-                    }
+                // The remote's Right goes back to the card it left (see backToPage); each item's right = page is the
+                // fallback for focus moves that don't come from a key.
+                .onPreviewKeyEvent {
+                    if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight) {
+                        backToPage()
+                        true
+                    } else false
                 }
-                .focusGroup()
                 // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
                 .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -700,6 +705,7 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
+            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -724,6 +730,7 @@ private fun TvModeItem(alone: Boolean, open: Boolean, page: FocusRequester, onCl
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else Color.Transparent)
+            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .semantics { stateDescription = if (alone) "On" else "Off" }
             .padding(start = 14.dp, end = 10.dp),
