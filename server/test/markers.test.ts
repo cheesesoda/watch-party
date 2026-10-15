@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { Library } from "../src/library.ts";
-import { blackCredits, chapterMarks, Markers, POINT_SECONDS, sharedStretch } from "../src/markers.ts";
+import { blackCredits, chapterMarks, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -56,7 +56,7 @@ test("chapter names mark the intro, recap and credits", () => {
   assert.deepEqual(chapterMarks([{ start: 0, end: 4, title: "Intro" }, { start: 4, end: 900, title: "Chapter 2" }]), {});
 });
 
-test("back-to-back chapters join, and a short Previously On runs to the studio logo (Reacher's)", () => {
+test("back-to-back chapters join, and a Previously On too short to press is left to detection (Reacher's)", () => {
   const marks = chapterMarks([
     { start: 0, end: 6, title: "Studio Logo" },
     { start: 6, end: 10, title: "Previously On" },
@@ -70,8 +70,37 @@ test("back-to-back chapters join, and a short Previously On runs to the studio l
     { start: 675, end: 785, title: "Scene 13" },
     { start: 3031, end: 3269.183, title: "End Credits" },
   ]);
-  // The 4 s "Previously On" runs on to the studio logo at 1:00 (the recap really ends at 0:58).
-  assert.deepEqual(marks, { recap: { start: 6, end: 60 }, intro: { start: 662, end: 675 }, credits: 3031 });
+  // The 4 s "Previously On" chapter is gone before anyone could press it (the recap really runs to 0:58): no length
+  // is assumed from the chapters around it; matching against earlier episodes finds it instead.
+  assert.deepEqual(marks, { intro: { start: 662, end: 675 }, credits: 3031 });
+});
+
+test("a recap is the run of clips from earlier episodes at the start, however long, minus what every episode has", () => {
+  const scene1 = points(11, seconds(60));
+  const scene2 = points(12, seconds(60));
+  const logo = points(13, seconds(6));
+  const earlier = Uint32Array.from([...logo, ...scene1, ...points(14, seconds(100)), ...scene2, ...points(15, seconds(60))]);
+  // Narration, 15 s of scene 2, more narration, 12 s of scene 1, then the logo and the new episode.
+  const head = Uint32Array.from([
+    ...points(21, seconds(3)), ...scene2.slice(seconds(20), seconds(35)), ...points(22, seconds(5)), ...scene1.slice(seconds(10), seconds(22)),
+    ...logo, ...points(23, seconds(200)),
+  ]);
+  const later = Uint32Array.from([...points(31, seconds(30)), ...logo, ...points(32, seconds(100))]);
+  const shared = recurring(head, [earlier, later]);
+  // The logo is in both other episodes; the recap's clips only in one.
+  assert.equal(shared.length, 1, JSON.stringify(shared));
+  assert.ok(Math.abs(shared[0].start - 35) < 1 && Math.abs(shared[0].end - 41) < 1, JSON.stringify(shared));
+  const recap = findRecap(head, shared, [{ points: earlier, from: 0, ignore: (t) => t < 15 }]);
+  assert.ok(recap && Math.abs(recap.start - 3) < 1 && Math.abs(recap.end - 35) < 1, JSON.stringify(recap));
+  // Without the logo ruled out it would run on into it.
+  assert.ok(findRecap(head, [], [{ points: earlier, from: 0, ignore: () => false }])!.end > 38);
+  // A cold open that never played before is no recap, nor is a single short callback.
+  assert.equal(findRecap(Uint32Array.from(points(40, seconds(200))), [], [{ points: earlier, from: 0, ignore: () => false }]), null);
+  const callback = Uint32Array.from([...points(41, seconds(60)), ...scene1.slice(0, seconds(5)), ...points(42, seconds(100))]);
+  assert.equal(findRecap(callback, [], [{ points: earlier, from: 0, ignore: () => false }]), null);
+  // Silence matches any other quiet stretch; it isn't a clip.
+  const quiet = new Array(seconds(20)).fill(0);
+  assert.equal(findRecap(Uint32Array.from([...quiet, ...points(43, seconds(100))]), [], [{ points: Uint32Array.from([...points(44, 50), ...quiet]), from: 0, ignore: () => false }]), null);
 });
 
 test("credits by the picture: the last long stretch of black keyframes", () => {
@@ -135,7 +164,7 @@ test("finds a season's intros and credits in real files, and a movie's from its 
     assert.ok(Math.abs(marks.intro.end - (truth[i].intro + 30)) < 3, `${ep.relPath} intro ${JSON.stringify(marks.intro)}`);
     assert.ok(Math.abs(marks.credits - truth[i].credits) < 6, `${ep.relPath} credits ${marks.credits}`);
   }
-  assert.ok(lines.some((l) => l.includes("Show season 1: intros in 2 of 2, credits in 2")), lines.join("\n"));
+  assert.ok(lines.some((l) => l.includes("Show season 1: intros in 2 of 2, recaps in 0, credits in 2")), lines.join("\n"));
   const film = items.find((i) => !i.episode)!;
   assert.deepEqual(markers.get(film), { credits: 50 });
   assert.equal(markers.attach(film).marks?.credits, 50);
@@ -194,6 +223,55 @@ test("finds credits by the picture when the sound doesn't match, and brings vers
     assert.ok(marks?.credits != null && marks.credits >= 260 && marks.credits <= 262.5, `credits ${marks?.credits}`);
   }
   assert.ok(lines.some((l) => l.startsWith("updated 2 earlier results")), lines.join("\n"));
-  assert.ok(!lines.some((l) => l.includes("Show season 1")), "listened again: " + lines.join("\n"));
+  // Only the recap check ran (nothing to recap here); intros and credits weren't listened for again.
+  assert.ok(lines.some((l) => l.includes("Show season 1: intros in 2 of 2, recaps in 0, credits in 2")), lines.join("\n"));
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("finds recaps in real files by matching earlier episodes, ending where the clips do", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-recap-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // The sounds the episodes are cut from, so a recap can reuse an exact piece of an earlier episode.
+  const sounds: Record<string, string> = {};
+  const make = async (name: string, seed: number, length: number) => {
+    sounds[name] = path.join(dir, `${name}.wav`);
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", melody(seed, length), sounds[name]]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  };
+  for (const [name, seed, length] of [
+    ["logo", 1.7, 6], ["credits", 9.9, 30], ["a1", 2.1, 40], ["a2", 2.9, 40], ["a3", 3.7, 200],
+    ["b1", 4.3, 250], ["c1", 5.9, 250], ["n1", 6.1, 3], ["n2", 6.7, 5], ["n3", 7.3, 3], ["n4", 7.9, 4],
+  ] as const) await make(name, seed, length);
+  const episode = (n: number, pieces: [string, number, number][]) => {
+    const args = ["-hide_banner", "-loglevel", "error", "-y"];
+    for (const [name, from, length] of pieces) args.push("-ss", String(from), "-t", String(length), "-i", sounds[name]);
+    args.push("-filter_complex", `${pieces.map((_, i) => `[${i}:a]`).join("")}concat=n=${pieces.length}:v=0:a=1[a]`, "-map", "[a]", "-c:a", "aac", path.join(season, `Show S01E0${n}.mp4`));
+    const r = spawnSync("ffmpeg", args);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  };
+  // Episode 1: logo, its story, credits. No recap.
+  episode(1, [["logo", 0, 6], ["a1", 0, 40], ["a2", 0, 40], ["a3", 0, 200], ["credits", 0, 30]]);
+  // Episode 2: narration, 15 s of episode 1's a2, narration, 15 s of a1 (recap 0:03 to 0:38), then the logo.
+  episode(2, [["n1", 0, 3], ["a2", 10, 15], ["n2", 0, 5], ["a1", 5, 15], ["logo", 0, 6], ["b1", 0, 250], ["credits", 0, 30]]);
+  // Episode 3: narration, 20 s of episode 2's story, narration, 12 s of episode 1's opening (recap 0:03 to 0:38).
+  episode(3, [["n3", 0, 3], ["b1", 20, 20], ["n4", 0, 3], ["a1", 25, 12], ["logo", 0, 6], ["c1", 0, 250], ["credits", 0, 30]]);
+
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const lines: string[] = [];
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file: path.join(dir, "markers.json") }, (l) => lines.push(l));
+  await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  assert.equal(markers.get(eps[0])?.recap ?? null, null);
+  for (const ep of eps.slice(1)) {
+    const marks = markers.get(ep);
+    const recap = marks?.recap;
+    assert.ok(recap && Math.abs(recap.start - 3) < 3 && Math.abs(recap.end - 38) < 3, `${ep.relPath}: ${JSON.stringify(marks)}`);
+    // The recap's clips aren't mistaken for an intro (they're in one other episode, not most).
+    assert.equal(marks?.intro ?? null, null, `${ep.relPath}: ${JSON.stringify(marks)}`);
+  }
+  assert.equal(markers.get(eps[0])?.intro ?? null, null, JSON.stringify(markers.get(eps[0])));
+  assert.ok(lines.some((l) => l.includes("Show season 1: intros in 0 of 3, recaps in 2, credits in 3")), lines.join("\n"));
   await fs.rm(dir, { recursive: true, force: true });
 });
