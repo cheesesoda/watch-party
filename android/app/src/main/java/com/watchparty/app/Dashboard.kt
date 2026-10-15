@@ -591,6 +591,8 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     // the menu and never counts as "to the right": the menu sends Right to the page itself.
     // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
     val page = remember { FocusRequester() }
+    // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
+    BackHandler(enabled = open) { runCatching { page.requestFocus() } }
     Box(Modifier.fillMaxSize()) {
         @OptIn(ExperimentalComposeUiApi::class)
         Box(

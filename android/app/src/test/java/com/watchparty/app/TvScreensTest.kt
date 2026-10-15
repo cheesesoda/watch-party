@@ -177,6 +177,12 @@ class TvScreensTest {
         press(FocusDirection.Left)
         check(menuOpen(), "Left from the first card didn't open the menu")
         shot("03-menu")
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        settle(800) { false }
+        check(!menuOpen(), "Back in the menu didn't close it")
+        check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back in the menu left Home")
+        shot("03b-menu-back")
+        press(FocusDirection.Left)
         // Home, Movies: down twice from wherever it landed is not certain, so go to the top first.
         press(FocusDirection.Up, 8)
         press(FocusDirection.Down, 2)
