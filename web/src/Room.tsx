@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { worthSaving, type MediaInfo, type MediaItem } from "../../shared/protocol.ts";
+import { episodeLabel } from "../../shared/specials.ts";
 import { api, hlsUrl, imageUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
 import { BackIcon, ChatIcon, PlayIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon, UserPlusIcon } from "./Icons.tsx";
@@ -365,7 +366,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
           <strong>{media?.title ?? "Nothing playing"}</strong>
           <span className="muted">
             {queue && at >= 0 && `${media?.part ? "Part " : ""}${at + 1} of ${queue.items.length} · `}
-            {next && `Up next: ${next.episode?.title ?? next.title} · `}
+            {next && `Up next: ${next.meta?.title ?? next.episode?.title ?? next.title}${next.episode ? ` (${episodeLabel(next.episode.season, next.episode.episode)})` : ""} · `}
             {view.status === "open"
               ? solo
                 ? "Watching alone"
