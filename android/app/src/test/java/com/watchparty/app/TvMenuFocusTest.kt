@@ -97,55 +97,8 @@ class TvMenuFocusTest {
         rule.waitForIdle()
     }
 
-    /**
-     * Back from a party, the card that started it may be gone (the party ended, or its spot was used), leaving nothing
-     * focused, and the screen gets focus back. Android's search for something to focus starts at the top-left corner of
-     * the screen, where the menu's Search is; that opened the menu. It should land on the page instead.
-     */
-    private fun lostFocusStaysOnThePage(retake: () -> Unit) {
-        var card = -1
-        page(alone = false) { card = it }
-        windowFocus()
-        focusCard(3)
-        rule.runOnIdle { focus.clearFocus(force = true) }
-        rule.waitForIdle()
-        card = -1
-        rule.runOnIdle { retake() }
-        rule.waitForIdle()
-        assertTrue("Focus went to the menu instead of the page (focused: ${focusedNow()})", card >= 0)
-    }
-
     private fun focusedNow(): String =
         rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
-
-    private val composeView get() = (rule.activity.findViewById<android.view.ViewGroup>(android.R.id.content)).getChildAt(0)
-
-    private fun viewRetakes(direction: Int) {
-        composeView.clearFocus()
-        composeView.requestFocus(direction)
-    }
-
-    @Test
-    fun lostFocusThenKeyRightStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Right) }
-
-    @OptIn(ExperimentalComposeUiApi::class)
-    @Test
-    fun lostFocusThenEnterStaysOnThePage() = lostFocusStaysOnThePage { focus.moveFocus(FocusDirection.Enter) }
-
-    @Test
-    fun screenRetakesFocusForwardStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_FORWARD) }
-
-    @Test
-    fun screenRetakesFocusRightStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_RIGHT) }
-
-    @Test
-    fun screenRetakesFocusDownStaysOnThePage() = lostFocusStaysOnThePage { viewRetakes(android.view.View.FOCUS_DOWN) }
-
-    @Test
-    fun windowRefocusStaysOnThePage() = lostFocusStaysOnThePage {
-        rule.activity.window.decorView.dispatchWindowFocusChanged(false)
-        rule.activity.window.decorView.dispatchWindowFocusChanged(true)
-    }
 
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)

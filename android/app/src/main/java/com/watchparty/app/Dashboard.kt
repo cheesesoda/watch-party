@@ -586,7 +586,13 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
 @Composable
 internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
-    var open by remember { mutableStateOf(false) }
+    var inMenu by remember { mutableStateOf(false) }
+    // Nothing had focus: the focused card went away, like a party that ended while you were in it. Android's next
+    // focus search then starts at the top-left corner of the screen, which is the menu's Search, and that used to open
+    // the menu after leaving a party. Focus arriving in the menu like that goes back to the page instead.
+    var adrift by remember { mutableStateOf(true) }
+    val open = inMenu && !adrift
+    val scope = rememberCoroutineScope()
     val width by animateDpAsState(if (open) 260.dp else 76.dp, label = "menu")
     // The page reaches under the menu (its backdrop shows through), so to the remote's Right search it starts left of
     // the menu and never counts as "to the right": the menu sends Right to the page itself.
@@ -600,6 +606,14 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
             Modifier
                 .fillMaxSize()
                 .focusRequester(page)
+                .onFocusChanged { state ->
+                    if (state.hasFocus) adrift = false
+                    // Focus left the page; a frame later, if it isn't in the menu (Left), nothing has it.
+                    else scope.launch {
+                        withFrameNanos {}
+                        if (!inMenu) adrift = true
+                    }
+                }
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
                 // Left still opens it.
                 .focusProperties { exit = { direction -> if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel else FocusRequester.Default } }
@@ -613,7 +627,15 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     if (open) Brush.horizontalGradient(listOf(Color(0xFA100C15), Color(0xEB100C15)))
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
-                .onFocusChanged { open = it.hasFocus }
+                .onFocusChanged {
+                    inMenu = it.hasFocus
+                    if (it.hasFocus && adrift) scope.launch {
+                        runCatching { page.requestFocus() }
+                        withFrameNanos {}
+                        // A page with nothing to focus (still loading, or empty) leaves it in the menu, open as usual.
+                        adrift = false
+                    }
+                }
                 // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
                 .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
