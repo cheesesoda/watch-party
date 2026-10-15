@@ -16,6 +16,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -65,11 +68,14 @@ class TvScreensTest {
     private fun episode(show: String, n: Int, season: Int, ep: Int) = MediaItem(
         id = "e$n$season$ep", title = "$show S${season}E$ep", relPath = "TV/$show/S$season/E$ep.mkv", folder = "TV/$show", size = 1_000_000_000, addedAt = 900L - n, duration = 3000.0,
         episode = EpisodeInfo(show, season, ep),
-        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
+        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
         listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
+
+    /** Saved spots: two movies, so removing one leaves a neighbor. */
+    private val spots = listOf(Spot("s1", items[0], 1200.0, savedAt = 2000), Spot("s2", items[1], 3000.0, savedAt = 1990))
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -88,7 +94,8 @@ class TvScreensTest {
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
-                    path.startsWith("/api/spots") -> json("""{"spots":[]}""")
+                    path.startsWith("/api/spots/") -> json("{}")
+                    path.startsWith("/api/spots") -> json("""{"spots":${Protocol.json.encodeToString(spots)}}""")
                     path.startsWith("/api/images/") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(path.hashCode() and 0xFF))
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -114,10 +121,13 @@ class TvScreensTest {
             }
         }
         rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
-        settle { rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty() }
+        // With saved spots, Recently added sits below the fold, so either row means Home is up.
+        settle { onHome() }
         // Let the posters arrive.
         settle(2_000) { false }
     }
+
+    private fun onHome() = listOf("Pick up where you left off", "Recently added").any { rule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
 
     /** Runs the app (network threads, main looper, a moving clock) until [done] or [ms] pass. */
     private fun settle(ms: Long = 15_000, done: () -> Boolean) {
@@ -173,6 +183,12 @@ class TvScreensTest {
         press(FocusDirection.Left)
         check(menuOpen(), "Left from the first card didn't open the menu")
         shot("03-menu")
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        settle(800) { false }
+        check(!menuOpen(), "Back in the menu didn't close it")
+        check(onHome(), "Back in the menu left Home")
+        shot("03b-menu-back")
+        press(FocusDirection.Left)
         // Home, Movies: down twice from wherever it landed is not certain, so go to the top first.
         press(FocusDirection.Up, 8)
         press(FocusDirection.Down, 2)
@@ -188,7 +204,20 @@ class TvScreensTest {
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         settle(800) { false }
         shot("07-movies-back")
-        check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back on Movies didn't go Home")
+        check(onHome(), "Back on Movies didn't go Home")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    @Test
+    fun removingASpotStaysOnThePage() {
+        // Banner, then down to Pick up where you left off.
+        press(FocusDirection.Down)
+        shot("30-spot-focused")
+        ok()
+        rule.onAllNodesWithText("Remove")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_500) { false }
+        shot("31-spot-removed")
+        check(!menuOpen(), "Removing a spot opened the menu")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
@@ -213,12 +242,32 @@ class TvScreensTest {
         press(FocusDirection.Down, 3)
         ok()
         shot("10-shows")
+        // Right lands on the sort chips; Down reaches the first show.
         press(FocusDirection.Right)
+        press(FocusDirection.Down)
+        shot("10b-shows-first-card")
         ok()
         shot("11-show-page")
+        val titleTop = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         press(FocusDirection.Up)
         shot("12-show-page-up")
         check(!menuOpen(), "Up from Binge went to the menu")
+        // Down into the episodes and back up to Binge: the page scrolls back so the show's name isn't cut off.
+        press(FocusDirection.Right)
+        press(FocusDirection.Down, 2)
+        shot("12b-show-episodes")
+        press(FocusDirection.Up, 2)
+        settle(1_000) { false }
+        shot("12c-show-back-to-binge")
+        check(rule.onAllNodesWithText("Binge all 2 seasons").fetchSemanticsNodes().isNotEmpty(), "The show's page didn't open")
+        val top = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
+        check(top == titleTop, "Back up to Binge left the page scrolled (name at $top, not $titleTop)")
+        // A page left scrolled down (like coming back from the player) with the remote on Binge scrolls back up.
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and hasAnyDescendant(hasText("Letterkenny"))).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 150f) }
+        settle(1_000) { false }
+        shot("12d-show-scrolled-with-binge")
+        val top2 = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
+        check(top2 == titleTop, "A scrolled page with the remote on Binge stayed scrolled (name at $top2, not $titleTop)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }

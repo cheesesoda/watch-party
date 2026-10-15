@@ -171,7 +171,9 @@ class RoomActivity : ComponentActivity() {
     private var members: List<Member> = emptyList()
     /** The binge, if the party has one. */
     private var queue: Queue? = null
-    private var upNext: AlertDialog? = null
+    /** The binge's next video and when it starts, while the Up next card counts down. Compose state, read by [nextCardView]. */
+    private val nextUp = mutableStateOf<Pair<MediaItem, Long>?>(null)
+    private lateinit var nextCardView: ComposeView
     /** Up next (the list, not the countdown): open or not, and what it shows. Compose state, read by [upNextView]. */
     private val upNextOpen = mutableStateOf(false)
     private val upNextQueue = mutableStateOf<Queue?>(null)
@@ -304,6 +306,8 @@ class RoomActivity : ComponentActivity() {
             super.dispatchKeyEvent(event)
             return true
         }
+        // The host's remote stays on the Up next card's buttons instead of bringing up the controls.
+        if (isTv && nextCardView.hasFocus() && event.keyCode in DPAD_KEYS) return super.dispatchKeyEvent(event)
         if (showsControlsFirst(event)) {
             playerView.showController()
             return true
@@ -565,6 +569,10 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        root.addView(buildNextCard(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+            // Above a phone's seek bar; the TV hides its controls while the card is up.
+            setMargins(0, 0, dp(if (isTv) 48 else 24), dp(if (isTv) 48 else 88))
+        })
 
         statusText = text(14f, ON_SURFACE).apply {
             background = pill(Color.argb(220, 0x18, 0x13, 0x1F))
@@ -1658,33 +1666,48 @@ class RoomActivity : ComponentActivity() {
         showMembers(members)
         val advance = q?.advance
         val next = advance?.let { a -> q.items.firstOrNull { it.id == a.mediaId } }
-        if (next == null) {
-            upNext?.dismiss()
-            upNext = null
+        if (next == null || companion) {
+            hideNextCard()
             return
         }
-        if (upNext?.isShowing == true) return
-        if (!host) {
-            Toast.makeText(this, "Up next: ${next.title}", Toast.LENGTH_LONG).show()
-            return
+        if (nextUp.value?.first?.id == next.id && nextUp.value?.second == advance.at) return
+        // Over the video, which keeps playing: the host can start it right away or stay on this one; otherwise it
+        // starts by itself. Guests see the same card without buttons.
+        nextUp.value = next to advance.at
+        nextCardView.visibility = View.VISIBLE
+        // Chat pop-ups share the corner: lift them above the card.
+        nextCardView.post { chatOverlay.translationY = -(nextCardView.height + dp(16)).toFloat() }
+        if (isTv && host) {
+            playerView.hideController()
+            nextCardView.requestFocus()
         }
-        // The host can start it right away or stay on this video; otherwise it starts by itself.
-        upNext = present(
-            dialog()
-                .setTitle("Up next")
-                .setMessage(next.title)
-                .setPositiveButton("Play now") { _, _ -> playForEveryone(next) }
-                .setNegativeButton("Stay here") { _, _ -> connection.send(Protocol.cancelAdvance()) },
-        ).also { d ->
-            val tick = object : Runnable {
-                override fun run() {
-                    if (!d.isShowing) return
-                    val left = ((advance.at - sync.clock.serverNow(System.currentTimeMillis())) / 1000).coerceAtLeast(0)
-                    d.setMessage("${next.title}\n\nStarts in $left s")
-                    main.postDelayed(this, 500)
-                }
+    }
+
+    private fun hideNextCard() {
+        if (nextUp.value == null) return
+        val hadFocus = nextCardView.hasFocus()
+        nextUp.value = null
+        nextCardView.visibility = View.GONE
+        chatOverlay.translationY = 0f
+        if (hadFocus && isTv && !companion) playerView.requestFocus()
+    }
+
+    private fun buildNextCard() = ComposeView(this).also { nextCardView = it }.apply {
+        visibility = View.GONE
+        setContent {
+            val up = nextUp.value
+            if (up != null) PopcornTheme {
+                NextCard(
+                    api = api,
+                    tv = isTv,
+                    item = up.first,
+                    at = up.second,
+                    total = ADVANCE_MS,
+                    serverNow = { sync.clock.serverNow(System.currentTimeMillis()) },
+                    onPlayNow = if (host) ({ hideNextCard(); playForEveryone(up.first) }) else null,
+                    onStay = if (host) ({ hideNextCard(); connection.send(Protocol.cancelAdvance()) }) else null,
+                )
             }
-            main.post(tick)
         }
     }
 
@@ -2024,6 +2047,8 @@ class RoomActivity : ComponentActivity() {
         private const val CENTER_GAP_DP = 48
         /** How far the remote's fast-forward and rewind buttons, and a double-tap on the phone, jump. */
         private const val SKIP_MS = 10_000L
+        /** How long the server counts down before a binge's next video (its advanceDelayMs). */
+        private const val ADVANCE_MS = 10_000L
         /** How long after a double-tap jump another tap on that side adds 10 seconds more, as on YouTube. */
         private const val SKIP_STREAK_MS = 800L
         private const val SEEK_BAR_STEP_MS = 10_000L

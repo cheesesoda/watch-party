@@ -53,6 +53,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -64,8 +67,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -148,7 +153,8 @@ private class Library(val items: List<MediaItem>) {
 
     fun showFacts(s: Show): String = listOfNotNull(
         s.meta?.year?.toString(),
-        plural(s.seasons.size, "season"),
+        // A show with only specials (or extras) has no "0 seasons".
+        s.seasons.size.takeIf { it > 0 }?.let { plural(it, "season") },
         s.specials.size.takeIf { it > 0 }?.let { plural(it, "special") },
         s.meta?.rating?.let { "★ %.1f".format(it) },
         s.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
@@ -210,6 +216,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     // Pick up where you left off, and the one whose options are open on a TV.
     var spots by remember { mutableStateOf<List<Spot>>(emptyList()) }
     var spotOptions by remember { mutableStateOf<Spot?>(null) }
+    /** On a TV, where the removed spot was, so the remote lands on its neighbor instead of falling into the side menu. */
+    var removedAt by remember { mutableStateOf<Int?>(null) }
     var askCode by remember { mutableStateOf(false) }
     // Together / Alone: remembered on this device.
     var alone by remember { mutableStateOf(prefs.alone) }
@@ -311,6 +319,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         },
         remove = { spot ->
             spotOptions = null
+            removedAt = spots.indexOfFirst { it.id == spot.id }
             spots = spots.filter { it.id != spot.id }
             scope.launch { guard { api.removeSpot(spot.id) } ?: guard { api.spots() }?.let { spots = it } }
         },
@@ -371,10 +380,10 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             movie != null -> MoviePage(lib, movie, actions, listState)
             show != null -> ShowPage(lib, show, actions, listState)
             route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
-            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState)
+            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState, sortable = true)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
-            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
+            else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null }, removedAt = removedAt, onRefocused = { removedAt = null })
         }
     }
 
@@ -508,15 +517,34 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
             }
         } else if (route in TOP_PAGES) {
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { LogoTitle(fontSize = 24.sp, markSize = 30.dp) }
-                ModeSwitch(alone, setAlone)
-                Spacer(Modifier.width(4.dp))
-                IconAction(R.drawable.ic_keypad, "Join with a party code", onCode)
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LogoMark(30.dp)
+                    Column {
+                        Text("Popcorn Club", fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 24.sp, color = Color.White)
+                        // A quiet but plain sign that Play is just for you (see ui-redesign/phone-top-bar).
+                        if (alone) Text("Watching alone", color = Accent, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 var menu by remember { mutableStateOf(false) }
                 Box {
                     IconAction(R.drawable.ic_more_vert, "More") { menu = true }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Panel) {
+                        // Together / Alone lives here (Jake: the top bar was too crowded); the menu stays open so the switch is seen to flip.
+                        DropdownMenuItem(
+                            text = { Text("Watch alone") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_user), null) },
+                            trailingIcon = {
+                                Switch(
+                                    checked = alone,
+                                    onCheckedChange = null,
+                                    colors = SwitchDefaults.colors(checkedTrackColor = Accent, checkedThumbColor = Color(0xFF1C1520), checkedBorderColor = Accent),
+                                )
+                            },
+                            onClick = { setAlone(!alone) },
+                        )
+                        HorizontalDivider(color = Muted.copy(alpha = 0.2f))
+                        DropdownMenuItem(text = { Text("Join with code") }, leadingIcon = { Icon(painterResource(R.drawable.ic_keypad), null) }, onClick = { menu = false; onCode() })
                         DropdownMenuItem(text = { Text("Scan TV code") }, leadingIcon = { Icon(painterResource(R.drawable.ic_scan), null) }, onClick = {
                             menu = false
                             (context as? MainActivity)?.scanCode()
@@ -548,26 +576,6 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
     }
 }
 
-/** The phone's Together / Alone switch: people and person in a pill, the chosen one lit. */
-@Composable
-private fun ModeSwitch(alone: Boolean, setAlone: (Boolean) -> Unit) {
-    Row(Modifier.clip(CircleShape).background(Color(0xFF2A2333)).padding(3.dp)) {
-        listOf(false to R.drawable.ic_nav_parties, true to R.drawable.ic_user).forEach { (mode, icon) ->
-            val on = alone == mode
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(if (on) Color(0xFFF1ECF4) else Color.Transparent)
-                    .clickable { if (!on) setAlone(mode) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(painterResource(icon), contentDescription = if (mode) "Watch alone" else "Watch together", tint = if (on) Color(0xFF1A1420) else Muted, modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
 @Composable
 private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
     Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
@@ -584,6 +592,8 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     // the menu and never counts as "to the right": the menu sends Right to the page itself.
     // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
     val page = remember { FocusRequester() }
+    // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
+    BackHandler(enabled = open) { runCatching { page.requestFocus() } }
     Box(Modifier.fillMaxSize()) {
         @OptIn(ExperimentalComposeUiApi::class)
         Box(
@@ -785,10 +795,22 @@ private fun HomePage(
     a: Actions,
     state: LazyListState,
     onDismissStarted: () -> Unit,
+    removedAt: Int? = null,
+    onRefocused: () -> Unit = {},
 ) {
     val tv = a.tv
     val side = if (tv) 64.dp else 16.dp
     val firstFocus = remember { FocusRequester() }
+    val spotFocus = remember { mutableMapOf<String, FocusRequester>() }
+    // Removing a spot takes away the card the remote was on: go to the next one (or the one before), or the banner.
+    if (tv && removedAt != null) LaunchedEffect(removedAt, spots) {
+        // After the options dialog has closed and handed the window back.
+        withFrameNanos { }
+        delay(150)
+        val next = spots.getOrNull(minOf(removedAt, spots.lastIndex))
+        runCatching { (next?.let { spotFocus[it.id] } ?: firstFocus).requestFocus() }
+        onRefocused()
+    }
     Box(Modifier.fillMaxSize()) {
         // On a TV the newest title's backdrop fills the top of the screen behind the banner, fading as you scroll.
         var shown by remember { mutableStateOf(0) }
@@ -809,7 +831,7 @@ private fun HomePage(
                 item(key = "spots") {
                     ShelfRow("Pick up where you left off", null, a) {
                         items(spots, key = { it.id }) { s ->
-                            if (tv) TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) }
+                            if (tv) Box(Modifier.focusRequester(spotFocus.getOrPut(s.id) { FocusRequester() })) { TvSpotCard(a.api, lib.details, s, 260.dp) { sa.options(s) } }
                             else PhoneSpotCard(a.api, lib.details, s, 250.dp, onOpen = { sa.open(s) }, onStart = { sa.start(s) }, onRemove = { sa.remove(s) })
                         }
                     }
@@ -1022,7 +1044,7 @@ private fun MovieCard(m: MediaItem, lib: Library, a: Actions, width: Dp? = if (a
 
 @Composable
 private fun ShowCard(s: Show, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
-    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, plural(s.seasons.size, "season"), width, { a.go("show/${s.name}") })
+    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, s.badge, width, { a.go("show/${s.name}") })
 }
 
 /** A running party: its art with Watching/Paused and the code, then who's there and how far in. */
@@ -1097,6 +1119,13 @@ private enum class Sort(val label: String) { AZ("A–Z"), Recent("Recently added
 private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, shows: List<Show>, a: Actions, state: LazyGridState, sortable: Boolean = false, header: (@Composable () -> Unit)? = null) {
     var sort by rememberSaveable { mutableStateOf(Sort.AZ) }
     var subsOnly by rememberSaveable { mutableStateOf(false) }
+    val sortedShows = remember(shows, sort, subsOnly) {
+        val list = shows.filter { show -> !subsOnly || show.episodes.any { it.subtitles.isNotEmpty() } }
+        when (sort) {
+            Sort.Recent -> list.sortedByDescending { it.addedAt }
+            else -> list.sortedWith { x, y -> naturalCompare(x.name, y.name) }
+        }
+    }
     val sorted = remember(movies, sort, subsOnly) {
         val list = movies.filter { !subsOnly || it.subtitles.isNotEmpty() }
         when (sort) {
@@ -1116,19 +1145,21 @@ private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, sho
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PageTitle(title, (sorted.size + shows.size).toString())
+                PageTitle(title, (sorted.size + sortedShows.size).toString())
                 if (sortable) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Sort.entries.forEach { s -> Chip(s.label, sort == s, a.tv) { sort = s } }
+                        // TV Shows sorts by name or newest episode only (Jake chose that over Length and Size).
+                        val sorts = if (movies.isEmpty()) listOf(Sort.AZ, Sort.Recent) else Sort.entries
+                        sorts.forEach { s -> Chip(s.label, sort == s, a.tv) { sort = s } }
                         Chip("Has subtitles", subsOnly, a.tv) { subsOnly = !subsOnly }
                     }
                 }
                 header?.invoke()
-                if (sorted.isEmpty() && shows.isEmpty()) Text(if (subsOnly) "Nothing has subtitles yet." else "Nothing here yet.", color = Muted)
+                if (sorted.isEmpty() && sortedShows.isEmpty()) Text(if (subsOnly) "Nothing has subtitles yet." else "Nothing here yet.", color = Muted)
             }
         }
         items(sorted, key = { it.id }) { MovieCard(it, lib, a, width = null) }
-        items(shows, key = { "show-" + it.name }) { ShowCard(it, lib, a, width = null) }
+        items(sortedShows, key = { "show-" + it.name }) { ShowCard(it, lib, a, width = null) }
         if (lib.details) item(span = { GridItemSpan(maxLineSpan) }) { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp)) }
     }
 }
@@ -1204,6 +1235,13 @@ private fun DetailPage(
 ) {
     val primary = remember { FocusRequester() }
     val tv = a.tv
+    var headFocused by remember { mutableStateOf(false) }
+    // While the remote is on the buttons, the whole header stays in view. Bring-into-view only reveals the button, so
+    // coming back up from the episodes, or back to a page that was left scrolled down, cut the name off at the top.
+    if (tv) LaunchedEffect(state) {
+        snapshotFlow { headFocused && (state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 0) }
+            .collect { if (it) runCatching { state.scrollToItem(0) } }
+    }
     Box(Modifier.fillMaxSize()) {
         if (lib.details && backdrop != null) {
             if (tv) BackdropBehind(a.api, backdrop, height = 0.9f)
@@ -1211,7 +1249,12 @@ private fun DetailPage(
         LazyColumn(state = state, contentPadding = PaddingValues(bottom = 32.dp)) {
             item(key = "head") {
                 if (tv) {
-                    Column(Modifier.padding(start = 128.dp, end = 48.dp, top = 56.dp).width(560.dp)) {
+                    Column(
+                        Modifier
+                            .onFocusChanged { headFocused = it.hasFocus }
+                            .padding(start = 128.dp, end = 48.dp, top = 56.dp)
+                            .width(560.dp),
+                    ) {
                         Text(title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 52.sp, lineHeight = 54.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                         overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
@@ -1233,22 +1276,21 @@ private fun DetailPage(
             Box(Modifier.padding(8.dp).size(44.dp).clip(CircleShape).background(Color(0x730A070E)).clickable { a.go("back") }, contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
             }
-            // While on Alone, so playing just for yourself is never a surprise; tap to switch back.
+            // While on Alone, the same quiet orange "Watching alone" as Home's top bar, on the Back button's dark glass so it
+            // reads over any backdrop; tap to switch back to together.
             if (a.alone && !a.adding) {
-                Row(
+                Box(
                     Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 12.dp)
                         .height(36.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE09A62))
+                        .background(Color(0x730A070E))
                         .clickable { a.setAlone(false) }
                         .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(painterResource(R.drawable.ic_user), contentDescription = null, tint = Color(0xFF2A1A0E), modifier = Modifier.size(16.dp))
-                    Text("Alone", color = Color(0xFF2A1A0E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Watching alone", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

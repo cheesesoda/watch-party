@@ -520,3 +520,85 @@ internal fun ordinal(n: Int): String = "$n" + when {
     n % 10 == 3 -> "rd"
     else -> "th"
 }
+
+// ---------- The countdown card ----------
+
+/**
+ * "Up next · in 4" while a binge counts down to its next video: a small glass card in the bottom-right corner over
+ * the video, like streaming services have (see ui-redesign/up-next-card). The host gets Play now, with an orange
+ * bar that fills as the countdown runs, and Stay here; guests just see what's coming and when.
+ */
+@Composable
+internal fun NextCard(api: Api, tv: Boolean, item: MediaItem, at: Long, total: Long, serverNow: () -> Long, onPlayNow: (() -> Unit)?, onStay: (() -> Unit)?) {
+    var left by remember(at) { mutableStateOf(at - serverNow()) }
+    LaunchedEffect(at) {
+        while (true) {
+            left = at - serverNow()
+            delay(100)
+        }
+    }
+    val seconds = ((left + 999) / 1000).coerceAtLeast(0)
+    val elapsed = if (total > 0) (1f - left.toFloat() / total).coerceIn(0f, 1f) else 0f
+    val m = item.meta
+    val path = m?.stillPath ?: m?.backdropPath
+    val image by produceState<ImageBitmap?>(null, path) { value = path?.let { api.image(it, "w300") } }
+    val play = remember { FocusRequester() }
+    Row(
+        Modifier
+            .shadow(24.dp, RoundedCornerShape(if (tv) 18.dp else 14.dp))
+            .clip(RoundedCornerShape(if (tv) 18.dp else 14.dp))
+            .background(Color(0xD9100C15))
+            .padding(start = if (tv) 9.dp else 10.dp, top = if (tv) 9.dp else 10.dp, bottom = if (tv) 9.dp else 10.dp, end = if (tv) 14.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (tv) 12.dp else 12.dp),
+    ) {
+        Box(
+            Modifier
+                .width(if (tv) 150.dp else 140.dp)
+                .height(if (tv) 84.dp else 79.dp)
+                .clip(RoundedCornerShape(if (tv) 8.dp else 8.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29)))),
+        ) {
+            image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        Column(Modifier.widthIn(max = if (tv) 260.dp else 230.dp)) {
+            Text(
+                if (seconds > 0) "UP NEXT · IN $seconds" else "UP NEXT",
+                color = Accent, fontSize = if (tv) 10.sp else 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
+            )
+            Text(rowTitle(item), color = Color.White, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = if (tv) 21.sp else 21.sp, lineHeight = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(showLine(item) ?: movieLine(item, withLength = false), color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (onPlayNow != null || onStay != null) {
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onPlayNow?.let { NextCardButton("Play now", true, elapsed, tv, Modifier.focusRequester(play), it) }
+                    onStay?.let { NextCardButton("Stay here", false, null, tv, Modifier, it) }
+                }
+            }
+        }
+    }
+    // The host's remote starts on Play now.
+    if (tv && onPlayNow != null) LaunchedEffect(Unit) { runCatching { play.requestFocus() } }
+}
+
+@Composable
+private fun NextCardButton(label: String, primary: Boolean, fill: Float?, tv: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    // White when it's the main button or the remote is on it, like every focused control.
+    val light = primary || focused
+    Box(
+        modifier
+            .scale(if (focused) 1.06f else 1f)
+            .height(36.dp)
+            .clip(CircleShape)
+            .background(if (light) Color(0xFFEEEAF3) else Color.White.copy(alpha = 0.12f))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(Modifier.padding(horizontal = if (primary) 16.dp else 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (primary) Icon(painterResource(R.drawable.ic_play_filled), contentDescription = null, tint = Color(0xFF18131F), modifier = Modifier.size(14.dp))
+            Text(label, color = if (light) Color(0xFF18131F) else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (fill != null) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(fill).height(3.dp).background(Accent))
+    }
+}
