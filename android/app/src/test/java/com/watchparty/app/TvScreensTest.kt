@@ -38,6 +38,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.onRoot
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -100,6 +103,8 @@ class TvScreensTest {
                 fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
+                    // Starting a party (here, from a saved spot): the host watching alone, straight to the player.
+                    path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","solo":true}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots/s2/frame.jpg") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(5))
                     path.endsWith("/frame.jpg") -> MockResponse().setResponseCode(404)
@@ -230,11 +235,70 @@ class TvScreensTest {
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
+    /**
+     * Pick up where you left off → Start party here opens the player and takes the spot off Home, so the card the remote
+     * was on is gone when the player closes. Coming back used to open the menu; it should stay on the page.
+     */
+    @Test
+    fun backFromThePlayerStaysOnThePage() {
+        press(FocusDirection.Down)
+        ok()
+        rule.onAllNodesWithText("Start party here")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_500) { false }
+        // The player covers Home, then closes.
+        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(false) }
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        settle(1_000) { false }
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
+        settle(1_500) { false }
+        shot("32-back-from-player")
+        check(!menuOpen(), "Coming back from the player opened the menu")
+        press(FocusDirection.Down)
+        shot("33-back-from-player-down")
+        check(!menuOpen(), "Down after coming back from the player opened the menu")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** Left into the menu from a row further down Home, then the remote's Right, goes back to the same card. */
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test
+    fun rightFromTheMenuReturnsToTheSameCard() {
+        // Banner, Pick up where you left off, Recently added; then along it.
+        press(FocusDirection.Down, 2)
+        press(FocusDirection.Right)
+        shot("08-recent-card")
+        // Left along the row to its first card, then into the menu.
+        var left: androidx.compose.ui.geometry.Rect? = null
+        repeat(8) {
+            if (!menuOpen()) {
+                left = rule.onNode(isFocused()).fetchSemanticsNode().boundsInRoot
+                press(FocusDirection.Left)
+            }
+        }
+        check(menuOpen(), "Left along Recently added never reached the menu")
+        // A real key press, which the menu turns into "back to where you were".
+        rule.onRoot().performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionRight) }
+        settle(800) { false }
+        shot("09-back-from-menu")
+        val after = rule.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+        check(!menuOpen(), "Right from the menu didn't leave it")
+        check(after == left, "Right from the menu went to $after, not the card it left ($left)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
     @Test
     fun settings() {
         press(FocusDirection.Left)
         press(FocusDirection.Down, 12)
-        // Up from the bottom (Together / Alone) to Settings.
+        // The bottom row: Watch alone, off, then on.
+        shot("22-menu-on-watch-alone")
+        ok()
+        shot("23-menu-watch-alone-on")
+        check(menuOpen(), "Watch alone closed the menu")
+        rule.onNode(isFocused()).performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
+        // Up from Watch alone to Settings.
         press(FocusDirection.Up)
         shot("20-menu-on-settings")
         ok()

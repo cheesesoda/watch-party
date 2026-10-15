@@ -145,6 +145,7 @@ fun TvSpotCard(api: Api, details: Boolean, s: Spot, width: Dp, onClick: () -> Un
                 .scale(if (focused) 1.05f else 1f)
                 .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
                 .clip(shape)
+                .remembersFocus()
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         )
         Text(spotTitle(s.media), color = Color.White, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = if (focused) 12.dp else 8.dp))
