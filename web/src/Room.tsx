@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { worthSaving, type MediaInfo, type MediaItem } from "../../shared/protocol.ts";
+import { skippable, worthSaving, type MediaInfo, type MediaItem, type SkipMarks } from "../../shared/protocol.ts";
 import { episodeLabel } from "../../shared/specials.ts";
 import { api, hlsUrl, imageUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
@@ -299,6 +299,23 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     }
   }, [view.status]);
 
+  // Reaching the credits brings up Up next, as the end of the video does (the server counts down once, whoever is
+  // first). Only crossing into them while playing counts, not joining or jumping in past them.
+  const creditsAt = view.media?.marks?.credits;
+  const playingId = view.media?.id;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || creditsAt == null || !playingId) return;
+    let last = video.currentTime;
+    const onTime = () => {
+      const t = video.currentTime;
+      if (last < creditsAt && t >= creditsAt && t - last < 5 && !video.paused) sendRef.current({ type: "ended", mediaId: playingId });
+      last = t;
+    };
+    video.addEventListener("timeupdate", onTime);
+    return () => video.removeEventListener("timeupdate", onTime);
+  }, [playingId, creditsAt]);
+
   // Partway through something, the host chooses whether to save the spot for later; otherwise it just checks.
   const endParty = () => {
     const media = view.media;
@@ -308,7 +325,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     const q = view.queue;
     const at = q && media ? q.items.findIndex((i) => i.id === media.id) : -1;
     const upcoming = q && at >= 0 ? q.items.slice(at + 1) : [];
-    if (media && worthSaving(position, duration, upcoming.length)) setSaving(spotPreview(media, position, duration, upcoming[0] ?? null, upcoming.length));
+    if (media && worthSaving(position, duration, upcoming.length, media.marks?.credits)) setSaving(spotPreview(media, position, duration, upcoming[0] ?? null, upcoming.length));
     else if (confirm("End this watch party for everyone?")) send({ type: "end" });
   };
 
@@ -457,13 +474,16 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         </div>
       )}
 
+      {media?.marks && !upNext && <SkipButton video={videoRef} marks={media.marks} onSkip={(to, kind) => syncRef.current?.skip(to, kind)} />}
+
+      {/* Anyone can play the next one now or stay, as anyone can skip an intro. */}
       {upNext && queue?.advance && (
         <UpNext
           item={upNext}
           at={queue.advance.at}
           serverNow={() => syncRef.current?.serverNow() ?? Date.now()}
-          onPlayNow={props.host ? () => play(upNext) : undefined}
-          onCancel={props.host ? () => send({ type: "cancel-advance" }) : undefined}
+          onPlayNow={() => send({ type: "advance-now" })}
+          onCancel={() => send({ type: "cancel-advance" })}
         />
       )}
 
@@ -592,8 +612,8 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
 
 /**
  * "Up next · in 4" while a binge counts down to its next video: a small glass card in the bottom-right corner, like
- * streaming services (see ui-redesign/up-next-card). The host gets Play now, with an orange bar that fills as the
- * countdown runs, and Stay here; guests just see what's coming and when.
+ * streaming services (see ui-redesign/up-next-card), when the credits start (or the video ends). Play now has an
+ * orange bar that fills as the countdown runs; Stay here keeps watching.
  */
 function UpNext(props: { item: MediaItem; at: number; serverNow: () => number; onPlayNow?: () => void; onCancel?: () => void }) {
   const [now, setNow] = useState(props.serverNow);
@@ -629,6 +649,29 @@ function UpNext(props: { item: MediaItem; at: number; serverNow: () => number; o
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Skip intro / Skip recap, bottom right while one is on (see ui-redesign/skip). Anyone can press it; it jumps
+ * everyone to its end, and friends see "Jake skipped the intro".
+ */
+function SkipButton(props: { video: React.RefObject<HTMLVideoElement | null>; marks: SkipMarks; onSkip: (to: number, kind: "intro" | "recap") => void }) {
+  const [time, setTime] = useState(0);
+  useEffect(() => {
+    const video = props.video.current;
+    if (!video) return;
+    const onTime = () => setTime(video.currentTime);
+    onTime();
+    video.addEventListener("timeupdate", onTime);
+    return () => video.removeEventListener("timeupdate", onTime);
+  }, [props.video]);
+  const part = skippable(props.marks, time);
+  if (!part) return null;
+  return (
+    <button className="skip-part" onClick={() => props.onSkip(part.to, part.kind)}>
+      <SkipForwardIcon size={16} /> Skip {part.kind}
+    </button>
   );
 }
 

@@ -2920,3 +2920,27 @@ button.link:focus-visible {
   color: var(--muted);
   font-size: 14px;
 }
+
+/* Skip intro / Skip recap: bottom right, where Up next shows at the credits (see ui-redesign/skip). */
+.skip-part {
+  position: absolute;
+  right: 20px;
+  bottom: 84px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(238, 234, 243, 0.16);
+  background: rgba(16, 12, 21, 0.72);
+  backdrop-filter: blur(18px);
+  color: #eeeaf3;
+  font: 600 16px Barlow, sans-serif;
+  cursor: pointer;
+}
+.skip-part:hover,
+.skip-part:focus-visible {
+  background: #eeeaf3;
+  color: #18131f;
+}

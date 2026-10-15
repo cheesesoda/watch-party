@@ -3,6 +3,7 @@ package com.watchparty.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -518,9 +519,9 @@ internal fun ordinal(n: Int): String = "$n" + when {
 // ---------- The countdown card ----------
 
 /**
- * "Up next · in 4" while a binge counts down to its next video: a small glass card in the bottom-right corner over
- * the video, like streaming services have (see ui-redesign/up-next-card). The host gets Play now, with an orange
- * bar that fills as the countdown runs, and Stay here; guests just see what's coming and when.
+ * "Up next · in 4" while a binge counts down to its next video (from the credits, or the end): a small glass card in
+ * the bottom-right corner over the video, like streaming services have (see ui-redesign/up-next-card). Play now has an
+ * orange bar that fills as the countdown runs; Stay here keeps watching. Anyone can press them.
  */
 @Composable
 internal fun NextCard(api: Api, tv: Boolean, item: MediaItem, at: Long, total: Long, serverNow: () -> Long, onPlayNow: (() -> Unit)?, onStay: (() -> Unit)?) {
@@ -597,4 +598,36 @@ private fun NextCardButton(label: String, primary: Boolean, fill: Float?, tv: Bo
         // the button as the countdown ran.
         if (fill != null) Box(Modifier.matchParentSize()) { Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(fill).height(3.dp).background(Accent)) }
     }
+}
+
+// ---------- Skip intro ----------
+
+/**
+ * "Skip intro" / "Skip recap": a glass pill in the bottom-right corner while one is on (see ui-redesign/skip). On a TV
+ * the remote starts on it (white, like every focused control), so one OK skips; [focusKey] changing puts it back there.
+ */
+@Composable
+internal fun SkipPartButton(kind: String, tv: Boolean, focusKey: Int, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val focus = remember { FocusRequester() }
+    Row(
+        Modifier
+            .focusRequester(focus)
+            .scale(if (focused) 1.06f else 1f)
+            .shadow(if (focused) 16.dp else 0.dp, CircleShape)
+            .clip(CircleShape)
+            .background(if (focused) Color(0xFFEEEAF3) else Color(0xB8100C15))
+            .border(1.dp, if (focused) Color.Transparent else Color.White.copy(alpha = 0.16f), CircleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .height(if (tv) 44.dp else 42.dp)
+            .padding(horizontal = if (tv) 20.dp else 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val ink = if (focused) Color(0xFF18131F) else Color.White
+        Icon(painterResource(R.drawable.ic_skip_forward), contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
+        Text("Skip $kind", color = ink, fontSize = if (tv) 16.sp else 15.sp, fontWeight = FontWeight.SemiBold)
+    }
+    if (tv) LaunchedEffect(focusKey) { if (focusKey > 0) runCatching { focus.requestFocus() } }
 }

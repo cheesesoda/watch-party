@@ -234,4 +234,8 @@ test("worthSaving: partway in, or with more lined up", async () => {
   assert.equal(worthSaving(2950, 3000, 0), false);
   assert.equal(worthSaving(2950, 3000, 1), true);
   assert.equal(worthSaving(1200, null, 0), true);
+  // In the credits (where the server found them start) counts as the end too.
+  assert.equal(worthSaving(2700, 3000, 0, 2650), false);
+  assert.equal(worthSaving(2600, 3000, 0, 2650), true);
+  assert.equal(worthSaving(2700, 3000, 1, 2650), true);
 });

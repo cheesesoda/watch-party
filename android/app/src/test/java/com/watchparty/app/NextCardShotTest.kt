@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
@@ -71,4 +72,25 @@ class NextCardShotTest {
 
     @Test
     fun guest() = card(false, "41-up-next-guest")
+
+    /** Skip intro over the video, with the remote on it (white) as it is when it appears. */
+    @Test
+    fun skipIntro() {
+        rule.setContent {
+            PopcornTheme {
+                Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF8E6A4A), Color(0xFF2A1A12))))) {
+                    Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
+                        SkipPartButton(kind = "intro", tv = true, focusKey = 1) {}
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        assertTrue(rule.onAllNodesWithText("Skip intro").fetchSemanticsNodes().isNotEmpty())
+        rule.onAllNodesWithText("Skip intro")[0].assertIsFocused()
+        val view = rule.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        rule.runOnIdle { view.draw(Canvas(bitmap)) }
+        File("build/tv-screens").apply { mkdirs() }.let { File(it, "43-skip-intro.png") }.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
 }

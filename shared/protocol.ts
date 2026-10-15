@@ -32,6 +32,24 @@ export interface MediaItem {
   meta?: MediaMeta | null;
   /** One piece of a movie split into files ("Grindhouse (2007) Pt 1.mp4"): which one, and the ids of all of them in order. */
   part?: PartInfo | null;
+  /** Where its intro, recap and credits are, once the server has looked (see SkipMarks). */
+  marks?: SkipMarks | null;
+}
+
+/**
+ * Parts of a video people skip, in seconds. Intros and credits are found by comparing the sound of a season's
+ * episodes; recaps (and anything else) come from the file's chapter names ("Recap", "Intro", "Credits").
+ */
+export interface SkipMarks {
+  intro?: TimeRange | null;
+  recap?: TimeRange | null;
+  /** Where the credits start; Up next comes up there. */
+  credits?: number | null;
+}
+
+export interface TimeRange {
+  start: number;
+  end: number;
 }
 
 export interface PartInfo {
@@ -203,7 +221,8 @@ export type ClientMessage =
   /** `at`: the server's clock when it happened on the sender, so friends don't fall behind by the sender's lag. */
   | { type: "play"; position: number; at?: number }
   | { type: "pause"; position: number; at?: number }
-  | { type: "seek"; position: number; at?: number }
+  /** `skip`: the jump was Skip intro or Skip recap, so friends see "Jake skipped the intro". */
+  | { type: "seek"; position: number; at?: number; skip?: "intro" | "recap" }
   /** This screen has loaded `position` during a hold (see PlaybackState.hold). */
   | { type: "ready"; position: number }
   /** This member's screen plays the video (false for a phone that's only for chat). Holds wait for these screens. */
@@ -211,10 +230,12 @@ export type ClientMessage =
   | { type: "select"; mediaId: string }
   /** Host: play these one after another, starting with the first. */
   | { type: "binge"; mediaIds: string[] }
-  /** A video finished playing on this member's screen; in a binge, the next one comes up. */
+  /** A video finished playing on this member's screen, or reached its credits; in a binge, the next one comes up. */
   | { type: "ended"; mediaId: string }
-  /** Host: don't move on to the next video in the binge. */
+  /** Don't move on to the next video in the binge (Stay here). Anyone can. */
   | { type: "cancel-advance" }
+  /** Play the video Up next is counting down to now (Play now). Anyone can. */
+  | { type: "advance-now" }
   /** Host: add these to the end of Up next (when nothing is playing, the first one is picked). */
   | { type: "queue-add"; mediaIds: string[] }
   /** Host: take this video out of Up next. */
@@ -270,8 +291,12 @@ export function expectedPosition(state: PlaybackState, serverNow: number): numbe
   return state.position + Math.max(0, serverNow - state.updatedAt) / 1000;
 }
 
-/** Close enough to the end that the video counts as watched: the last minute, or the last 5% for long ones. */
-export function nearEnd(position: number, duration: number | null | undefined): boolean {
+/**
+ * Close enough to the end that the video counts as watched: in its credits (when the server found where they start),
+ * or the last minute, or the last 5% for long ones.
+ */
+export function nearEnd(position: number, duration: number | null | undefined, credits?: number | null): boolean {
+  if (credits != null && position >= credits) return true;
   return !!duration && position >= duration - Math.max(60, duration * 0.05);
 }
 
@@ -279,7 +304,19 @@ export function nearEnd(position: number, duration: number | null | undefined): 
  * Whether a party stopping here is worth picking up later: partway through a video (past the first minute and
  * not at the credits), or with more lined up after it.
  */
-export function worthSaving(position: number, duration: number | null | undefined, upcoming: number): boolean {
-  if (nearEnd(position, duration)) return upcoming > 0;
+export function worthSaving(position: number, duration: number | null | undefined, upcoming: number, credits?: number | null): boolean {
+  if (nearEnd(position, duration, credits)) return upcoming > 0;
   return position >= 60 || upcoming > 0;
+}
+
+/**
+ * The intro or recap playing at [position], if any, and where it ends: Skip intro / Skip recap shows while it does.
+ * Not in its last two seconds, when skipping saves nothing.
+ */
+export function skippable(marks: SkipMarks | null | undefined, position: number): { kind: "intro" | "recap"; to: number } | null {
+  for (const kind of ["recap", "intro"] as const) {
+    const part = marks?.[kind];
+    if (part && position >= part.start && position < part.end - 2) return { kind, to: part.end };
+  }
+  return null;
 }

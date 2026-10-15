@@ -120,7 +120,7 @@ export function SpotLine(props: { spot: Spot; details: boolean }) {
 
 /** What ending now would save: the video and how far in, or the next one when this one is at its credits. */
 export function spotPreview(media: MediaItem, position: number, duration: number | null | undefined, next: MediaItem | null, upcoming: number) {
-  if (nearEnd(position, duration) && next) return { media: next, position: 0, more: upcoming - 1 };
+  if (nearEnd(position, duration, media.marks?.credits) && next) return { media: next, position: 0, more: upcoming - 1 };
   return { media, position, more: upcoming };
 }
 

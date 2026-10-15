@@ -34,6 +34,7 @@ app.server.listen(config.port, config.host, () => {
 });
 
 void app.library.list().then((items) => app.metadata.warm(items));
+void app.findMarks();
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {

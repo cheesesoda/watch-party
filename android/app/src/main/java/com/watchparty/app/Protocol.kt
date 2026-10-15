@@ -39,7 +39,27 @@ data class MediaItem(
     val meta: MediaMeta? = null,
     /** One piece of a movie split into files ("Pt 1", "Pt 2"): which one, and every part's id in order. */
     val part: PartInfo? = null,
+    /** Where its intro, recap and credits are, once the server has found them (see SkipMarks). */
+    val marks: SkipMarks? = null,
 )
+
+/**
+ * Parts of a video people skip, in seconds: intros and credits the server found by comparing a season's episodes,
+ * recaps from chapter names.
+ */
+@Serializable
+data class SkipMarks(val intro: TimeRange? = null, val recap: TimeRange? = null, val credits: Double? = null)
+
+@Serializable
+data class TimeRange(val start: Double, val end: Double)
+
+/** The intro or recap playing at [position] and where it ends, for Skip intro / Skip recap; not in its last 2 s. Same as the web's. */
+fun skippable(marks: SkipMarks?, position: Double): Pair<String, Double>? {
+    for ((kind, part) in listOf("recap" to marks?.recap, "intro" to marks?.intro)) {
+        if (part != null && position >= part.start && position < part.end - 2) return kind to part.end
+    }
+    return null
+}
 
 @Serializable
 data class PartInfo(val index: Int, val ids: List<String>)
@@ -167,16 +187,20 @@ data class Spot(
     val savedAt: Long,
 )
 
-/** Close enough to the end that the video counts as watched: the last minute, or the last 5% for long ones. */
-fun nearEnd(position: Double, duration: Double?): Boolean =
-    duration != null && duration > 0 && position >= duration - maxOf(60.0, duration * 0.05)
+/**
+ * Close enough to the end that the video counts as watched: in its credits (when the server found where they start),
+ * or the last minute, or the last 5% for long ones.
+ */
+fun nearEnd(position: Double, duration: Double?, credits: Double? = null): Boolean =
+    (credits != null && position >= credits) ||
+        (duration != null && duration > 0 && position >= duration - maxOf(60.0, duration * 0.05))
 
 /**
  * Whether a party stopping here is worth picking up later: partway through a video (past the first minute and not at
  * the credits), or with more lined up after it. Same as the server's.
  */
-fun worthSaving(position: Double, duration: Double?, upcoming: Int): Boolean =
-    if (nearEnd(position, duration)) upcoming > 0 else position >= 60 || upcoming > 0
+fun worthSaving(position: Double, duration: Double?, upcoming: Int, credits: Double? = null): Boolean =
+    if (nearEnd(position, duration, credits)) upcoming > 0 else position >= 60 || upcoming > 0
 
 @Serializable
 data class BingePosition(val index: Int, val length: Int)
@@ -312,10 +336,11 @@ object Protocol {
         }
     }
 
-    fun position(type: String, position: Double, at: Long? = null): String = buildJsonObject {
+    fun position(type: String, position: Double, at: Long? = null, skip: String? = null): String = buildJsonObject {
         put("type", type)
         put("position", position)
         if (at != null) put("at", at)
+        if (skip != null) put("skip", skip)
     }.toString()
 
     /** Whether this device plays the video (false while it's only for chat), so jumps wait for it to load. */
@@ -382,6 +407,9 @@ object Protocol {
 
     /** Host: don't move on to the next video in the binge. */
     fun cancelAdvance(): String = buildJsonObject { put("type", "cancel-advance") }.toString()
+
+    /** Play now on the Up next card: the video it counts down to starts now. Anyone can. */
+    fun advanceNow(): String = buildJsonObject { put("type", "advance-now") }.toString()
 
     fun voice(on: Boolean, muted: Boolean): String = buildJsonObject {
         put("type", "voice")

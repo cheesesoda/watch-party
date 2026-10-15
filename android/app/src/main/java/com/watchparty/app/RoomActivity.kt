@@ -174,6 +174,14 @@ class RoomActivity : ComponentActivity() {
     /** The binge's next video and when it starts, while the Up next card counts down. Compose state, read by [nextCardView]. */
     private val nextUp = mutableStateOf<Pair<MediaItem, Long>?>(null)
     private lateinit var nextCardView: ComposeView
+    /** Skip intro / Skip recap while one is on: which, and where it ends (seconds). Compose state, read by [skipView]. */
+    private val skipPart = mutableStateOf<Pair<String, Double>?>(null)
+    /** Bumped to put the remote back on Skip intro (after the controls hide). */
+    private val skipFocus = mutableStateOf(0)
+    private lateinit var skipView: ComposeView
+    /** Where the video was at the last check, and which video, so reaching the credits is noticed once as it happens. */
+    private var lastTick = -1.0
+    private var lastTickMedia: String? = null
     /** Up next (the list, not the countdown): open or not, and what it shows. Compose state, read by [upNextView]. */
     private val upNextOpen = mutableStateOf(false)
     private val upNextQueue = mutableStateOf<Queue?>(null)
@@ -199,6 +207,13 @@ class RoomActivity : ComponentActivity() {
             renderChatOverlay()
             renderCompanionStatus()
             main.postDelayed(this, 1000)
+        }
+    }
+
+    private val marksTicker = object : Runnable {
+        override fun run() {
+            tickMarks()
+            main.postDelayed(this, 250)
         }
     }
 
@@ -252,7 +267,7 @@ class RoomActivity : ComponentActivity() {
             }
         })
         PlayerSync.startLag = prefs.startLag
-        sync = PlayerSync(player) { type, position, at -> connection.send(Protocol.position(type, position, at)) }
+        sync = PlayerSync(player) { type, position, at, skip -> connection.send(Protocol.position(type, position, at, skip)) }
         buildLayout()
         playerView.player = player
 
@@ -269,6 +284,7 @@ class RoomActivity : ComponentActivity() {
         super.onStart()
         if (!companion) sync.start()
         main.post(chatTicker)
+        main.post(marksTicker)
         if (!companion) playerView.requestFocus()
     }
 
@@ -279,6 +295,7 @@ class RoomActivity : ComponentActivity() {
         sync.stop()
         player.playWhenReady = false
         main.removeCallbacks(chatTicker)
+        main.removeCallbacks(marksTicker)
         super.onStop()
     }
 
@@ -306,8 +323,17 @@ class RoomActivity : ComponentActivity() {
             super.dispatchKeyEvent(event)
             return true
         }
-        // The host's remote stays on the Up next card's buttons instead of bringing up the controls.
+        // The remote stays on the Up next card's buttons instead of bringing up the controls.
         if (isTv && nextCardView.hasFocus() && event.keyCode in DPAD_KEYS) return super.dispatchKeyEvent(event)
+        // On Skip intro, OK skips; any other direction brings up the controls, as it would without the button.
+        if (isTv && skipView.hasFocus() && event.keyCode in DPAD_KEYS) {
+            if (event.keyCode in OK_KEYS) return super.dispatchKeyEvent(event)
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                playerView.requestFocus()
+                playerView.showController()
+            }
+            return true
+        }
         if (showsControlsFirst(event)) {
             playerView.showController()
             return true
@@ -494,6 +520,11 @@ class RoomActivity : ComponentActivity() {
                 hideControlsOnBack.isEnabled = visibility == View.VISIBLE
                 // Chat pop-ups move up out of the way of the TV's seek bar while the controls show.
                 if (isTv) chatOverlay.animate().translationY(if (visibility == View.VISIBLE) -dp(80).toFloat() else 0f).setDuration(150).start()
+                // Skip intro sits above the TV's seek bar while the controls show, and gets the remote back after.
+                if (isTv && ::skipView.isInitialized) {
+                    skipView.animate().translationY(if (visibility == View.VISIBLE) -dp(TV_CONTROLS_DP).toFloat() else 0f).setDuration(150).start()
+                    if (visibility != View.VISIBLE && skipPart.value != null) skipFocus.value++
+                }
                 // The phone's controls fade in rather than popping up.
                 if (!isTv && visibility == View.VISIBLE) (findViewById<View>(R.id.phone_shade)?.parent as? View)?.apply {
                     alpha = 0f
@@ -569,6 +600,10 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        root.addView(buildSkipView(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+            // Where the Up next card shows at the credits.
+            setMargins(0, 0, dp(if (isTv) 48 else 24), dp(if (isTv) 48 else 88))
+        })
         root.addView(buildNextCard(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
             // Above a phone's seek bar; the TV hides its controls while the card is up.
             setMargins(0, 0, dp(if (isTv) 48 else 24), dp(if (isTv) 48 else 88))
@@ -1582,7 +1617,7 @@ class RoomActivity : ComponentActivity() {
         val duration = media?.duration ?: player.duration.takeIf { !companion && it > 0 }?.let { it / 1000.0 }
         val position = partyPosition()
         val upcoming = queue?.upcoming(media?.id).orEmpty()
-        if (media == null || !worthSaving(position, duration, upcoming.size)) {
+        if (media == null || !worthSaving(position, duration, upcoming.size, media.marks?.credits)) {
             connection.send(Protocol.end())
             return
         }
@@ -1672,13 +1707,14 @@ class RoomActivity : ComponentActivity() {
             return
         }
         if (nextUp.value?.first?.id == next.id && nextUp.value?.second == advance.at) return
-        // Over the video, which keeps playing: the host can start it right away or stay on this one; otherwise it
-        // starts by itself. Guests see the same card without buttons.
+        // Over the video, which keeps playing (the credits, or the end): anyone can start it right away or stay on
+        // this one; otherwise it starts by itself.
         nextUp.value = next to advance.at
+        showSkip(null)
         nextCardView.visibility = View.VISIBLE
         // Chat pop-ups share the corner: lift them above the card.
         nextCardView.post { chatOverlay.translationY = -(nextCardView.height + dp(16)).toFloat() }
-        if (isTv && host) {
+        if (isTv) {
             playerView.hideController()
             nextCardView.requestFocus()
         }
@@ -1705,11 +1741,57 @@ class RoomActivity : ComponentActivity() {
                     at = up.second,
                     total = ADVANCE_MS,
                     serverNow = { sync.clock.serverNow(System.currentTimeMillis()) },
-                    onPlayNow = if (host) ({ hideNextCard(); playForEveryone(up.first) }) else null,
-                    onStay = if (host) ({ hideNextCard(); connection.send(Protocol.cancelAdvance()) }) else null,
+                    onPlayNow = { hideNextCard(); connection.send(Protocol.advanceNow()) },
+                    onStay = { hideNextCard(); connection.send(Protocol.cancelAdvance()) },
                 )
             }
         }
+    }
+
+    private fun buildSkipView() = ComposeView(this).also { skipView = it }.apply {
+        visibility = View.GONE
+        setContent {
+            val part = skipPart.value
+            if (part != null) PopcornTheme {
+                SkipPartButton(kind = part.first, tv = isTv, focusKey = skipFocus.value) {
+                    sync.skip((part.second * 1000).toLong(), part.first)
+                    showSkip(null)
+                }
+            }
+        }
+    }
+
+    /**
+     * Four times a second: Skip intro / Skip recap while one is on (see ui-redesign/skip), and, crossing into the
+     * credits while playing, the same report the end of the video makes, so Up next comes up there. Only crossing
+     * counts (not joining or jumping in past them), and the server counts down once, whoever reports first.
+     */
+    private fun tickMarks() {
+        if (companion || !::player.isInitialized || !::skipView.isInitialized) return
+        val media = lastMedia?.takeIf { it.id == loadedMediaId }
+        if (media?.id != lastTickMedia) {
+            lastTickMedia = media?.id
+            lastTick = -1.0
+        }
+        val t = player.currentPosition / 1000.0
+        val part = if (nextUp.value == null && !upNextOpen.value) skippable(media?.marks, t) else null
+        if (part != skipPart.value) showSkip(part)
+        val credits = media?.marks?.credits
+        if (media != null && credits != null && lastTick >= 0 && lastTick < credits && t >= credits && t - lastTick < 5 && player.isPlaying) {
+            connection.send(Protocol.ended(media.id))
+        }
+        lastTick = t
+    }
+
+    private fun showSkip(part: Pair<String, Double>?) {
+        if (!::skipView.isInitialized) return
+        val hadFocus = skipView.hasFocus()
+        val appeared = part != null && skipPart.value == null
+        skipPart.value = part
+        skipView.visibility = if (part != null) View.VISIBLE else View.GONE
+        if (part == null && hadFocus && isTv) playerView.requestFocus()
+        // The remote starts on it, so one OK skips, unless it's busy with the controls, chat or Up next.
+        if (appeared && isTv && !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE) skipFocus.value++
     }
 
     private fun updateBingeButtons() {
@@ -2054,6 +2136,12 @@ class RoomActivity : ComponentActivity() {
         private const val SKIP_STREAK_MS = 800L
         private const val SEEK_BAR_STEP_MS = 10_000L
         private const val DUCK_VOLUME = 0.3f
+        private val OK_KEYS = setOf(
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_A,
+        )
+        /** How far Skip intro moves up, above the TV's seek bar and buttons, while the controls show. */
+        private const val TV_CONTROLS_DP = 150
         private val DPAD_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
