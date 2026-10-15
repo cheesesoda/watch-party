@@ -406,15 +406,18 @@ export class Transcoder {
     const args = ffmpegArgs({ input: s.input, probe: s.probe, start, outDir: s.dir, encoder: this.encoderUsed ?? "libx264" });
     const proc = spawn(this.config.ffmpeg, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     const job: Job = { proc, start, done: start - 1, exited: false, error: "" };
-    proc.stderr!.on("data", (d) => (job.error = (job.error + d).slice(-2000)));
+    // Not "Failed setup for format dxva2_vld: hwaccel initialisation returned error": the GPU couldn't decode this file,
+    // so ffmpeg carries on with the CPU.
+    proc.stderr!.on("data", (d) => (job.error = (job.error + String(d).split("\n").filter((l) => !/hwaccel initiali[sz]ation returned error/.test(l)).join("\n")).slice(-2000)));
     proc.on("error", (err) => {
       job.exited = true;
       job.error = err.message;
     });
     proc.on("close", (code) => {
       job.exited = true;
-      if (code === 0) job.error = "";
-      else if (job.error) console.warn(`transcode: ffmpeg stopped (${code}): ${job.error.trim().split("\n").pop()}`);
+      // No code: stopped on purpose (a jump elsewhere started a new job, or nobody's watching), not a failure.
+      if (code === 0 || code === null) job.error = "";
+      else if (job.error.trim()) console.warn(`transcode: ffmpeg stopped (${code}): ${job.error.trim().split("\n").pop()}`);
     });
     s.job = job;
   }
