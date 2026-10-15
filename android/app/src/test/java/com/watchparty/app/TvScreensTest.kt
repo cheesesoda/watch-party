@@ -16,6 +16,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -258,6 +261,12 @@ class TvScreensTest {
         check(rule.onAllNodesWithText("Binge all 2 seasons").fetchSemanticsNodes().isNotEmpty(), "The show's page didn't open")
         val top = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         check(top >= 0f, "Back up to Binge left the show's name cut off (top $top)")
+        // A page left scrolled down (like coming back from the player) with the remote on Binge scrolls back up.
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and hasAnyDescendant(hasText("Letterkenny"))).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 150f) }
+        settle(1_000) { false }
+        shot("12d-show-scrolled-with-binge")
+        val top2 = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
+        check(top2 >= 0f, "A scrolled page with the remote on Binge left the show's name cut off (top $top2)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }

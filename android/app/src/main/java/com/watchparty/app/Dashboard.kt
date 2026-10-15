@@ -67,6 +67,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
@@ -1234,7 +1235,13 @@ private fun DetailPage(
 ) {
     val primary = remember { FocusRequester() }
     val tv = a.tv
-    val scope = rememberCoroutineScope()
+    var headFocused by remember { mutableStateOf(false) }
+    // While the remote is on the buttons, the whole header stays in view. Bring-into-view only reveals the button, so
+    // coming back up from the episodes, or back to a page that was left scrolled down, cut the name off at the top.
+    if (tv) LaunchedEffect(state) {
+        snapshotFlow { headFocused && (state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 0) }
+            .collect { if (it) runCatching { state.scrollToItem(0) } }
+    }
     Box(Modifier.fillMaxSize()) {
         if (lib.details && backdrop != null) {
             if (tv) BackdropBehind(a.api, backdrop, height = 0.9f)
@@ -1242,11 +1249,9 @@ private fun DetailPage(
         LazyColumn(state = state, contentPadding = PaddingValues(bottom = 32.dp)) {
             item(key = "head") {
                 if (tv) {
-                    // Coming back up from the episodes, bring-into-view only reveals the button, leaving the name cut off at the
-                    // top; scroll the whole header back instead.
                     Column(
                         Modifier
-                            .onFocusChanged { if (it.hasFocus && (state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 0)) scope.launch { state.animateScrollToItem(0) } }
+                            .onFocusChanged { headFocused = it.hasFocus }
                             .padding(start = 128.dp, end = 48.dp, top = 56.dp)
                             .width(560.dp),
                     ) {
