@@ -182,6 +182,9 @@ class TvScreensTest {
         press(FocusDirection.Right)
         shot("06-movies-right")
         check(!menuOpen(), "Right from the menu on Movies didn't reach the page")
+        press(FocusDirection.Up, 4)
+        shot("06b-movies-top")
+        check(!menuOpen(), "Up at the top of Movies went into the menu")
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         settle(800) { false }
         shot("07-movies-back")

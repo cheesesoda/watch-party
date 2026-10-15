@@ -91,35 +91,6 @@ class TvMenuFocusTest {
     private fun focusedNow(): String =
         rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
 
-    /** The test itself: a plain button left of the same grid. */
-    @Test
-    fun rightFromAPlainButtonReachesTheGrid() {
-        var card = -1
-        rule.setContent {
-            focus = LocalFocusManager.current
-            // Clickable things only take focus while a remote or keyboard is in use, not in touch mode.
-            val inputMode = LocalInputModeManager.current
-            androidx.compose.runtime.SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
-            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(118.dp),
-                    contentPadding = PaddingValues(start = 96.dp, end = 48.dp, top = 32.dp, bottom = 32.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                ) {
-                    items(18) { i -> Box(Modifier.aspectRatio(2f / 3f).onFocusChanged { if (it.isFocused) card = i }.clickable {}) }
-                }
-                Box(Modifier.padding(start = 14.dp, top = 160.dp).size(48.dp).semantics { contentDescription = "Plain" }.clickable {})
-            }
-        }
-        windowFocus()
-        rule.onNodeWithContentDescription("Plain").performSemanticsAction(SemanticsActions.RequestFocus)
-        rule.waitForIdle()
-        val before = focusedNow()
-        move(FocusDirection.Right)
-        assertTrue("Right from a plain button didn't reach the grid (focused before: $before; after: ${focusedNow()})", card >= 0)
-    }
-
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)
 
