@@ -183,7 +183,7 @@ class TvScreensTest {
         rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         settle(800) { false }
         check(!menuOpen(), "Back in the menu didn't close it")
-        check(rule.onAllNodesWithText("Recently added").fetchSemanticsNodes().isNotEmpty(), "Back in the menu left Home")
+        check(onHome(), "Back in the menu left Home")
         shot("03b-menu-back")
         press(FocusDirection.Left)
         // Home, Movies: down twice from wherever it landed is not certain, so go to the top first.
@@ -243,10 +243,6 @@ class TvScreensTest {
         press(FocusDirection.Right)
         press(FocusDirection.Down)
         shot("10b-shows-first-card")
-        press(FocusDirection.Down)
-        shot("10c-shows-second-row")
-        press(FocusDirection.Up)
-        shot("10d-shows-back-up")
         ok()
         shot("11-show-page")
         press(FocusDirection.Up)
@@ -259,6 +255,7 @@ class TvScreensTest {
         press(FocusDirection.Up, 2)
         settle(1_000) { false }
         shot("12c-show-back-to-binge")
+        check(rule.onAllNodesWithText("Binge all 2 seasons").fetchSemanticsNodes().isNotEmpty(), "The show's page didn't open")
         val top = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         check(top >= 0f, "Back up to Binge left the show's name cut off (top $top)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
