@@ -157,7 +157,7 @@ private class Library(val items: List<MediaItem>) {
         val length = if (parts != null) parts.takeIf { p -> p.all { it?.duration != null } }?.sumOf { it!!.duration!! } else m.duration
         return listOfNotNull(
             (m.meta?.year ?: m.year)?.toString(),
-            if (m.part != null) "${m.part.ids.size} parts" + (length?.let { ", " + runtime(it) } ?: "") else length?.let(::runtime) ?: formatSize(m.size),
+            if (m.part != null) "${m.part.ids.size} parts" + (length?.let { ", " + runtime(it) } ?: "") else length?.let(::runtime),
             m.meta?.rating?.let { "★ %.1f".format(it) },
             m.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
             "Subtitles".takeIf { m.subtitles.isNotEmpty() },
@@ -480,7 +480,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         DetailsDialog(
             api = api,
             media = media,
-            length = listOfNotNull(media.extra?.kind, media.duration?.let(::clock) ?: formatSize(media.size), "Subtitles".takeIf { media.subtitles.isNotEmpty() }).joinToString(" · "),
+            length = listOfNotNull(media.extra?.kind, media.duration?.let(::clock), "Subtitles".takeIf { media.subtitles.isNotEmpty() }).joinToString(" · "),
             credit = lib.details,
             onStart = { shownInfo = null; actions.start(media, media.part?.ids) },
             onBingeFrom = show?.takeIf { !adding }?.let { s -> { shownInfo = null; actions.start(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
@@ -1535,7 +1535,7 @@ private fun EpisodeTitle(m: MediaItem, special: Boolean, size: Int, modifier: Mo
         Text(episodeTitle(m, special), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = size.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
-private fun episodeLength(m: MediaItem) = m.duration?.let(::runtime) ?: formatSize(m.size)
+private fun episodeLength(m: MediaItem) = m.duration?.let(::runtime) ?: ""
 
 /** A TV episode: its still with the length, the title under it, and the summary while the remote is on it. */
 @Composable
@@ -1558,7 +1558,7 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean
             val still = m.meta?.stillPath
             if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
             else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center))
-            Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
         }
         EpisodeTitle(m, special, 13, Modifier.padding(top = if (focused) 12.dp else 8.dp))
         if (focused) (m.meta?.overview ?: m.extra?.kind)?.let { Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -1577,7 +1577,7 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
             val still = m.meta?.stillPath
             if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
             else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
-            Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
         }
         // Adding to a party: the length and whether it's already lined up, with an Add button (✓ once added).
         val playing = a.adding && PartyLink.playing == m.id
@@ -1588,7 +1588,7 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
                 Row {
                     Text(episodeLength(m), color = Muted, fontSize = 12.sp)
                     val status = if (playing) "Playing now" else if (queued) "In Up next" else null
-                    status?.let { Text(" · $it", color = Accent, fontSize = 12.sp) }
+                    status?.let { Text((if (m.duration != null) " · " else "") + it, color = Accent, fontSize = 12.sp) }
                 }
             } else {
                 val sub = m.meta?.overview?.takeIf { m.episode != null } ?: listOfNotNull(m.extra?.kind, "Subtitles".takeIf { m.subtitles.isNotEmpty() }).joinToString(" · ")

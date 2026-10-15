@@ -3,7 +3,7 @@ import type { MediaItem, Spot } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { byName, fmtRuntime, partsLength, plural, type Catalog, type Show } from "./catalog.ts";
 import { CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
-import { BROWSER_SAFE, fmtSize, MoreMenu, Poster, Shelf } from "./Library.tsx";
+import { BROWSER_SAFE, MoreMenu, Poster, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { SpotLine } from "./Spots.tsx";
 
@@ -43,7 +43,7 @@ function movieFacts(item: MediaItem, cat: Catalog): string[] {
   const length = partsLength(item, cat.byId);
   return [
     String(item.meta?.year ?? item.year ?? ""),
-    item.part ? `${item.part.ids.length} parts${length ? `, ${fmtRuntime(length)}` : ""}` : length ? fmtRuntime(length) : fmtSize(item.size),
+    item.part ? `${item.part.ids.length} parts${length ? `, ${fmtRuntime(length)}` : ""}` : length ? fmtRuntime(length) : "",
     item.meta?.rating ? `★ ${item.meta.rating.toFixed(1)}` : "",
     (item.meta?.genres ?? []).slice(0, 3).join(", "),
     item.subtitles.length > 0 ? "Subtitles" : "",
@@ -477,7 +477,7 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
   const facts = [
     props.context,
     item.extra?.kind,
-    item.duration ? fmtRuntime(item.duration) : fmtSize(item.size),
+    item.duration ? fmtRuntime(item.duration) : "",
     item.subtitles.length > 0 ? "Subtitles" : "",
     !b.convert && !BROWSER_SAFE.has(item.mime) ? "may not play in browser" : "",
   ].filter(Boolean);

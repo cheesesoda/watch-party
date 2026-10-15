@@ -5,7 +5,7 @@ import { api, type LibraryResponse } from "./api.ts";
 import { MovieCard, MoviePage, SearchResults, ShowCard, ShowPage, type Browse } from "./Browse.tsx";
 import { buildCatalog, fmtRuntime } from "./catalog.ts";
 import { BackIcon, CloseIcon, GripIcon, PlayIcon, SearchIcon, TrashIcon } from "./Icons.tsx";
-import { Details, fmtLength, fmtSize, Poster } from "./Library.tsx";
+import { Details, fmtLength, Poster } from "./Library.tsx";
 
 type Tab = "next" | "movies" | "shows";
 
@@ -210,7 +210,7 @@ export function Picker(props: {
           startFixing={info!.fix}
           canMatch={b.details}
           actionLabel={props.solo ? "Play" : "Play for everyone"}
-          lengthLabel={[infoItem.duration ? fmtLength(infoItem.duration) : fmtSize(infoItem.size)].join(" · ")}
+          lengthLabel={infoItem.duration ? fmtLength(infoItem.duration) : ""}
           onPick={() => {
             setInfo(null);
             props.onPlay(infoItem.part?.ids ?? [infoItem.id]);

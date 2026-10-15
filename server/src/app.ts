@@ -238,18 +238,18 @@ export function createApp(config: Config): App {
   });
 
   // Lengths come from ffprobe, which takes a moment per file, so they're read one file at a time in the
-  // background and show up on later loads of the library.
+  // background. They're kept in data/durations.json, so after a restart they show straight away.
   const queued = new Set<string>();
   let probing: Promise<unknown> = Promise.resolve();
   const withDurations = (items: MediaItem[]): MediaItem[] =>
     items.map((item) => {
       const entry = library.peek(item.id);
       if (!entry) return item;
-      const duration = transcoder.cachedDuration(entry.absPath);
-      if (duration === undefined && !queued.has(entry.absPath)) {
+      if (transcoder.cachedDuration(entry.absPath) === undefined && !queued.has(entry.absPath)) {
         queued.add(entry.absPath);
         probing = probing.then(() => transcoder.probe(entry.absPath)).catch(() => null);
       }
+      const duration = transcoder.knownDuration(entry.absPath);
       return duration ? { ...item, duration } : item;
     });
 

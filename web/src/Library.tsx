@@ -4,11 +4,6 @@ import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.
 import { buildCatalog, byName, isLaterPart, isOwnedExtra, plural, type Show } from "./catalog.ts";
 import { ChevronLeftIcon, ChevronRightIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
-export function fmtSize(bytes: number): string {
-  const gb = bytes / 1024 ** 3;
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
-}
-
 /** 7260 -> "2:01:00", 3000 -> "50:00" */
 export function fmtLength(seconds: number): string {
   const s = Math.round(seconds);
@@ -153,9 +148,13 @@ export function Library(props: {
 
   const meta = (item: MediaItem) => (
     <>
-      {item.extra && `${item.extra.kind}${q && (item.extra.of || item.extra.show) ? ` · ${byId.get(item.extra.of ?? "")?.title ?? item.extra.show}` : ""} · `}
-      {item.part ? partsLabel(item) : item.duration ? fmtLength(item.duration) : fmtSize(item.size)}
-      {item.subtitles.length > 0 && " · CC"}
+      {[
+        item.extra && `${item.extra.kind}${q && (item.extra.of || item.extra.show) ? ` · ${byId.get(item.extra.of ?? "")?.title ?? item.extra.show}` : ""}`,
+        item.part ? partsLabel(item) : item.duration ? fmtLength(item.duration) : "",
+        item.subtitles.length > 0 && "CC",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       {/* With ffmpeg the server converts whatever browsers can't play, so there's nothing to warn about. */}
       {!convert && !BROWSER_SAFE.has(item.mime) && (
         <span className="warn" title="Browsers may not play this format as-is. Install ffmpeg on the server so it can convert it. The Android app usually plays it directly.">
