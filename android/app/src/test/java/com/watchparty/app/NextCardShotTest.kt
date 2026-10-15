@@ -11,6 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -77,6 +81,9 @@ class NextCardShotTest {
     @Test
     fun skipIntro() {
         rule.setContent {
+            // A TV remote's D-pad: keyboard mode, where buttons take focus.
+            val inputMode = LocalInputModeManager.current
+            SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
             PopcornTheme {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF8E6A4A), Color(0xFF2A1A12))))) {
                     Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
