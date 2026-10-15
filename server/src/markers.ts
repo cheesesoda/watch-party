@@ -97,6 +97,8 @@ const CREDITS_RETRY = 3;
 const KEYFRAME_GAP = 40;
 /** Two frames a second: a picture card among the credits can take this many in a row. */
 const CLOSE_ODD = 8;
+/** Every half second, a card full of names can read a bit under [CREDITS_BLACK] for seconds at a time (Reacher S1E03). */
+const CLOSE_BLACK = 80;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
@@ -301,12 +303,12 @@ function oldChapterMarks(chapters: { start: number; end: number; title: string }
  * Where the credits start, going by the picture: the last stretch of frames that are nearly all black (white text on
  * black), at least 20 s long and ending within 30 s of the end (a bright studio logo may follow, black or not after
  * it). Up to [odd] other frames in a row inside are fine (a picture card), more end the stretch, and so does a gap
- * longer than [gap] seconds between dark frames. [frames] are seconds from the start of the window and % black, in any order (ffmpeg doesn't always
+ * longer than [gap] seconds between dark frames. A frame is dark at [min] % black or more. [frames] are seconds from the start of the window and % black, in any order (ffmpeg doesn't always
  * print keyframes in order); [length] is the window's length.
  */
-export function blackCredits(unsorted: { t: number; black: number }[], length: number, gap = 12, odd = 1): number | null {
+export function blackCredits(unsorted: { t: number; black: number }[], length: number, gap = 12, odd = 1, min = CREDITS_BLACK): number | null {
   const frames = [...unsorted].sort((a, b) => a.t - b.t);
-  const dark = (i: number) => frames[i].black >= CREDITS_BLACK;
+  const dark = (i: number) => frames[i].black >= min;
   for (let i = frames.length - 1; i >= 0 && length - frames[i].t <= 30; i--) {
     if (!dark(i)) continue;
     let start = i;
@@ -756,7 +758,7 @@ export class Markers {
       if (rough != null) {
         const from = Math.max(0, rough - 60);
         const close = await this.blackness(file, tail + from, duration - tail - from, true);
-        const at = close ? blackCredits(close, duration - tail - from, 12, CLOSE_ODD) : null;
+        const at = close ? blackCredits(close, duration - tail - from, 12, CLOSE_ODD, CLOSE_BLACK) : null;
         credits = round(tail + (at != null ? from + at : rough));
       }
     }

@@ -156,6 +156,11 @@ test("credits by the picture: the last long stretch of black keyframes", () => {
     spec.flatMap(([from, to, black]) => Array.from({ length: (to - from) * 2 }, (_, k) => ({ t: from + k / 2, black })));
   assert.equal(blackCredits(half([[0, 50, 10], [50, 80, 95], [80, 83, 30], [83, 140, 96]]), 140, 12, 8), 50);
   assert.equal(blackCredits(half([[0, 50, 10], [50, 80, 95], [80, 90, 30], [90, 140, 96]]), 140, 12, 8), 90);
+  // A card full of names reads 83% black for 6 s (Reacher S1E03): too bright at 85, part of the credits at 80. The dark
+  // final scene before (72%) stays out.
+  const names = half([[0, 30, 10], [30, 50, 72], [50, 80, 95], [80, 86, 83], [86, 140, 96]]);
+  assert.equal(blackCredits(names, 140, 12, 8), 86);
+  assert.equal(blackCredits(names, 140, 12, 8, 80), 50);
 });
 
 const canFingerprint =
