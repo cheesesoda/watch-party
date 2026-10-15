@@ -17,6 +17,9 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -59,6 +62,9 @@ class TvMenuFocusTest {
 
     private fun page(alone: Boolean, focused: (Int) -> Unit) = rule.setContent {
         focus = LocalFocusManager.current
+            // Clickable things only take focus while a remote or keyboard is in use, not in touch mode.
+            val inputMode = LocalInputModeManager.current
+            androidx.compose.runtime.SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
         TvShell("movies", adding = false, alone = alone, setAlone = {}, onCode = {}, onRefresh = {}, onSettings = {}, go = {}) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(118.dp),
@@ -91,6 +97,9 @@ class TvMenuFocusTest {
         var card = -1
         rule.setContent {
             focus = LocalFocusManager.current
+            // Clickable things only take focus while a remote or keyboard is in use, not in touch mode.
+            val inputMode = LocalInputModeManager.current
+            androidx.compose.runtime.SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
             androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(118.dp),

@@ -13,6 +13,9 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -103,6 +106,9 @@ class TvScreensTest {
         rule.mainClock.autoAdvance = false
         rule.setContent {
             focus = LocalFocusManager.current
+            // Clickable things only take focus while a remote or keyboard is in use, not in touch mode.
+            val inputMode = LocalInputModeManager.current
+            androidx.compose.runtime.SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
             PopcornTheme {
                 Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}, forceTv = true) }
             }
