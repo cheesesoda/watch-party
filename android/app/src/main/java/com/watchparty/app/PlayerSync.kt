@@ -200,9 +200,8 @@ class PlayerSync(
 
     private fun target(): Double = state?.expectedPosition(clock.serverNow()) ?: 0.0
 
-    private fun local(type: String) {
+    private fun local(type: String, position: Double = player.currentPosition / 1000.0) {
         val s = state ?: return
-        val position = player.currentPosition / 1000.0
         val paused = if (type == "seek") s.paused else type == "pause"
         val now = if (type == "seek") held(s) else s.copy(paused = paused, hold = false)
         state = now.copy(position = position, updatedAt = clock.serverNow())
@@ -324,6 +323,25 @@ class PlayerSync(
         waitUntil = null
         if (waitJumped) resumedAt = SystemClock.uptimeMillis()
         setPlay(true)
+    }
+
+    /**
+     * The remote's play/pause key. It follows the party, not the player: while the player waits for a spot to load
+     * (or for the room to catch up) it's stopped though the party is playing, and flipping it there would send play.
+     */
+    fun playPausePressed() {
+        val s = state ?: return run { player.playWhenReady = !player.playWhenReady }
+        if (s.paused && !s.hold) player.playWhenReady = true else pausePressed()
+    }
+
+    /** The remote's pause key: pauses the party, even while the player is stopped waiting for it. */
+    fun pausePressed() {
+        val s = state ?: return run { player.playWhenReady = false }
+        waitUntil = null
+        main.removeCallbacks(check)
+        setPlay(false)
+        // Held, the player waits a little past the spot (holdLead); the party pauses at the spot itself.
+        if (s.hold) local("pause", s.position) else if (!s.paused) local("pause")
     }
 
     private fun setPlay(play: Boolean) {

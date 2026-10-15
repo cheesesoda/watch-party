@@ -245,6 +245,12 @@ export class Room {
     if (this.members.size === 0) {
       this.emptySince = this.now();
       this.emptyAt = this.position();
+      // Watching alone with nobody left watching: pause there, so it's where they left it when they come back.
+      if (this.solo && !this.state.paused && !this.ended) {
+        this.cancelHold();
+        this.state = { mediaId: this.state.mediaId, paused: true, position: this.emptyAt, updatedAt: this.now() };
+        this.log(`paused at ${fmtTime(this.emptyAt)}: nobody is watching`);
+      }
     }
     this.resumeIfAllReady();
     if (this.ended) return;
@@ -443,10 +449,12 @@ export class Room {
         if (msg.type === "seek" && !paused && this.players.size > 0) {
           // Jumping while playing: everyone pauses at the new spot until each screen has loaded it.
           this.holdAt(msg.position, now);
-          this.log(`${member.name} jumped to ${fmtTime(msg.position)}; waiting for ${this.who(this.players) || "nobody"}`);
+          this.log(`${this.who([member.id])} jumped to ${fmtTime(msg.position)}; waiting for ${this.who(this.players) || "nobody"}`);
         } else {
           this.state = { mediaId: this.state.mediaId, paused, position: msg.position, updatedAt: sentAt(msg.at, now) };
-          if (msg.type === "seek") this.log(`${member.name} jumped to ${fmtTime(msg.position)}; no wait (${paused ? "paused" : "no screens say when they've loaded"})`);
+          if (msg.type === "seek") this.log(`${this.who([member.id])} jumped to ${fmtTime(msg.position)}; no wait (${paused ? "paused" : "no screens say when they've loaded"})`);
+          else if (wasPaused !== paused) this.log(`${this.who([member.id])} ${paused ? "paused" : "pressed play"} at ${fmtTime(msg.position)}`);
+          else if (!paused) this.log(`${this.who([member.id])} played from ${fmtTime(msg.position)} (already playing)`);
         }
         this.broadcastState(member.name);
         if (msg.type === "seek" && (msg.skip === "intro" || msg.skip === "recap")) this.notice(`${member.name} skipped the ${msg.skip}`);
