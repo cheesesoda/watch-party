@@ -589,6 +589,7 @@ private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
 }
 
 /** The TV: a column of icons on the left that widens with labels while the remote is on it, over the page. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(false) }
@@ -599,7 +600,15 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
     val page = remember { FocusRequester() }
     // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
-    BackHandler(enabled = open) { runCatching { page.requestFocus() } }
+    // Right or Back from the menu: to the card the remote left the page from, or the page's first if it has gone.
+    // (Outside the menu's focus move: restoring inside it gets cancelled.)
+    val backToPage = {
+        scope.launch {
+            if (!runCatching { page.restoreFocusedChild() }.getOrDefault(false)) runCatching { page.requestFocus() }
+        }
+        Unit
+    }
+    BackHandler(enabled = open) { backToPage() }
     // Coming back from the player lands on the page, not the menu. The card that started the party may have gone
     // while you watched (a party that ended, a spot that was used), and with nothing focused Android hands focus to
     // the top-left of the screen: the menu's Search.
@@ -615,7 +624,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                 // After the window has its focus back.
                 withFrameNanos {}
                 delay(150)
-                if (open) runCatching { page.requestFocus() }
+                if (open) backToPage()
             }
         }
         lifecycle.addObserver(observer)
@@ -628,8 +637,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                 .fillMaxSize()
                 .focusRequester(page)
                 // Up or Down past the top or bottom of a page stays on the page instead of jumping into the menu;
-                // Left still opens it, remembering the card it left, so Right (or Back) from the menu returns there
-                // (or, if that card has scrolled away, to the page's first).
+                // Left still opens it, remembering the card it left (see backToPage).
                 .focusProperties {
                     exit = { direction ->
                         if (direction == FocusDirection.Up || direction == FocusDirection.Down) FocusRequester.Cancel
@@ -638,7 +646,6 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                             FocusRequester.Default
                         }
                     }
-                    enter = { if (page.restoreFocusedChild()) FocusRequester.Cancel else FocusRequester.Default }
                 }
                 .focusGroup(),
         ) { content() }
@@ -651,6 +658,14 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
                 .onFocusChanged { open = it.hasFocus }
+                // Right leaves for the page (see backToPage); Up and Down at the ends, and Left, stay put.
+                .focusProperties {
+                    exit = { direction ->
+                        if (direction == FocusDirection.Right) backToPage()
+                        FocusRequester.Cancel
+                    }
+                }
+                .focusGroup()
                 // Folded, the rows are 48dp wide, so their 20dp icons (14dp in) sit in the middle.
                 .padding(horizontal = 14.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -685,7 +700,6 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
-            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -710,7 +724,6 @@ private fun TvModeItem(alone: Boolean, open: Boolean, page: FocusRequester, onCl
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else Color.Transparent)
-            .focusProperties { right = page }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .semantics { stateDescription = if (alone) "On" else "Off" }
             .padding(start = 14.dp, end = 10.dp),
