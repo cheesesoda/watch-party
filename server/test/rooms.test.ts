@@ -333,6 +333,25 @@ test("a hold gives up on slow or departed screens", async () => {
   assert.deepEqual([lastState().state.paused, lastState().state.hold], [true, undefined]);
 });
 
+test("a hold that runs out with no screen ready waits for the first one", async () => {
+  const { room, a, alice, bob } = setup();
+  const lastState = () => a.filter((m) => m.type === "state").at(-1) as Extract<ServerMessage, { type: "state" }>;
+  room.holdMs = 5;
+  room.handle(alice.id, { type: "player", on: true });
+  room.handle(bob.id, { type: "player", on: true });
+  room.handle(alice.id, { type: "play", position: 10 });
+  room.handle(alice.id, { type: "seek", position: 60 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(lastState().state.hold, true, "nobody to start without");
+  room.handle(bob.id, { type: "ready", position: 60 });
+  assert.deepEqual([lastState().state.paused, lastState().state.hold], [false, undefined], "the first screen in starts it");
+  // And not forever: holdMaxMs still ends it.
+  room.holdMaxMs = 30;
+  room.handle(alice.id, { type: "seek", position: 120 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(lastState().state.paused, false);
+});
+
 test("the log says when a screen the hold gave up on catches up, and which copy it plays", async () => {
   const { room, alice, bob, clock } = setup();
   const lines: string[] = [];

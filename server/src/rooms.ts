@@ -92,8 +92,13 @@ export class Room {
   advanceDelayMs = 10_000;
   /** After a jump, the longest everyone waits for slower screens to load the new spot before playing anyway. */
   holdMs = 4_000;
-  /** Waiting for screens to load the spot someone jumped to: who has. */
-  private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number } | null = null;
+  /**
+   * When no screen has loaded the spot by then (watching alone, or every screen slow), there's nobody to start without:
+   * the wait goes on until the first one has, up to this long.
+   */
+  holdMaxMs = 30_000;
+  /** Waiting for screens to load the spot someone jumped to: who has, and whether holdMs has run out. */
+  private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number; overdue?: boolean } | null = null;
   /** Screens the last hold gave up waiting for, so the log can say when each caught up. */
   private late: { ids: Set<string>; since: number; gaveUpAt: number } | null = null;
   /** Members whose screen plays the video and says when it has loaded a spot (newer apps only). */
@@ -305,7 +310,8 @@ export class Room {
           this.players.add(member.id);
           this.hold.ready.add(member.id);
           this.log(`${this.who([member.id])} loaded it after ${now - this.hold.since} ms${copy}`);
-          this.resumeIfAllReady();
+          if (this.hold.overdue) this.resumeHold();
+          else this.resumeIfAllReady();
         }
         return;
       }
@@ -501,9 +507,22 @@ export class Room {
   private holdAt(position: number, now: number): void {
     this.state = { mediaId: this.state.mediaId, paused: true, position, updatedAt: now, hold: true };
     this.late = null;
-    const timer = setTimeout(() => this.resumeHold(), this.holdMs);
+    const timer = setTimeout(() => this.holdRanOut(), this.holdMs);
     timer.unref?.();
     this.hold = { ready: new Set(), timer, since: now };
+  }
+
+  /** holdMs is up: play without the slower screens, unless none has loaded the spot yet. */
+  private holdRanOut(): void {
+    if (!this.hold) return;
+    const left = this.holdMaxMs - (this.now() - this.hold.since);
+    const anyReady = [...this.hold.ready].some((id) => this.members.has(id));
+    const waiting = [...this.players].some((id) => this.members.has(id));
+    if (anyReady || !waiting || left <= 0) return this.resumeHold();
+    this.hold.overdue = true;
+    this.hold.timer = setTimeout(() => this.resumeHold(), left);
+    this.hold.timer.unref?.();
+    this.log(`no screen has loaded it after ${this.now() - this.hold.since} ms; waiting for the first one`);
   }
 
   /** Everyone has loaded the spot (or the wait ran out): play from it together. */
