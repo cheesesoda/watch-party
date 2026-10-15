@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalInputModeManager
@@ -80,6 +81,7 @@ class NextCardShotTest {
     /** Skip intro over the video, with the remote on it (white) as it is when it appears. */
     @Test
     fun skipIntro() {
+        val focusKey = mutableStateOf(0)
         rule.setContent {
             // A TV remote's D-pad: keyboard mode, where buttons take focus.
             val inputMode = LocalInputModeManager.current
@@ -87,11 +89,14 @@ class NextCardShotTest {
             PopcornTheme {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF8E6A4A), Color(0xFF2A1A12))))) {
                     Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
-                        SkipPartButton(kind = "intro", tv = true, focusKey = 1) {}
+                        SkipPartButton(kind = "intro", tv = true, focusKey = focusKey.value) {}
                     }
                 }
             }
         }
+        rule.waitForIdle()
+        // As the player does when it appears, once the remote's input mode is in.
+        focusKey.value = 1
         rule.waitForIdle()
         assertTrue(rule.onAllNodesWithText("Skip intro").fetchSemanticsNodes().isNotEmpty())
         rule.onAllNodesWithText("Skip intro")[0].assertIsFocused()
