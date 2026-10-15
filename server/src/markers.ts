@@ -416,7 +416,11 @@ export class Markers {
     for (const [n, e] of old.entries()) {
       if (this.closed) return;
       await this.upgrade(e);
-      if ((n + 1) % 25 === 0 && n + 1 < old.length) this.log(`updated ${n + 1} of ${old.length} earlier results`);
+      if ((n + 1) % 25 === 0 && n + 1 < old.length) {
+        // Saved as it goes, so a restart (an update) picks up here instead of starting over.
+        await this.save();
+        this.log(`updated ${n + 1} of ${old.length} earlier results`);
+      }
     }
     if (old.length) {
       this.log(`updated ${old.length} earlier results (chapters joined, credits by picture)`);
