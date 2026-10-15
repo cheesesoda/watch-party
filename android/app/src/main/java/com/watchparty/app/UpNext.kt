@@ -201,7 +201,7 @@ private fun rememberProgress(screen: UpNextScreen, media: MediaItem): Float? {
     return now
 }
 
-/** A video in Up next on the TV: its place, picture, title and facts. White while the remote is on it. */
+/** A video in Up next on the TV: its picture, title and facts. White while the remote is on it. */
 @Composable
 private fun TvRow(api: Api, item: MediaItem, modifier: Modifier, onClick: (() -> Unit)?) {
     val interaction = remember { MutableInteractionSource() }
