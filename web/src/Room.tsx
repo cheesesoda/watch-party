@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { worthSaving, type MediaInfo, type MediaItem } from "../../shared/protocol.ts";
-import { api, hlsUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
+import { api, hlsUrl, imageUrl, mediaElsewhere, streamUrl, subtitleUrl } from "./api.ts";
 import { ChatOverlay } from "./ChatOverlay.tsx";
-import { BackIcon, ChatIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon, UserPlusIcon } from "./Icons.tsx";
+import { BackIcon, ChatIcon, PlayIcon, CheckIcon, ExitFullscreenIcon, FullscreenIcon, ListVideoIcon, MicIcon, MicOffIcon, PowerIcon, SettingsIcon, ShareIcon, SkipBackIcon, SkipForwardIcon, UserPlusIcon } from "./Icons.tsx";
 import { inviteLink } from "./Home.tsx";
 import { Picker } from "./Picker.tsx";
 import { SaveSpotDialog, spotPreview } from "./Spots.tsx";
@@ -589,31 +589,50 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   );
 }
 
-/** "Up next" while a binge counts down to its next video. The host can start it now or stay on this one. */
+/**
+ * "Up next · in 4" while a binge counts down to its next video: a small glass card in the bottom-right corner, like
+ * streaming services (see ui-redesign/up-next-card). The host gets Play now, with an orange bar that fills as the
+ * countdown runs, and Stay here; guests just see what's coming and when.
+ */
 function UpNext(props: { item: MediaItem; at: number; serverNow: () => number; onPlayNow?: () => void; onCancel?: () => void }) {
-  const left = () => Math.max(0, Math.ceil((props.at - props.serverNow()) / 1000));
-  const [seconds, setSeconds] = useState(left);
+  const [now, setNow] = useState(props.serverNow);
   useEffect(() => {
-    const t = window.setInterval(() => setSeconds(left()), 250);
+    const t = window.setInterval(() => setNow(props.serverNow()), 100);
     return () => window.clearInterval(t);
   }, [props.at]);
+  const left = Math.max(0, props.at - now);
+  const seconds = Math.ceil(left / 1000);
+  const elapsed = Math.min(1, Math.max(0, 1 - left / ADVANCE_MS));
+  const m = props.item;
+  const art = m.meta?.stillPath ?? m.meta?.backdropPath;
+  const ep = m.episode;
+  const title = ep ? (ep.title ?? m.meta?.title ?? m.title) : (m.meta?.title ?? m.title);
+  const line = ep ? `${m.meta?.show ?? ep.show} · ${ep.season === 0 ? `Special ${ep.episode}` : `S${ep.season} E${ep.episode}`}` : [m.extra?.kind ?? "Movie", m.meta?.year ?? m.year].filter(Boolean).join(" · ");
   return (
     <div className="up-next" role="status">
-      <span className="muted">Up next{seconds > 0 ? ` in ${seconds}` : ""}</span>
-      <strong>{props.item.title}</strong>
-      {(props.onPlayNow || props.onCancel) && (
-        <div className="row">
-          {props.onPlayNow && (
-            <button className="primary" onClick={props.onPlayNow}>
-              Play now
-            </button>
-          )}
-          {props.onCancel && <button onClick={props.onCancel}>Stay here</button>}
-        </div>
-      )}
+      <div className="up-next-art">{art && <img src={imageUrl(art, "w300")} alt="" />}</div>
+      <div className="up-next-text">
+        <span className="up-next-when">{seconds > 0 ? `Up next · in ${seconds}` : "Up next"}</span>
+        <strong>{title}</strong>
+        <span className="muted">{line}</span>
+        {(props.onPlayNow || props.onCancel) && (
+          <div className="row">
+            {props.onPlayNow && (
+              <button className="up-next-play" onClick={props.onPlayNow}>
+                <PlayIcon size={14} /> Play now
+                <span className="up-next-fill" style={{ width: `${elapsed * 100}%` }} />
+              </button>
+            )}
+            {props.onCancel && <button onClick={props.onCancel}>Stay here</button>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+/** How long the server counts down before a binge's next video (its advanceDelayMs). */
+const ADVANCE_MS = 10_000;
 
 function MicOff() {
   return (
