@@ -100,6 +100,8 @@ class TvScreensTest {
                 fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
+                    // Starting a party (here, from a saved spot): the host watching alone, straight to the player.
+                    path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","solo":true}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots/s2/frame.jpg") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(5))
                     path.endsWith("/frame.jpg") -> MockResponse().setResponseCode(404)
@@ -227,6 +229,31 @@ class TvScreensTest {
         settle(1_500) { false }
         shot("31-spot-removed")
         check(!menuOpen(), "Removing a spot opened the menu")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /**
+     * Pick up where you left off → Start party here opens the player and takes the spot off Home, so the card the remote
+     * was on is gone when the player closes. Coming back used to open the menu; it should stay on the page.
+     */
+    @Test
+    fun backFromThePlayerStaysOnThePage() {
+        press(FocusDirection.Down)
+        ok()
+        rule.onAllNodesWithText("Start party here")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_500) { false }
+        // The player covers Home, then closes.
+        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(false) }
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        settle(1_000) { false }
+        rule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
+        settle(1_500) { false }
+        shot("32-back-from-player")
+        check(!menuOpen(), "Coming back from the player opened the menu")
+        press(FocusDirection.Down)
+        shot("33-back-from-player-down")
+        check(!menuOpen(), "Down after coming back from the player opened the menu")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
