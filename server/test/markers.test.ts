@@ -143,6 +143,24 @@ test("credits by the picture: the last long stretch of black keyframes", () => {
   assert.equal(blackCredits(frames([[0, 140, 10]]), 140), null);
   assert.equal(blackCredits(frames([[0, 126, 10], [126, 140, 96]]), 140), null);
   assert.equal(blackCredits(frames([[0, 40, 10], [40, 80, 96], [80, 140, 10]]), 140), null);
+  // Reacher: a bright studio logo after the credits, then black; keyframes out of order and, over still cards, far apart.
+  const reacher = [
+    { t: 0, black: 10 }, { t: 40, black: 20 }, { t: 70, black: 15 },
+    { t: 104, black: 97 }, { t: 98, black: 96 }, { t: 130, black: 98 }, { t: 161, black: 97 }, { t: 185, black: 96 },
+    { t: 196, black: 5 }, { t: 200, black: 12 }, { t: 205, black: 100 },
+  ];
+  assert.equal(blackCredits(reacher, 208), null, "the old 12 s gap rule cuts it");
+  assert.equal(blackCredits(reacher, 208, 40), 98);
+  // Two frames a second: a 3 s picture card inside is fine, a longer bright scene isn't.
+  const half = (spec: [number, number, number][]) =>
+    spec.flatMap(([from, to, black]) => Array.from({ length: (to - from) * 2 }, (_, k) => ({ t: from + k / 2, black })));
+  assert.equal(blackCredits(half([[0, 50, 10], [50, 80, 95], [80, 83, 30], [83, 140, 96]]), 140, 12, 8), 50);
+  assert.equal(blackCredits(half([[0, 50, 10], [50, 80, 95], [80, 90, 30], [90, 140, 96]]), 140, 12, 8), 90);
+  // A card full of names reads 83% black for 6 s (Reacher S1E03): too bright at 85, part of the credits at 80. The dark
+  // final scene before (72%) stays out.
+  const names = half([[0, 30, 10], [30, 50, 72], [50, 80, 95], [80, 86, 83], [86, 140, 96]]);
+  assert.equal(blackCredits(names, 140, 12, 8), 86);
+  assert.equal(blackCredits(names, 140, 12, 8, 80), 50);
 });
 
 const canFingerprint =

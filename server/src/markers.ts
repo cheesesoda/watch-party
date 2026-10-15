@@ -91,8 +91,14 @@ const OUTRO_START = 5;
 const STING_MIN = 8;
 /** Credit cards over a dark picture before the end logos: this % black is enough when the logos anchor them. */
 const STING_DARK = 50;
-/** Bumped when the second search changes, so episodes it gave credits to are looked at again. */
-const CREDITS_RETRY = 2;
+/** Bumped when finding credits changes, so episodes without them (or given them by an older second search) are looked at again. */
+const CREDITS_RETRY = 3;
+/** Between keyframes over still credit cards: this long a gap between two dark ones doesn't end the stretch. */
+const KEYFRAME_GAP = 40;
+/** Two frames a second: a picture card among the credits can take this many in a row. */
+const CLOSE_ODD = 8;
+/** Every half second, a card full of names can read a bit under [CREDITS_BLACK] for seconds at a time (Reacher S1E03). */
+const CLOSE_BLACK = 80;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
@@ -294,26 +300,29 @@ function oldChapterMarks(chapters: { start: number; end: number; title: string }
 }
 
 /**
- * Where the credits start, going by the picture: the last stretch of keyframes that are nearly all black (white text
- * on black), at least 20 s long and reaching to within 30 s of the end (logos may follow). One odd keyframe inside is
- * fine; two in a row end the stretch. [frames] are seconds from the start of the window and % black; [length] is the
- * window's length.
+ * Where the credits start, going by the picture: the last stretch of frames that are nearly all black (white text on
+ * black), at least 20 s long and ending within 30 s of the end (a bright studio logo may follow, black or not after
+ * it). Up to [odd] other frames in a row inside are fine (a picture card), more end the stretch, and so does a gap
+ * longer than [gap] seconds between dark frames. A frame is dark at [min] % black or more. [frames] are seconds from the start of the window and % black, in any order (ffmpeg doesn't always
+ * print keyframes in order); [length] is the window's length.
  */
-export function blackCredits(frames: { t: number; black: number }[], length: number): number | null {
-  const dark = (i: number) => frames[i].black >= CREDITS_BLACK;
-  let i = frames.length - 1;
-  while (i >= 0 && !dark(i) && length - frames[i].t <= 30) i--;
-  if (i < 0 || !dark(i) || length - frames[i].t > 30) return null;
-  const lastDark = frames[i].t;
-  let start = i;
-  let bright = 0;
-  for (let j = i - 1; j >= 0; j--) {
-    if (dark(j)) {
-      start = j;
-      bright = 0;
-    } else if (++bright >= 2 || frames[start].t - frames[j].t > 12) break;
+export function blackCredits(unsorted: { t: number; black: number }[], length: number, gap = 12, odd = 1, min = CREDITS_BLACK): number | null {
+  const frames = [...unsorted].sort((a, b) => a.t - b.t);
+  const dark = (i: number) => frames[i].black >= min;
+  for (let i = frames.length - 1; i >= 0 && length - frames[i].t <= 30; i--) {
+    if (!dark(i)) continue;
+    let start = i;
+    let bright = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      if (frames[start].t - frames[j].t > gap) break;
+      if (dark(j)) {
+        start = j;
+        bright = 0;
+      } else if (++bright > odd) break;
+    }
+    if (frames[i].t - frames[start].t >= 20) return frames[start].t;
   }
-  return lastDark - frames[start].t >= 20 ? frames[start].t : null;
+  return null;
 }
 
 /**
@@ -321,7 +330,8 @@ export function blackCredits(frames: { t: number; black: number }[], length: num
  * the window) through keyframes that are mostly dark (credit cards over a dim scene), one odd keyframe allowed, two
  * in a row or a gap over 12 s ending it. The stretch has to reach the logos and last at least 10 s.
  */
-export function creditsBefore(frames: { t: number; black: number }[], end: number): number | null {
+export function creditsBefore(unsorted: { t: number; black: number }[], end: number): number | null {
+  const frames = [...unsorted].sort((a, b) => a.t - b.t);
   const dark = (i: number) => frames[i].black >= STING_DARK;
   let i = frames.length - 1;
   while (i >= 0 && frames[i].t > end) i--;
@@ -597,7 +607,7 @@ export class Markers {
       if (this.closed) return;
       const e = list[i];
       const entry = this.heard(e.item, list.length) ? this.cache[e.item.id] : null;
-      if (entry && Markers.retried(entry)) marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], entry.sound ?? {}, probes[i]?.duration ?? 0, tailStart(i));
+      if (entry && (Markers.retried(entry) || (entry.marks.credits == null && entry.creditsRetried !== CREDITS_RETRY))) marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], entry.sound ?? {}, probes[i]?.duration ?? 0, tailStart(i));
       else if (entry) marks[i] = { ...entry.marks };
       else marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], found[i], probes[i]?.duration ?? 0, tailStart(i));
     }
@@ -740,17 +750,29 @@ export class Markers {
     const chapters = chapterMarks(chapterList);
     let credits = chapters.credits ?? sound.credits ?? null;
     if (credits == null && duration > 0) {
+      // Keyframes first, as they're quick to read. Credit cards are still pictures, so keyframes can be half a minute
+      // apart there: a long gap between dark ones doesn't end the stretch. Then every half second around where it
+      // seems to start, to find the exact second (and keep out a dark scene just before).
       const frames = await this.blackness(file, tail, duration - tail);
-      const at = frames ? blackCredits(frames, duration - tail) : null;
-      if (at != null) credits = round(tail + at);
+      const rough = frames ? blackCredits(frames, duration - tail, KEYFRAME_GAP) : null;
+      if (rough != null) {
+        const from = Math.max(0, rough - 60);
+        const close = await this.blackness(file, tail + from, duration - tail - from, true);
+        const at = close ? blackCredits(close, duration - tail - from, 12, CLOSE_ODD, CLOSE_BLACK) : null;
+        credits = round(tail + (at != null ? from + at : rough));
+      }
     }
     return { intro: chapters.intro ?? sound.intro ?? null, recap: chapters.recap ?? null, credits };
   }
 
-  /** How black (%) each keyframe is over [length] seconds from [start] (only keyframes are decoded, so it's quick). */
-  private async blackness(file: string, start: number, length: number): Promise<{ t: number; black: number }[] | null> {
+  /**
+   * How black (%) each keyframe is over [length] seconds from [start] (only keyframes are decoded, so it's quick), or
+   * with [every], two frames a second (everything is decoded, so only for a few minutes).
+   */
+  private async blackness(file: string, start: number, length: number, every = false): Promise<{ t: number; black: number }[] | null> {
     if (length < CREDITS_MIN) return null;
-    const args = ["-hide_banner", "-nostdin", "-loglevel", "error", "-skip_frame", "nokey", "-ss", String(start), "-i", file, "-t", String(length), "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", "scale=128:-2,blackframe=amount=0:threshold=32,metadata=print:file=-", "-f", "null", "-"];
+    const filter = `${every ? "fps=2," : ""}scale=128:-2,blackframe=amount=0:threshold=32,metadata=print:file=-`;
+    const args = ["-hide_banner", "-nostdin", "-loglevel", "error", ...(every ? [] : ["-skip_frame", "nokey"]), "-ss", String(start), "-i", file, "-t", String(length), "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", filter, "-f", "null", "-"];
     const r = await run(this.config.ffmpeg, args, 5 * 60_000);
     if (r.code !== 0) return null;
     const frames: { t: number; black: number }[] = [];
