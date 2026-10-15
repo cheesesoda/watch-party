@@ -213,7 +213,9 @@ class TvScreensTest {
         press(FocusDirection.Down, 3)
         ok()
         shot("10-shows")
+        // Right lands on the sort chips; Down reaches the first show.
         press(FocusDirection.Right)
+        press(FocusDirection.Down)
         ok()
         shot("11-show-page")
         press(FocusDirection.Up)

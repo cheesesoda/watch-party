@@ -148,7 +148,8 @@ private class Library(val items: List<MediaItem>) {
 
     fun showFacts(s: Show): String = listOfNotNull(
         s.meta?.year?.toString(),
-        plural(s.seasons.size, "season"),
+        // A show with only specials (or extras) has no "0 seasons".
+        s.seasons.size.takeIf { it > 0 }?.let { plural(it, "season") },
         s.specials.size.takeIf { it > 0 }?.let { plural(it, "special") },
         s.meta?.rating?.let { "★ %.1f".format(it) },
         s.meta?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() },
@@ -371,7 +372,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             movie != null -> MoviePage(lib, movie, actions, listState)
             show != null -> ShowPage(lib, show, actions, listState)
             route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
-            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState)
+            route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState, sortable = true)
             route == "search" -> SearchPage(lib, actions, gridState)
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
             else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null })
@@ -1022,7 +1023,7 @@ private fun MovieCard(m: MediaItem, lib: Library, a: Actions, width: Dp? = if (a
 
 @Composable
 private fun ShowCard(s: Show, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
-    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, plural(s.seasons.size, "season"), width, { a.go("show/${s.name}") })
+    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, s.badge, width, { a.go("show/${s.name}") })
 }
 
 /** A running party: its art with Watching/Paused and the code, then who's there and how far in. */
@@ -1097,6 +1098,13 @@ private enum class Sort(val label: String) { AZ("A–Z"), Recent("Recently added
 private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, shows: List<Show>, a: Actions, state: LazyGridState, sortable: Boolean = false, header: (@Composable () -> Unit)? = null) {
     var sort by rememberSaveable { mutableStateOf(Sort.AZ) }
     var subsOnly by rememberSaveable { mutableStateOf(false) }
+    val sortedShows = remember(shows, sort, subsOnly) {
+        val list = shows.filter { show -> !subsOnly || show.episodes.any { it.subtitles.isNotEmpty() } }
+        when (sort) {
+            Sort.Recent -> list.sortedByDescending { it.addedAt }
+            else -> list.sortedWith { x, y -> naturalCompare(x.name, y.name) }
+        }
+    }
     val sorted = remember(movies, sort, subsOnly) {
         val list = movies.filter { !subsOnly || it.subtitles.isNotEmpty() }
         when (sort) {
@@ -1116,19 +1124,21 @@ private fun PosterGrid(lib: Library, title: String, movies: List<MediaItem>, sho
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PageTitle(title, (sorted.size + shows.size).toString())
+                PageTitle(title, (sorted.size + sortedShows.size).toString())
                 if (sortable) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Sort.entries.forEach { s -> Chip(s.label, sort == s, a.tv) { sort = s } }
+                        // TV Shows sorts by name or newest episode only (Jake chose that over Length and Size).
+                        val sorts = if (movies.isEmpty()) listOf(Sort.AZ, Sort.Recent) else Sort.entries
+                        sorts.forEach { s -> Chip(s.label, sort == s, a.tv) { sort = s } }
                         Chip("Has subtitles", subsOnly, a.tv) { subsOnly = !subsOnly }
                     }
                 }
                 header?.invoke()
-                if (sorted.isEmpty() && shows.isEmpty()) Text(if (subsOnly) "Nothing has subtitles yet." else "Nothing here yet.", color = Muted)
+                if (sorted.isEmpty() && sortedShows.isEmpty()) Text(if (subsOnly) "Nothing has subtitles yet." else "Nothing here yet.", color = Muted)
             }
         }
         items(sorted, key = { it.id }) { MovieCard(it, lib, a, width = null) }
-        items(shows, key = { "show-" + it.name }) { ShowCard(it, lib, a, width = null) }
+        items(sortedShows, key = { "show-" + it.name }) { ShowCard(it, lib, a, width = null) }
         if (lib.details) item(span = { GridItemSpan(maxLineSpan) }) { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp)) }
     }
 }

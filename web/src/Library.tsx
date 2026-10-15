@@ -283,7 +283,7 @@ export function Library(props: {
                         {details && <Poster path={r.show.episodes[0].meta?.showPosterPath} size="w92" />}
                         <span className="title">{r.show.name}</span>
                         <span className="meta">
-                          TV show · {plural(r.show.seasons.length, "season")} · {plural(r.show.episodes.length, "episode")}
+                          TV show · {r.show.seasons.length ? `${plural(r.show.seasons.length, "season")} · ` : ""}{plural(r.show.episodes.length, "episode")}
                           {showExtras.has(r.show.name) && ` · ${plural(showExtras.get(r.show.name)!.length, "extra")}`}
                         </span>
                         <span className="action">Episodes</span>
@@ -307,7 +307,7 @@ export function Library(props: {
                     {details && <Poster path={s.episodes[0].meta?.showPosterPath} size="w185" />}
                     <span className="title">{s.name}</span>
                     <span className="meta">
-                      {plural(s.seasons.length, "season")} · {plural(s.episodes.length, "episode")}
+                      {s.seasons.length ? `${plural(s.seasons.length, "season")} · ` : ""}{plural(s.episodes.length, "episode")}
                     </span>
                   </button>
                 ))}

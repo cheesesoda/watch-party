@@ -53,7 +53,8 @@ function movieFacts(item: MediaItem, cat: Catalog): string[] {
 function showFacts(show: Show): string[] {
   return [
     String(show.meta?.year ?? ""),
-    plural(show.seasons.length, "season"),
+    // A show with only specials (or extras) has no "0 seasons".
+    show.seasons.length ? plural(show.seasons.length, "season") : "",
     show.specials.length ? plural(show.specials.length, "special") : "",
     show.meta?.rating ? `★ ${show.meta.rating.toFixed(1)}` : "",
     (show.meta?.genres ?? []).slice(0, 3).join(", "),
@@ -145,7 +146,7 @@ export function ShowCard(props: { show: Show; b: Browse }) {
       year={show.meta?.year}
       sub={plural(show.episodes.length, "episode")}
       poster={show.meta?.showPosterPath}
-      badge={plural(show.seasons.length, "season")}
+      badge={show.seasons.length ? plural(show.seasons.length, "season") : show.specials.length ? plural(show.specials.length, "special") : undefined}
       details={props.b.details}
       overlay={props.b.compact}
       onOpen={() => go(props.b, showLink(show))}
@@ -320,13 +321,28 @@ export function MoviesPage(props: { b: Browse; subtitlesOnly?: boolean }) {
   );
 }
 
+/** TV Shows: by name or by newest episode (remembered); no Length or Size, as Jake chose. */
 export function ShowsPage(props: { b: Browse }) {
-  const { shows } = props.b.cat;
+  const [sort, setSort] = useState<"az" | "recent">(() => (readPref("showSort") === "recent" ? "recent" : "az"));
+  useEffect(() => writePref("showSort", sort), [sort]);
+  const shows = useMemo(() => {
+    const newest = (s: Show) => Math.max(0, ...s.episodes.map((e) => e.addedAt ?? 0));
+    const list = [...props.b.cat.shows];
+    return sort === "recent" ? list.sort((a, b) => newest(b) - newest(a) || byName(a.name, b.name)) : list.sort((a, b) => byName(a.name, b.name));
+  }, [props.b.cat, sort]);
   return (
     <>
       <div className="page-head">
         <h1>TV Shows</h1>
         <span className="count">{shows.length}</span>
+        <span className="spacer" />
+        <div className="chips" role="group" aria-label="Sort">
+          {SORTS.filter(([s]) => s === "az" || s === "recent").map(([s, label]) => (
+            <button key={s} className={sort === s ? "chip on" : "chip"} aria-pressed={sort === s} onClick={() => setSort(s as "az" | "recent")}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       {shows.length === 0 && <p className="muted">No TV shows yet. Episodes named like "Show S01E02" are grouped here.</p>}
       <div className="poster-grid">

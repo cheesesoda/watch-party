@@ -22,7 +22,10 @@ data class Show(val name: String, val episodes: List<MediaItem>, val aliases: Li
     val addedAt: Long = episodes.maxOfOrNull { it.addedAt } ?: 0
     val size: Long = episodes.sumOf { it.size }
     val summary: String
-        get() = "${plural(seasons.size, "season")} · ${plural(episodes.size, "episode")}"
+        get() = listOfNotNull(seasons.size.takeIf { it > 0 }?.let { plural(it, "season") }, plural(episodes.size, "episode")).joinToString(" · ")
+    /** The poster's corner tag: its seasons, or its specials when it has only those. */
+    val badge: String?
+        get() = if (seasons.isNotEmpty()) plural(seasons.size, "season") else specials.size.takeIf { it > 0 }?.let { plural(it, "special") }
 }
 
 /** One line in the library list: a film (or any video that isn't an episode), or a whole show. */
