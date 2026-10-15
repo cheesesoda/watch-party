@@ -599,6 +599,8 @@ private fun NextCardButton(label: String, primary: Boolean, fill: Float?, tv: Bo
             if (primary) Icon(painterResource(R.drawable.ic_play_filled), contentDescription = null, tint = Color(0xFF18131F), modifier = Modifier.size(14.dp))
             Text(label, color = if (light) Color(0xFF18131F) else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
-        if (fill != null) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(fill).height(3.dp).background(Accent))
+        // matchParentSize so the bar sizes to the button; fillMaxWidth alone measured against the whole row and stretched
+        // the button as the countdown ran.
+        if (fill != null) Box(Modifier.matchParentSize()) { Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(fill).height(3.dp).background(Accent)) }
     }
 }
