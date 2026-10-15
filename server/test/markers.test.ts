@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { Library } from "../src/library.ts";
-import { blackCredits, chapterMarks, findClip, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, chapterMarks, creditsBefore, findClip, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -113,6 +113,23 @@ test("a known outro is found even when no point matches exactly, and a short pie
   assert.ok(hit && Math.abs(hit.start - 200) < 0.5 && Math.abs(hit.end - 212) < 0.5, JSON.stringify(hit));
   assert.equal(findClip(tail, Uint32Array.from(outro), 15), null, "shorter than asked for");
   assert.equal(findClip(Uint32Array.from(points(8, seconds(200))), Uint32Array.from(outro), 10), null);
+  assert.ok(hit!.from < 0.5, "it's the outro's start");
+  // Only the end of the outro (the logos) plays: it's found, and it says how far into the outro it is.
+  const logos = Uint32Array.from([...points(9, seconds(200)), ...outro.slice(seconds(20)), ...points(10, seconds(3))]);
+  const late = findClip(logos, Uint32Array.from(outro), 8);
+  assert.ok(late && Math.abs(late.start - 200) < 0.5 && Math.abs(late.from - 20) < 0.5, JSON.stringify(late));
+});
+
+test("credits before known end logos: walking back through mostly dark keyframes", () => {
+  const frames = (spec: [number, number, number][]) =>
+    spec.flatMap(([from, to, black]) => Array.from({ length: (to - from) / 2 }, (_, k) => ({ t: from + k * 2, black })));
+  // Cards over a dim scene (60-75% black, too little for blackCredits), one brighter card, then the logos at 160.
+  const song = frames([[0, 120, 15], [120, 140, 70], [140, 142, 30], [142, 160, 62], [160, 170, 20]]);
+  assert.equal(blackCredits(song, 170), null);
+  assert.equal(creditsBefore(song, 160), 120);
+  // Nothing dark right before the logos, or too short a stretch: no credits.
+  assert.equal(creditsBefore(frames([[0, 120, 70], [120, 160, 15]]), 160), null);
+  assert.equal(creditsBefore(frames([[0, 154, 15], [154, 160, 80]]), 160), null);
 });
 
 test("credits by the picture: the last long stretch of black keyframes", () => {
