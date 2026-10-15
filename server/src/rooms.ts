@@ -94,6 +94,8 @@ export class Room {
   holdMs = 4_000;
   /** Waiting for screens to load the spot someone jumped to: who has. */
   private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number } | null = null;
+  /** Screens the last hold gave up waiting for, so the log can say when each caught up. */
+  private late: { ids: Set<string>; since: number; gaveUpAt: number } | null = null;
   /** Members whose screen plays the video and says when it has loaded a spot (newer apps only). */
   private players = new Set<string>();
   /** The host watching alone: guests can't join with its code, and it isn't on the party list, until "invite". */
@@ -291,14 +293,22 @@ export class Room {
         this.resumeIfAllReady();
         return;
 
-      case "ready":
+      case "ready": {
+        const copy = msg.converted === true ? " (converted copy)" : "";
+        if (msg.late === true) {
+          if (this.late?.ids.delete(member.id)) {
+            this.log(`${this.who([member.id])} caught up ${now - this.late.since} ms after the jump, ${now - this.late.gaveUpAt} ms after the others started${copy}`);
+          }
+          return;
+        }
         if (this.hold && this.state.hold && validPosition(msg.position) && Math.abs(msg.position - this.state.position) < 1) {
           this.players.add(member.id);
           this.hold.ready.add(member.id);
-          this.log(`${this.who([member.id])} loaded it after ${now - this.hold.since} ms`);
+          this.log(`${this.who([member.id])} loaded it after ${now - this.hold.since} ms${copy}`);
           this.resumeIfAllReady();
         }
         return;
+      }
 
       case "chat": {
         const text = typeof msg.text === "string" ? msg.text.trim().slice(0, MAX_CHAT_LENGTH) : "";
@@ -490,6 +500,7 @@ export class Room {
   /** Pauses everyone at [position] until each screen has loaded it (or [holdMs] runs out), then plays. */
   private holdAt(position: number, now: number): void {
     this.state = { mediaId: this.state.mediaId, paused: true, position, updatedAt: now, hold: true };
+    this.late = null;
     const timer = setTimeout(() => this.resumeHold(), this.holdMs);
     timer.unref?.();
     this.hold = { ready: new Set(), timer, since: now };
@@ -503,6 +514,7 @@ export class Room {
     if (this.ended || !this.state.hold) return;
     const late = [...this.players].filter((id) => this.members.has(id) && !ready.has(id));
     this.log(`playing after ${this.now() - since} ms${late.length ? `; gave up waiting for ${this.who(late)}` : ""}`);
+    this.late = late.length ? { ids: new Set(late), since, gaveUpAt: this.now() } : null;
     this.state = { mediaId: this.state.mediaId, paused: false, position: this.state.position, updatedAt: this.now() };
     this.broadcastState(null);
   }

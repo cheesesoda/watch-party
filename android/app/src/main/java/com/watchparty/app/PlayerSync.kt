@@ -19,6 +19,8 @@ class PlayerSync(
      * when the jump was Skip intro / Skip recap.
      */
     private val send: (type: String, position: Double, at: Long?, skip: String?) -> Unit,
+    /** A jump's wait gave up on this device before it loaded, and now it plays in step (for the server's log). */
+    private val caughtUp: (position: Double) -> Unit = {},
 ) {
     val clock = ClockOffset()
     /**
@@ -33,6 +35,8 @@ class PlayerSync(
     private var unechoed = 0
     /** The hold this device last said it was ready for, so it says so once. */
     private var readyFor = ""
+    /** The last hold seen, so a device it gave up on can say when it caught up. */
+    private var lastHold = ""
 
     private var lastSentAt = 0L
     private val main = Handler(Looper.getMainLooper())
@@ -127,6 +131,7 @@ class PlayerSync(
         waitUntil = null
         nudge.reset()
         resumedAt = if (state?.hold == true && !newState.paused) SystemClock.uptimeMillis() else 0L
+        if (newState.hold) lastHold = "${newState.updatedAt}:${newState.position}"
         state = newState
         reconcile()
     }
@@ -249,6 +254,10 @@ class PlayerSync(
         // The position reads as the new spot before it has loaded, so there's nothing to measure yet.
         if (seekPending) return
         val drift = current - target
+        if (lastHold.isNotEmpty() && readyFor != lastHold && player.isPlaying && abs(drift) < 1.0) {
+            readyFor = lastHold
+            caughtUp(current)
+        }
         if (resumedAt > 0) {
             // Just started together after a jump: give it a moment to get going, then learn how late it started.
             if (SystemClock.uptimeMillis() - resumedAt < LAG_CHECK_MS) return

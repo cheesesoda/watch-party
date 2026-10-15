@@ -80,6 +80,44 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
 
 const round = (s: number) => Math.round(s * 10) / 10;
 
+/** The second credits search: this much of a known outro is looked for, and this much of it has to match. */
+const OUTRO_CLIP = 60;
+const CREDITS_RETRY_MIN = 10;
+
+/**
+ * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
+ * exactly): the longest stretch of at least [min] seconds where at least half the points match, in seconds into
+ * [within], or null.
+ */
+export function findClip(within: Uint32Array, clip: Uint32Array, min: number): TimeRange | null {
+  const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
+  let best: { start: number; end: number } | null = null;
+  for (let offset = -clip.length + 1; offset < within.length; offset++) {
+    let start = -1;
+    let last = -1;
+    let hits = 0;
+    const close = () => {
+      if (start >= 0 && hits * 2 >= last - start + 1 && (!best || last - start > best.end - best.start)) best = { start, end: last };
+    };
+    for (let k = Math.max(0, -offset); k < clip.length && offset + k < within.length; k++) {
+      const i = offset + k;
+      if (bits(within[i] ^ clip[k]) > MAX_BIT_DIFF) continue;
+      if (start < 0 || i - last > gap) {
+        close();
+        start = i;
+        hits = 0;
+      }
+      last = i;
+      hits++;
+    }
+    close();
+  }
+  if (!best) return null;
+  const { start, end } = best as { start: number; end: number };
+  if ((end - start + 1) * POINT_SECONDS < min) return null;
+  return { start: round(start * POINT_SECONDS), end: round((end + 1) * POINT_SECONDS) };
+}
+
 /**
  * Every stretch of at least [min] seconds two fingerprints share, at any of their likeliest offsets: the clips a
  * recap took from an earlier episode, say.
@@ -308,6 +346,8 @@ interface Entry {
   sound?: SkipMarks;
   /** Whether the episode's opening has been checked against earlier episodes for a recap. */
   recapLooked?: boolean;
+  /** Whether an episode without credits has been checked against the outro of the season's episodes that have them. */
+  creditsRetried?: boolean;
 }
 
 export interface MarkersEntry {
@@ -395,7 +435,9 @@ export class Markers {
 
   /** Whether there's nothing left to look for: intros and credits heard, and (for episodes) the recap looked for. */
   private fresh(item: MediaItem, peers: number): boolean {
-    return this.heard(item, peers) && (!item.episode || !!this.cache[item.id].recapLooked);
+    if (!this.heard(item, peers)) return false;
+    const entry = this.cache[item.id];
+    return !item.episode || (!!entry.recapLooked && (entry.marks.credits != null || !!entry.creditsRetried));
   }
 
   private async pass(entries: MarkersEntry[]): Promise<void> {
@@ -459,7 +501,9 @@ export class Markers {
     const ep = list[0].item.episode!;
     const name = Markers.seasonName(list);
     const listen = list.filter((e) => !this.heard(e.item, list.length)).length;
-    this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : "checking for recaps"}`);
+    const recapsDue = list.some((e) => !this.cache[e.item.id]?.recapLooked);
+    const retries = list.filter((e) => this.cache[e.item.id]?.marks.credits == null).length;
+    this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : recapsDue ? "checking for recaps" : `looking again for credits in ${retries} of ${list.length} episodes`}`);
     const probes = await Promise.all(list.map((e) => this.probe(e.absPath)));
     const heads = new Map<number, Uint32Array | null>();
     const tails = new Map<number, Uint32Array | null>();
@@ -514,6 +558,26 @@ export class Markers {
       if (this.heard(e.item, list.length)) marks[i] = { ...this.cache[e.item.id].marks };
       else marks[i] = await this.combine(e.absPath, probes[i]?.chapters ?? [], found[i], probes[i]?.duration ?? 0, tailStart(i));
     }
+    // Credits a second time: an episode still without them is searched for the outro of the nearest episodes that
+    // have them, at every offset (two encodes of the same music don't always share the exact points the first search
+    // starts from), and a shorter stretch will do, since it's known to be the outro.
+    for (let i = 0; i < list.length; i++) {
+      if (this.closed) return;
+      if (marks[i].credits != null || this.fresh(list[i].item, list.length)) continue;
+      const tail = await tailOf(i);
+      if (!tail) continue;
+      const known = list.map((_, j) => j).filter((j) => j !== i && marks[j].credits != null).sort((x, y) => Math.abs(x - i) - Math.abs(y - i)).slice(0, 4);
+      for (const j of known) {
+        const theirs = await tailOf(j);
+        const from = Math.round((marks[j].credits! - tailStart(j)) / POINT_SECONDS);
+        if (!theirs || from < 0 || from >= theirs.length) continue;
+        const hit = findClip(tail, theirs.subarray(from, from + Math.round(OUTRO_CLIP / POINT_SECONDS)), CREDITS_RETRY_MIN);
+        if (hit) {
+          marks[i].credits = round(tailStart(i) + hit.start);
+          break;
+        }
+      }
+    }
     // Recaps: each episode's opening against the episode before it (all of it) and the openings and endings of the
     // ones before that. Specials aren't in order, so they have nothing to recap.
     const fulls = new Map<number, Uint32Array | null>();
@@ -561,7 +625,9 @@ export class Markers {
         continue;
       }
       const chapters = chapterMarks(probes[i]?.chapters ?? []);
-      const head = await headOf(i);
+      // Back only for its credits: its recap was already looked for.
+      const looked = this.heard(e.item, list.length) && !!this.cache[e.item.id].recapLooked;
+      const head = looked ? null : await headOf(i);
       const intro = marks[i].intro ?? null;
       let detected: TimeRange | null = null;
       if (head && i > 0 && ep.season !== 0) {
@@ -578,7 +644,9 @@ export class Markers {
       }
       const named = chapters.recap ?? null;
       // A recap chapter says where the recap is, unless the clips run on past where it says it ends.
-      const recap = named && detected && overlaps(named, detected) ? { start: Math.min(named.start, detected.start), end: Math.max(named.end, detected.end) } : named ?? detected;
+      const recap = looked
+        ? marks[i].recap ?? null
+        : named && detected && overlaps(named, detected) ? { start: Math.min(named.start, detected.start), end: Math.max(named.end, detected.end) } : named ?? detected;
       const m = { ...marks[i], intro, recap };
       if (m.intro) intros++;
       if (m.credits != null) credits++;
@@ -589,6 +657,7 @@ export class Markers {
         peers: entry ? entry.peers ?? list.length : list.length,
         sound: entry ? entry.sound : { intro: found[i].intro ?? null, credits: found[i].credits ?? null },
         recapLooked: true,
+        creditsRetried: true,
       });
     }
     const missing = this.missingCredits(list);
@@ -661,7 +730,7 @@ export class Markers {
     this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null } });
   }
 
-  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean }): void {
+  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean }): void {
     this.cache[item.id] = { key: Markers.key(item), v: VERSION, ...entry };
   }
 

@@ -267,7 +267,11 @@ class RoomActivity : ComponentActivity() {
             }
         })
         PlayerSync.startLag = prefs.startLag
-        sync = PlayerSync(player) { type, position, at, skip -> connection.send(Protocol.position(type, position, at, skip)) }
+        sync = PlayerSync(
+            player,
+            send = { type, position, at, skip -> connection.send(Protocol.position(type, position, at, skip)) },
+            caughtUp = { position -> connection.send(Protocol.caughtUp(position)) },
+        )
         buildLayout()
         playerView.player = player
 

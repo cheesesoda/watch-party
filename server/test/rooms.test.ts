@@ -333,6 +333,29 @@ test("a hold gives up on slow or departed screens", async () => {
   assert.deepEqual([lastState().state.paused, lastState().state.hold], [true, undefined]);
 });
 
+test("the log says when a screen the hold gave up on catches up, and which copy it plays", async () => {
+  const { room, alice, bob, clock } = setup();
+  const lines: string[] = [];
+  room.log = (l) => lines.push(l);
+  room.holdMs = 5;
+  room.handle(alice.id, { type: "player", on: true });
+  room.handle(bob.id, { type: "player", on: true });
+  room.handle(alice.id, { type: "play", position: 10 });
+  room.handle(alice.id, { type: "seek", position: 60 });
+  room.handle(alice.id, { type: "ready", position: 60, converted: true });
+  assert.ok(lines.some((l) => /loaded it after \d+ ms \(converted copy\)$/.test(l)), lines.join("\n"));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(lines.some((l) => l.includes("gave up waiting for")), lines.join("\n"));
+  clock.tick(2500);
+  room.handle(bob.id, { type: "ready", position: 62.5, late: true });
+  assert.ok(lines.some((l) => /caught up 2500 ms after the jump, 2500 ms after the others started$/.test(l)), lines.join("\n"));
+  // Said once; a screen that wasn't waited for says nothing.
+  const count = lines.length;
+  room.handle(bob.id, { type: "ready", position: 63, late: true });
+  room.handle(alice.id, { type: "ready", position: 63, late: true });
+  assert.equal(lines.length, count);
+});
+
 test("ending with Save spot keeps where the party is, and a new party picks up there", () => {
   let now = 1_000;
   const ep = (n: number): MediaItem => ({ ...movie, id: `e${n}`, title: `Ep ${n}`, duration: 3000, episode: { show: "Show", season: 1, episode: n, title: null } });

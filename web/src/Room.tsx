@@ -7,7 +7,7 @@ import { BackIcon, ChatIcon, PlayIcon, CheckIcon, ExitFullscreenIcon, Fullscreen
 import { inviteLink } from "./Home.tsx";
 import { Picker } from "./Picker.tsx";
 import { SaveSpotDialog, spotPreview } from "./Spots.tsx";
-import { navigate, usePageTitle } from "./nav.ts";
+import { leaveParty, usePageTitle } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
 import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
@@ -177,6 +177,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   useEffect(() => {
     const video = videoRef.current!;
     if (!mediaId || mediaInfo === undefined) return;
+    if (syncRef.current) syncRef.current.converted = converted;
     let destroy = () => {};
     let cancelled = false;
     if (!converted) {
@@ -273,7 +274,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   const leave = () => {
     // Leaving on your own keeps your spot for Pick up where you left off, without asking.
     if (solo) send({ type: "end", save: true });
-    navigate("/");
+    leaveParty();
   };
   const makeParty = () => {
     setAsking(false);
@@ -336,7 +337,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       <div className="center">
         <div className="card">
           <p>{view.status === "ended" ? `${view.endedBy ?? "Someone"} ended the watch party.` : "This watch party has ended or the code is wrong."}</p>
-          <button className="primary" onClick={() => navigate("/")}>
+          <button className="primary" onClick={leaveParty}>
             Back
           </button>
         </div>
