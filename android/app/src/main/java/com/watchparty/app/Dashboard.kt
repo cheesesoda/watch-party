@@ -604,8 +604,12 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     @Suppress("DEPRECATION")
     val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
+        // Only after being covered: adding the observer replays ON_RESUME right away.
+        var away = false
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) scope.launch {
+            if (event == Lifecycle.Event.ON_STOP) away = true
+            if (event == Lifecycle.Event.ON_RESUME && away) scope.launch {
+                away = false
                 // After the window has its focus back.
                 withFrameNanos {}
                 delay(150)
