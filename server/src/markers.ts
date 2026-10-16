@@ -36,18 +36,9 @@ function bits(n: number): number {
 }
 
 /**
- * A theme edited to fit each episode (bars dropped or repeated: Game of Thrones S1's titles, Archer S1's outro) only
- * lines up in pieces, each at its own offset. Pieces at least this long are joined when the next starts within
- * MAX_GAP_SECONDS of where the last ended, and the other episode's copy jumps no more than JOIN_JUMP between them.
- */
-const JOIN_PIECE = 4;
-const JOIN_JUMP = 20;
-
-/**
  * The longest stretch of sound two fingerprints share (an intro two episodes both have, say), at least [min] seconds
  * long, or null. Points that match exactly suggest how far apart the two are; each of the likeliest offsets is then
- * checked point by point, allowing small differences between the two encodes. Pieces that follow on from each other
- * at different offsets count as one stretch (a theme cut differently in each episode).
+ * checked point by point, allowing small differences between the two encodes.
  */
 export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max = Infinity): Shared | null {
   const where = new Map<number, number[]>();
@@ -63,53 +54,28 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
   const offsets = [...votes.entries()].filter(([, n]) => n >= 3).sort((x, y) => y[1] - x[1]).slice(0, 25).map(([o]) => o);
   const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
   let best: { start: number; end: number; offset: number } | null = null;
-  // Stretches long and dense enough to be joined to others: in [a], and where they start and end in [b].
-  const pieces: { start: number; end: number; from: number; to: number }[] = [];
   for (const offset of offsets) {
     let start = -1;
     let last = -1;
-    let hits = 0;
     const close = () => {
-      if (start < 0) return;
-      if (!best || last - start > best.end - best.start) best = { start, end: last, offset };
-      if ((last - start + 1) * POINT_SECONDS >= JOIN_PIECE && hits * 2 >= last - start + 1) pieces.push({ start, end: last, from: start - offset, to: last - offset });
+      if (start >= 0 && (!best || last - start > best.end - best.start)) best = { start, end: last, offset };
     };
     for (let i = Math.max(0, offset); i < Math.min(a.length, b.length + offset); i++) {
       if (bits(a[i] ^ b[i - offset]) > MAX_BIT_DIFF) continue;
       if (start < 0 || i - last > gap) {
         close();
         start = i;
-        hits = 0;
       }
       last = i;
-      hits++;
     }
     close();
   }
   if (!best) return null;
-  const single = best as { start: number; end: number; offset: number };
-  let match = { start: single.start, end: single.end, from: single.start - single.offset, to: single.end - single.offset };
-  // Each piece with the longest run of pieces ending in it (earliest start in [a]), taken in order of where they start.
-  const jump = Math.round(JOIN_JUMP / POINT_SECONDS);
-  pieces.sort((x, y) => x.start - y.start || x.end - y.end);
-  const chains = pieces.map((p) => ({ ...p }));
-  for (let k = 0; k < pieces.length; k++) {
-    const q = pieces[k];
-    for (let j = 0; j < k; j++) {
-      const p = pieces[j];
-      if (q.end <= p.end || q.start - p.end > gap || Math.abs(q.from - p.to) > jump) continue;
-      const c = chains[j];
-      if (c.start < chains[k].start) chains[k] = { start: c.start, end: q.end, from: Math.min(c.from, q.from), to: Math.max(c.to, q.to) };
-    }
-    const c = chains[k];
-    const [length, other] = [c.end - c.start, c.to - c.from];
-    // The other episode's copy has to be about as long: pieces from all over it aren't one theme.
-    if (length > match.end - match.start && other * 2 >= length && other <= length * 2) match = c;
-  }
-  const length = (match.end - match.start + 1) * POINT_SECONDS;
+  const { start, end, offset } = best as { start: number; end: number; offset: number };
+  const length = (end - start + 1) * POINT_SECONDS;
   if (length < min || length > max) return null;
-  const range = (from: number, to: number): TimeRange => ({ start: round(from * POINT_SECONDS), end: round((to + 1) * POINT_SECONDS) });
-  return { a: range(match.start, match.end), b: range(match.from, match.to) };
+  const range = (from: number): TimeRange => ({ start: round(from * POINT_SECONDS), end: round((from + end - start + 1) * POINT_SECONDS) });
+  return { a: range(start), b: range(start - offset) };
 }
 
 const round = (s: number) => Math.round(s * 10) / 10;
@@ -330,6 +296,28 @@ export function chapterMarks(chapters: { start: number; end: number; title: stri
     if (range && range.end - range.start < SKIP_MIN) delete marks[kind];
   }
   return marks;
+}
+
+/** A chapter starting this close to where sound says an intro starts, and this much of it heard, is that intro. */
+const CHAPTER_NEAR = 10;
+const CHAPTER_HEARD = 0.4;
+
+/**
+ * The intro sound found, run on to the end of the (unnamed) chapter it opens, when there is one: an episode whose edit
+ * of the titles only one other shares in part (Game of Thrones S1E09 and E10, 63 s of their 1:48) still gets all of
+ * them (and an intro already run on is the same again, so it isn't thrown out as sound few episodes share). Null when
+ * no chapter fits: none starting within CHAPTER_NEAR of it, ending where or after it does, no longer than an intro can
+ * be, and at least CHAPTER_HEARD of it heard.
+ */
+export function introChapter(intro: TimeRange, chapters: { start: number; end: number; title: string }[]): TimeRange | null {
+  let end: number | null = null;
+  for (const c of chapters) {
+    const heard = Math.min(intro.end, c.end) - Math.max(intro.start, c.start);
+    if (Math.abs(c.start - intro.start) > CHAPTER_NEAR || c.end < intro.end || c.end - c.start > INTRO_MAX) continue;
+    if (heard < (c.end - c.start) * CHAPTER_HEARD) continue;
+    end = Math.max(end ?? 0, c.end);
+  }
+  return end != null ? { start: intro.start, end: round(end) } : null;
 }
 
 /** What version 1 took from chapter names (the first matching chapter of each kind), to tell it from what sound found. */
@@ -750,6 +738,9 @@ export class Markers {
     // Every outro an episode shares with a neighbour, as its credits start where the earliest one does: one neighbour
     // can share only the end of it (Archer S1E02 shares 16 s of E03's, the rest share 27 s more).
     const outros: Outro[][] = list.map(() => []);
+    // Likewise every intro: a season can have more than one edit of its titles (Game of Thrones S1 has three), and a
+    // neighbour with another edit shares only their first bars, so the longest one shared wins.
+    const openings: TimeRange[][] = list.map(() => []);
     const compared = new Set<string>();
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
@@ -757,17 +748,15 @@ export class Markers {
       // The nearest episodes first: they're the likeliest to share the season's theme as it is now.
       const partners = [i + 1, i - 1, i + 2, i - 2].filter((j) => j >= 0 && j < list.length);
       for (const j of partners) {
-        if (!found[i].intro) {
-          const [a, b] = [await headOf(i), await headOf(j)];
-          const hit = a && b ? sharedStretch(a, b, INTRO_MIN, INTRO_MAX) : null;
-          if (hit) {
-            found[i].intro = hit.a;
-            found[j].intro ??= hit.b;
-          }
-        }
         const pair = `${Math.min(i, j)}|${Math.max(i, j)}`;
         if (compared.has(pair)) continue;
         compared.add(pair);
+        const [ha, hb] = [await headOf(i), await headOf(j)];
+        const opening = ha && hb ? sharedStretch(ha, hb, INTRO_MIN, INTRO_MAX) : null;
+        if (opening) {
+          openings[i].push(opening.a);
+          openings[j].push(opening.b);
+        }
         const [a, b] = [await tailOf(i), await tailOf(j)];
         const hit = a && b ? sharedStretch(a, b, CREDITS_MIN) : null;
         if (hit) {
@@ -776,7 +765,10 @@ export class Markers {
         }
       }
     }
-    for (let i = 0; i < list.length; i++) found[i].credits = outroStart(outros[i]);
+    for (let i = 0; i < list.length; i++) {
+      found[i].credits = outroStart(outros[i]);
+      found[i].intro = openings[i].reduce<TimeRange | null>((best, r) => (!best || r.end - r.start > best.end - best.start ? r : best), null);
+    }
     const marks: SkipMarks[] = [];
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
@@ -842,7 +834,8 @@ export class Markers {
       }
       shared[i] = head ? recurring(head, others) : [];
       const intro = marks[i].intro;
-      if (intro && !chapterMarks(probes[i]?.chapters ?? []).intro && others.length >= 2) {
+      const chapterList = probes[i]?.chapters ?? [];
+      if (intro && !chapterMarks(chapterList).intro && !introChapter(intro, chapterList) && others.length >= 2) {
         const covered = shared[i].reduce((sum, r) => sum + Math.max(0, Math.min(intro.end, r.end) - Math.max(intro.start, r.start)), 0);
         if (covered < (intro.end - intro.start) / 2) marks[i].intro = null;
       }
@@ -939,7 +932,8 @@ export class Markers {
         credits = round(tail + (at != null ? from + at : rough));
       }
     }
-    return { intro: chapters.intro ?? sound.intro ?? null, recap: chapters.recap ?? null, credits };
+    const heard = sound.intro ? introChapter(sound.intro, chapterList) ?? sound.intro : null;
+    return { intro: chapters.intro ?? heard, recap: chapters.recap ?? null, credits };
   }
 
   /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */
