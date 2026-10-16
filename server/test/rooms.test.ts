@@ -375,7 +375,7 @@ test("the log says when a screen the hold gave up on catches up, and which copy 
   assert.equal(lines.length, count);
 });
 
-test("watching alone, the party pauses where it was when its screen goes", () => {
+test("watching alone, the party pauses where it was when its screen goes", async () => {
   let now = 1_000;
   const mgr = new RoomManager((id) => (id === movie.id ? { ...movie, duration: 7200 } : undefined), () => now, 1000);
   const room = mgr.create(movie.id, undefined, 0, true);
@@ -383,12 +383,24 @@ test("watching alone, the party pauses where it was when its screen goes", () =>
   room.log = (l) => lines.push(l);
   const host = room.join("Host", () => {}, "tv");
   room.handle(host.id, { type: "play", position: 600 });
+  room.soloGraceMs = 5;
   now += 30_000;
   room.leave(host.id);
-  assert.deepEqual([room.state.paused, room.state.position], [true, 630]);
+  now += 20_000;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual([room.state.paused, room.state.position], [true, 630], "where the screen went, not where the wait ended");
   assert.deepEqual(lines, ["Host (tv) pressed play at 10:00", "paused at 10:30: nobody is watching"]);
   now += 60_000;
   assert.equal(room.position(), 630, "still there on return");
+  // A dropped connection that comes back in time finds it still playing.
+  const again = room.join("Host", () => {}, "tv");
+  room.handle(again.id, { type: "play", position: 630 });
+  room.soloGraceMs = 30;
+  room.leave(again.id, "code 1006");
+  assert.equal(lines.at(-1), "Host (tv) lost connection (code 1006)");
+  room.join("Host", () => {}, "tv");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(room.state.paused, false);
   // A party with friends plays on when someone steps out.
   const party = mgr.create(movie.id);
   const a = party.join("A", () => {});

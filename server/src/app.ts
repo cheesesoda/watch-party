@@ -564,9 +564,13 @@ export function createApp(config: Config): App {
       guest,
     );
     let alive = true;
+    let unanswered = false;
     ws.on("pong", () => (alive = true));
     const heartbeat = setInterval(() => {
-      if (!alive) return void ws.terminate();
+      if (!alive) {
+        unanswered = true;
+        return void ws.terminate();
+      }
       alive = false;
       ws.ping();
     }, 30_000);
@@ -580,9 +584,11 @@ export function createApp(config: Config): App {
       }
       if (msg && typeof msg === "object") room.handle(member.id, msg);
     });
-    ws.on("close", () => {
+    ws.on("close", (code) => {
       clearInterval(heartbeat);
-      room.leave(member.id);
+      // 1000/1001/1005: the app or browser closed it (leaving, or the tab going); 4404: the party ended.
+      const lost = unanswered ? "no answer to ping" : [1000, 1001, 1005, 4404].includes(code) ? null : `code ${code}`;
+      room.leave(member.id, lost);
     });
   }
 

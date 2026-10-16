@@ -97,6 +97,12 @@ export class Room {
    * the wait goes on until the first one has, up to this long.
    */
   holdMaxMs = 30_000;
+  /**
+   * Watching alone, how long the party plays on after its screen goes before pausing where it went: a dropped
+   * connection comes back by itself (the apps reconnect), and shouldn't find the video paused.
+   */
+  soloGraceMs = 30_000;
+  private emptyTimer: NodeJS.Timeout | null = null;
   /** Waiting for screens to load the spot someone jumped to: who has, and whether holdMs has run out. */
   private hold: { ready: Set<string>; timer: NodeJS.Timeout; since: number; overdue?: boolean } | null = null;
   /** Screens the last hold gave up waiting for, so the log can say when each caught up. */
@@ -218,6 +224,7 @@ export class Room {
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
     this.emptyAt = null;
+    this.cancelEmpty();
     this.members.set(member.id, { member, send, close, guest });
     send({
       type: "welcome",
@@ -237,19 +244,26 @@ export class Room {
     return member;
   }
 
-  leave(memberId: string): void {
+  /** [lost] says why a connection dropped (rather than closed), for the log. */
+  leave(memberId: string, lost: string | null = null): void {
     const entry = this.members.get(memberId);
     if (!entry) return;
+    if (lost && !this.ended) this.log(`${this.who([memberId])} lost connection (${lost})`);
     this.members.delete(memberId);
     this.players.delete(memberId);
     if (this.members.size === 0) {
       this.emptySince = this.now();
       this.emptyAt = this.position();
-      // Watching alone with nobody left watching: pause there, so it's where they left it when they come back.
+      // Watching alone with nobody left watching: pause where they left, unless their screen is back by then.
       if (this.solo && !this.state.paused && !this.ended) {
-        this.cancelHold();
-        this.state = { mediaId: this.state.mediaId, paused: true, position: this.emptyAt, updatedAt: this.now() };
-        this.log(`paused at ${fmtTime(this.emptyAt)}: nobody is watching`);
+        const at = this.emptyAt;
+        this.emptyTimer = setTimeout(() => {
+          this.emptyTimer = null;
+          if (this.members.size > 0 || this.state.paused || this.ended) return;
+          this.cancelHold();
+          this.state = { mediaId: this.state.mediaId, paused: true, position: at, updatedAt: this.now() };
+          this.log(`paused at ${fmtTime(at)}: nobody is watching`);
+        }, this.soloGraceMs);
       }
     }
     this.resumeIfAllReady();
@@ -477,6 +491,7 @@ export class Room {
     this.ended = true;
     this.cancelAdvance();
     this.cancelHold();
+    this.cancelEmpty();
     this.broadcast({ type: "ended", by });
     for (const { close } of [...this.members.values()]) close();
     this.onEnded();
@@ -560,6 +575,11 @@ export class Room {
   private cancelHold(): void {
     if (this.hold) clearTimeout(this.hold.timer);
     this.hold = null;
+  }
+
+  private cancelEmpty(): void {
+    if (this.emptyTimer) clearTimeout(this.emptyTimer);
+    this.emptyTimer = null;
   }
 
   private cancelAdvance(): void {
