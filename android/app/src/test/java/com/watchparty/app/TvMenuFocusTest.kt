@@ -108,8 +108,8 @@ class TvMenuFocusTest {
     fun leftLandsOnThePagesOwnMenuItem() {
         page(alone = false) {}
         windowFocus()
-        // Cards low on the page sit level with Watch Parties or Join with code, high ones with Search.
-        for (card in listOf(17, 0)) {
+        // Five cards a row: the second row sits level with Watch Parties or Join with code, the first with Home.
+        for (card in listOf(5, 0)) {
             focusCard(card)
             move(FocusDirection.Left)
             assertTrue("Left from card $card landed on ${focusedLabel()}, not Movies", "Movies" in focusedLabel())
