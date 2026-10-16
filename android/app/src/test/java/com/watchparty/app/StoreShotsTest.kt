@@ -139,7 +139,9 @@ class StoreShotsTest {
     }
 
     @After
-    fun stop() = server.shutdown()
+    fun stop() {
+        runCatching { server.shutdown() }
+    }
 
     private fun signIn() {
         val prefs = Prefs(ApplicationProvider.getApplicationContext())
@@ -223,6 +225,9 @@ class StoreShotsTest {
         })
         server.start()
         signIn()
+        // The player asks Android whether it's on a TV.
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        shadowOf(context.getSystemService(android.app.UiModeManager::class.java)).setCurrentModeType(android.content.res.Configuration.UI_MODE_TYPE_TELEVISION)
         val intent = Intent(ApplicationProvider.getApplicationContext(), RoomActivity::class.java)
             .putExtra(RoomActivity.EXTRA_ROOM, "k7qm2x").putExtra(RoomActivity.EXTRA_HOST, true)
         ActivityScenario.launch<RoomActivity>(intent).use { scenario ->
@@ -241,6 +246,9 @@ class StoreShotsTest {
                 content.addView(ImageView(activity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(still(film, 2)) }, 0, FrameLayout.LayoutParams(-1, -1))
                 content.setBackgroundColor(Color.BLACK)
                 playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+                playerView.setBackgroundColor(Color.TRANSPARENT)
+                // The video's surface draws black here; the still stands in for it.
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)?.visibility = View.INVISIBLE
                 playerView.player = StillPlayer(((media.duration ?: 600.0) * 1000).toLong(), 300_000)
                 playerView.controllerShowTimeoutMs = 0
                 playerView.showController()
