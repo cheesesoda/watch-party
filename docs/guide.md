@@ -223,7 +223,9 @@ The app is on Google Play as an internal test, so the host adds each friend's Go
 
 ### Fire TV
 
-Fire TV has no Google Play, so Fire TV installs the APK file from GitHub instead. This works on Fire TV models that run Fire OS (for example the Fire TV Stick 4K Plus, 4K Max and Cube). It doesn't work on the newer Vega OS models (the Fire TV Stick 4K Select, and the 2026 Fire TV Stick 4K and Fire TV Stick HD), because they can't run Android apps. To check, look at Settings, My Fire TV, About.
+Popcorn Club is on the Amazon Appstore: on the Fire TV, search for **Popcorn Club** and install it. It updates by itself like any app. This works on Fire TV models that run Fire OS (for example the Fire TV Stick 4K Plus, 4K Max and Cube). It doesn't work on the newer Vega OS models (the Fire TV Stick 4K Select, and the 2026 Fire TV Stick 4K and Fire TV Stick HD), because they can't run Android apps. To check, look at Settings, My Fire TV, About.
+
+Each Appstore update waits for Amazon's review, so the Appstore version can be a few days behind. To get the newest build right away, install the APK file from GitHub instead:
 
 1. On the Fire TV home screen, search for **Downloader** (the orange app by AFTVnews) and install it.
 2. Turn on developer options: go to Settings, My Fire TV, About, and press the select button on your Fire TV's name seven times until it says you're a developer.
@@ -234,7 +236,7 @@ Fire TV has no Google Play, so Fire TV installs the APK file from GitHub instead
 
 To update, repeat step 4; your sign-in and settings stay. The phone side works the same as with any TV: scan the Fire TV's QR code with your phone to sign it in or to chat from your phone. Menu names can differ a little between Fire OS versions.
 
-This APK is only for Fire TV. On a phone or Google TV, use the Play Store version, because the two are signed differently and can't update each other.
+The Appstore copy and the APK are signed differently and can't update each other, so uninstall one before installing the other. The APK is only for Fire TV; on a phone or Google TV, use the Play Store version.
 
 ### First launch
 
