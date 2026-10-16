@@ -192,6 +192,8 @@ class StoreShotsTest {
             .build()
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> = Futures.immediateVoidFuture()
+        override fun handleSetVideoOutput(videoOutput: Any): ListenableFuture<*> = Futures.immediateVoidFuture()
+        override fun handleClearVideoOutput(videoOutput: Any?): ListenableFuture<*> = Futures.immediateVoidFuture()
     }
 
     private fun field(target: Any, name: String): Any? = RoomActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(target)
