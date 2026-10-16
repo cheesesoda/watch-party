@@ -60,6 +60,9 @@ import androidx.annotation.OptIn
 import android.text.TextUtils
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
@@ -620,13 +623,15 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        // Both draw a shadow around themselves, inside SHADOW_ROOM_DP of padding (a view cuts off what's drawn past
+        // its edges, which left a gray box around the white Skip intro); their margins give that room back.
         root.addView(buildSkipView(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
             // Where the Up next card shows at the credits.
-            setMargins(0, 0, dp(if (isTv) 48 else 24), dp(if (isTv) 48 else 88))
+            setMargins(0, 0, dp((if (isTv) 48 else 24) - SHADOW_ROOM_DP), dp((if (isTv) 48 else 88) - SHADOW_ROOM_DP))
         })
         root.addView(buildNextCard(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
             // Above a phone's seek bar; the TV hides its controls while the card is up.
-            setMargins(0, 0, dp(if (isTv) 48 else 24), dp(if (isTv) 48 else 88))
+            setMargins(0, 0, dp((if (isTv) 48 else 24) - SHADOW_ROOM_DP), dp((if (isTv) 48 else 88) - SHADOW_ROOM_DP))
         })
 
         statusText = text(14f, ON_SURFACE).apply {
@@ -1760,9 +1765,11 @@ class RoomActivity : ComponentActivity() {
 
     private fun buildNextCard() = ComposeView(this).also { nextCardView = it }.apply {
         visibility = View.GONE
+        // Android's own gray focus box would show around the rounded shape; it draws its own focus.
+        defaultFocusHighlightEnabled = false
         setContent {
             val up = nextUp.value
-            if (up != null) PopcornTheme {
+            if (up != null) PopcornTheme { Box(Modifier.padding(SHADOW_ROOM_DP.dp)) {
                 NextCard(
                     api = api,
                     tv = isTv,
@@ -1773,20 +1780,22 @@ class RoomActivity : ComponentActivity() {
                     onPlayNow = { hideNextCard(); connection.send(Protocol.advanceNow()) },
                     onStay = { hideNextCard(); connection.send(Protocol.cancelAdvance()) },
                 )
-            }
+            } }
         }
     }
 
     private fun buildSkipView() = ComposeView(this).also { skipView = it }.apply {
         visibility = View.GONE
+        // Android's own gray focus box would show around the rounded shape; it draws its own focus.
+        defaultFocusHighlightEnabled = false
         setContent {
             val part = skipPart.value
-            if (part != null) PopcornTheme {
+            if (part != null) PopcornTheme { Box(Modifier.padding(SHADOW_ROOM_DP.dp)) {
                 SkipPartButton(kind = part.first, tv = isTv, focusKey = skipFocus.value) {
                     sync.skip((part.second * 1000).toLong(), part.first)
                     showSkip(null)
                 }
-            }
+            } }
         }
     }
 
@@ -2162,6 +2171,8 @@ class RoomActivity : ComponentActivity() {
         private const val PLAYED_SHOWN_MS = 2_000L
         /** How long the server counts down before a binge's next video (its advanceDelayMs). */
         private const val ADVANCE_MS = 10_000L
+        /** Room inside the Skip intro and Up next card views for the shadows they draw (see where they're added). */
+        private const val SHADOW_ROOM_DP = 24
         /** How long after a double-tap jump another tap on that side adds 10 seconds more, as on YouTube. */
         private const val SKIP_STREAK_MS = 800L
         private const val SEEK_BAR_STEP_MS = 10_000L
