@@ -502,6 +502,35 @@ test("a party that empties out saves its spot when it's dropped, at the moment e
   assert.deepEqual(mgr.spots.list().map((s) => [s.mediaId, s.position]), [["m1", 1260]]);
 });
 
+test("a party left sitting doesn't bring back an older spot once the show was watched in a newer one", () => {
+  let now = 1_000;
+  const long: MediaItem = { ...movie, duration: 7200 };
+  const mgr = new RoomManager((id) => (id === long.id ? long : undefined), () => now, 1000);
+  // The connection drops at 9:23; the host starts again in a new party and watches on.
+  const stuck = mgr.create(long.id, undefined, 0, true);
+  const a = stuck.join("Host", () => {}, "tv");
+  stuck.handle(a.id, { type: "play", position: 563 });
+  stuck.leave(a.id);
+  now += 100;
+  const fresh = mgr.create(long.id, undefined, 536, true);
+  const b = fresh.join("Host", () => {}, "tv");
+  fresh.handle(b.id, { type: "play", position: 536 });
+  now += 2_000;
+  mgr.sweep();
+  assert.equal(mgr.rooms.has(stuck.id), false, "the stuck party is dropped");
+  assert.deepEqual(mgr.spots.list(), [], "without saving 9:23 while the new party plays");
+  // Same once the new party has ended (say in the credits, saving nothing).
+  const stuck2 = mgr.create(long.id, undefined, 0, true);
+  const c = stuck2.join("Host", () => {}, "tv");
+  stuck2.handle(c.id, { type: "play", position: 563 });
+  stuck2.leave(c.id);
+  now += 100;
+  fresh.end("Host");
+  now += 2_000;
+  mgr.sweep();
+  assert.deepEqual(mgr.spots.list(), []);
+});
+
 test("watching alone stays off the party list until the host invites friends", () => {
   const mgr = new RoomManager((id) => (id === movie.id ? movie : undefined), () => 1_000, 1000);
   const room = mgr.create(movie.id, undefined, 0, true);

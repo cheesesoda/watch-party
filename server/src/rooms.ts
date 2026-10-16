@@ -612,6 +612,8 @@ export class Room {
 
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
+  /** When a party last ended per show (or movie), so a party left sitting doesn't bring back an older spot. */
+  private lastEnded = new Map<string, number>();
 
   constructor(
     private lookup: LookupMedia,
@@ -636,6 +638,8 @@ export class RoomManager {
     room.onEnded = () => {
       this.rooms.delete(id);
       this.spots.ended(id);
+      const key = room.media && this.key(room.media.id);
+      if (key) this.lastEnded.set(key, this.now());
     };
     room.onSave = (spot) => this.save(spot);
     if (queue && queue.length > 0) room.setQueue(queue);
@@ -665,10 +669,24 @@ export class RoomManager {
       if (room.members.size === 0 && now - room.emptySince > this.idleMs) {
         this.spots.ended(id);
         const spot = room.spot();
-        if (spot) this.save(spot);
+        if (spot && !this.watchedSince(room, spot.mediaId)) this.save(spot);
         this.rooms.delete(id);
       }
     }
+  }
+
+  /**
+   * Whether the show (or movie) was watched in another party after this one was left: its spot would be older than
+   * where they got to (say a party stuck when the connection dropped, and the episode finished in a new one).
+   */
+  private watchedSince(room: Room, mediaId: string): boolean {
+    const key = this.key(mediaId);
+    if (!key) return false;
+    if ((this.lastEnded.get(key) ?? 0) > room.emptySince) return true;
+    return [...this.rooms.values()].some((other) => {
+      if (other === room || !other.media || this.key(other.media.id) !== key) return false;
+      return other.members.size > 0 || other.emptySince > room.emptySince;
+    });
   }
 
   /**
