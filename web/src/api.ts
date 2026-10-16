@@ -1,4 +1,7 @@
-import type { MediaInfo, MediaItem, RoomSummary, Spot } from "../../shared/protocol.ts";
+import type { MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot } from "../../shared/protocol.ts";
+
+/** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
+export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
 
 /** A TMDB movie or show the host can pick with Fix match. */
 export type MatchCandidate = { tmdbId: number; title: string; year: number | null; overview: string | null; posterPath: string | null };
@@ -71,6 +74,11 @@ export const api = {
   /** Fix match: the TMDB movie or show for this video (for an episode, its whole show), or none. */
   setMatch: (id: string, tmdbId: number | null) =>
     call<LibraryResponse>(`/api/media/${id}/match`, { method: "POST", body: JSON.stringify({ tmdbId }) }),
+  skipTimes: (id: string) => call<SkipTimes>(`/api/media/${id}/skip-times`),
+  /** Sets skip times by hand; null for a kind means none. */
+  setSkipTimes: (id: string, marks: SkipMarks) => call<SkipTimes>(`/api/media/${id}/skip-times`, { method: "PUT", body: JSON.stringify(marks) }),
+  /** Back to the times the server found. */
+  clearSkipTimes: (id: string) => call<SkipTimes>(`/api/media/${id}/skip-times`, { method: "DELETE" }),
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),

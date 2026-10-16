@@ -36,6 +36,8 @@ export interface Config {
   spotsFile?: string;
   /** Where found intros and credits are kept (data/markers.json). */
   markersFile?: string;
+  /** Where skip times set by hand are kept (data/skip-times.json). */
+  skipTimesFile?: string;
   /**
    * Where invite links point, e.g. https://tv.chzsda.com, when that address forwards /join/CODE to this server.
    * Empty: invite links use the address the page was opened on.
@@ -102,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     spotsFile: path.resolve(env.SPOTS_FILE?.trim() || fileURLToPath(new URL("../../data/spots.json", import.meta.url))),
     markersFile: path.resolve(env.MARKERS_FILE?.trim() || fileURLToPath(new URL("../../data/markers.json", import.meta.url))),
+    skipTimesFile: path.resolve(env.SKIP_TIMES_FILE?.trim() || fileURLToPath(new URL("../../data/skip-times.json", import.meta.url))),
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,
     proxyKey: env.PROXY_KEY?.trim() || undefined,

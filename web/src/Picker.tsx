@@ -37,7 +37,7 @@ export function Picker(props: {
   const [query, setQuery] = useState("");
   // A movie or show page opened from the posters, like the dashboard's #/movie/ID and #/show/KEY.
   const [page, setPage] = useState<string | null>(null);
-  const [info, setInfo] = useState<{ id: string; fix: boolean } | null>(null);
+  const [info, setInfo] = useState<{ id: string; fix: boolean | "times" } | null>(null);
   // "Added … to Up next", with Undo, for a few seconds.
   const [added, setAdded] = useState<{ ids: string[]; label: string } | null>(null);
   const addedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -207,7 +207,8 @@ export function Picker(props: {
         <Details
           key={infoItem.id + info!.fix}
           item={infoItem}
-          startFixing={info!.fix}
+          startFixing={info!.fix === true}
+          startTiming={info!.fix === "times"}
           canMatch={b.details}
           actionLabel={props.solo ? "Play" : "Play for everyone"}
           lengthLabel={infoItem.duration ? fmtLength(infoItem.duration) : ""}

@@ -10,7 +10,7 @@ import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
-import { Markers } from "./markers.ts";
+import { handSet, Markers } from "./markers.ts";
 import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
@@ -35,7 +35,7 @@ export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
   const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
-  const markers = new Markers({ ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg", ffprobe: config.transcode?.ffprobe ?? "ffprobe", file: config.markersFile ?? "" });
+  const markers = new Markers({ ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg", ffprobe: config.transcode?.ffprobe ?? "ffprobe", file: config.markersFile ?? "", handFile: config.skipTimesFile ?? "" });
   // What parties play carries its intro and credits times, for Skip intro and the Up next card.
   const rooms = new RoomManager((id) => {
     const item = library.peek(id)?.item;
@@ -300,6 +300,29 @@ export function createApp(config: Config): App {
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Skip times: what was found, and what the host set by hand over it (a kind left out is still found).
+  const skipTimes = (item: MediaItem) => ({ found: markers.found(item) ?? {}, set: markers.handSet(item) });
+  app.get("/api/media/:id/skip-times", (req, res) => {
+    const item = library.peek(req.params.id)?.item;
+    if (!item) return void res.status(404).json({ error: "Not found." });
+    res.json(skipTimes(item));
+  });
+  app.put("/api/media/:id/skip-times", async (req, res) => {
+    const item = library.peek(req.params.id)?.item;
+    if (!item) return void res.status(404).json({ error: "Not found." });
+    const set = handSet(req.body);
+    if (!set) return void res.status(400).json({ error: "Times must be seconds, with each end after its start." });
+    delete set.file;
+    await markers.setHand(item, set);
+    res.json(skipTimes(item));
+  });
+  app.delete("/api/media/:id/skip-times", async (req, res) => {
+    const item = library.peek(req.params.id)?.item;
+    if (!item) return void res.status(404).json({ error: "Not found." });
+    await markers.setHand(item, null);
+    res.json(skipTimes(item));
   });
 
   app.get("/api/media/:id/stream", async (req, res) => {

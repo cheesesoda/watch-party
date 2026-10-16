@@ -55,7 +55,7 @@ export function Home(props: {
 
   const [library, setLibrary] = useState<LibraryResponse | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
-  const [info, setInfo] = useState<{ id: string; fix: boolean } | null>(null);
+  const [info, setInfo] = useState<{ id: string; fix: boolean | "times" } | null>(null);
   const loadLibrary = (rescan = false) => {
     setLibraryError(null);
     (rescan ? api.rescan() : api.library()).then(setLibrary, (e) => setLibraryError(e.message));
@@ -396,7 +396,8 @@ export function Home(props: {
         <Details
           key={info.id + info.fix}
           item={cat.byId.get(info.id)!}
-          startFixing={info.fix}
+          startFixing={info.fix === true}
+          startTiming={info.fix === "times"}
           canMatch={browse.details}
           actionLabel={startLabel}
           lengthLabel={detailsLine(cat.byId.get(info.id)!)}
