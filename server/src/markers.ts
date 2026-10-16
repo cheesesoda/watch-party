@@ -17,7 +17,7 @@ const INTRO_MAX = 150;
 const CREDITS_WINDOW = 480;
 const CREDITS_MIN = 15;
 /** Bump when finding gets better, so files looked at before are looked at again. */
-const VERSION = 2;
+const VERSION = 3;
 /** Skip chapters shorter than this get no button: gone before anyone could press it. */
 const SKIP_MIN = 10;
 /** A keyframe counts as credits when this much of it (%) is black: white text on black. */
@@ -296,6 +296,28 @@ export function chapterMarks(chapters: { start: number; end: number; title: stri
     if (range && range.end - range.start < SKIP_MIN) delete marks[kind];
   }
   return marks;
+}
+
+/** A chapter starting this close to where sound says an intro starts, and this much of it heard, is that intro. */
+const CHAPTER_NEAR = 10;
+const CHAPTER_HEARD = 0.4;
+
+/**
+ * The intro sound found, run on to the end of the (unnamed) chapter it opens, when there is one: an episode whose edit
+ * of the titles only one other shares in part (Game of Thrones S1E09 and E10, 63 s of their 1:48) still gets all of
+ * them (and an intro already run on is the same again, so it isn't thrown out as sound few episodes share). Null when
+ * no chapter fits: none starting within CHAPTER_NEAR of it, ending where or after it does, no longer than an intro can
+ * be, and at least CHAPTER_HEARD of it heard.
+ */
+export function introChapter(intro: TimeRange, chapters: { start: number; end: number; title: string }[]): TimeRange | null {
+  let end: number | null = null;
+  for (const c of chapters) {
+    const heard = Math.min(intro.end, c.end) - Math.max(intro.start, c.start);
+    if (Math.abs(c.start - intro.start) > CHAPTER_NEAR || c.end < intro.end || c.end - c.start > INTRO_MAX) continue;
+    if (heard < (c.end - c.start) * CHAPTER_HEARD) continue;
+    end = Math.max(end ?? 0, c.end);
+  }
+  return end != null ? { start: intro.start, end: round(end) } : null;
 }
 
 /** What version 1 took from chapter names (the first matching chapter of each kind), to tell it from what sound found. */
@@ -716,6 +738,9 @@ export class Markers {
     // Every outro an episode shares with a neighbour, as its credits start where the earliest one does: one neighbour
     // can share only the end of it (Archer S1E02 shares 16 s of E03's, the rest share 27 s more).
     const outros: Outro[][] = list.map(() => []);
+    // Likewise every intro: a season can have more than one edit of its titles (Game of Thrones S1 has three), and a
+    // neighbour with another edit shares only their first bars, so the longest one shared wins.
+    const openings: TimeRange[][] = list.map(() => []);
     const compared = new Set<string>();
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
@@ -723,17 +748,15 @@ export class Markers {
       // The nearest episodes first: they're the likeliest to share the season's theme as it is now.
       const partners = [i + 1, i - 1, i + 2, i - 2].filter((j) => j >= 0 && j < list.length);
       for (const j of partners) {
-        if (!found[i].intro) {
-          const [a, b] = [await headOf(i), await headOf(j)];
-          const hit = a && b ? sharedStretch(a, b, INTRO_MIN, INTRO_MAX) : null;
-          if (hit) {
-            found[i].intro = hit.a;
-            found[j].intro ??= hit.b;
-          }
-        }
         const pair = `${Math.min(i, j)}|${Math.max(i, j)}`;
         if (compared.has(pair)) continue;
         compared.add(pair);
+        const [ha, hb] = [await headOf(i), await headOf(j)];
+        const opening = ha && hb ? sharedStretch(ha, hb, INTRO_MIN, INTRO_MAX) : null;
+        if (opening) {
+          openings[i].push(opening.a);
+          openings[j].push(opening.b);
+        }
         const [a, b] = [await tailOf(i), await tailOf(j)];
         const hit = a && b ? sharedStretch(a, b, CREDITS_MIN) : null;
         if (hit) {
@@ -742,7 +765,10 @@ export class Markers {
         }
       }
     }
-    for (let i = 0; i < list.length; i++) found[i].credits = outroStart(outros[i]);
+    for (let i = 0; i < list.length; i++) {
+      found[i].credits = outroStart(outros[i]);
+      found[i].intro = openings[i].reduce<TimeRange | null>((best, r) => (!best || r.end - r.start > best.end - best.start ? r : best), null);
+    }
     const marks: SkipMarks[] = [];
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
@@ -808,7 +834,8 @@ export class Markers {
       }
       shared[i] = head ? recurring(head, others) : [];
       const intro = marks[i].intro;
-      if (intro && !chapterMarks(probes[i]?.chapters ?? []).intro && others.length >= 2) {
+      const chapterList = probes[i]?.chapters ?? [];
+      if (intro && !chapterMarks(chapterList).intro && !introChapter(intro, chapterList) && others.length >= 2) {
         const covered = shared[i].reduce((sum, r) => sum + Math.max(0, Math.min(intro.end, r.end) - Math.max(intro.start, r.start)), 0);
         if (covered < (intro.end - intro.start) / 2) marks[i].intro = null;
       }
@@ -905,7 +932,8 @@ export class Markers {
         credits = round(tail + (at != null ? from + at : rough));
       }
     }
-    return { intro: chapters.intro ?? sound.intro ?? null, recap: chapters.recap ?? null, credits };
+    const heard = sound.intro ? introChapter(sound.intro, chapterList) ?? sound.intro : null;
+    return { intro: chapters.intro ?? heard, recap: chapters.recap ?? null, credits };
   }
 
   /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */

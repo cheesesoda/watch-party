@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { Library } from "../src/library.ts";
-import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, handSet, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, handSet, introChapter, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -41,6 +41,24 @@ test("nothing shared, or too short or long a stretch, is no intro", () => {
   assert.equal(sharedStretch(Uint32Array.from([...points(1, 100), ...short]), Uint32Array.from([...short, ...points(2, 100)]), 15), null);
   const long = points(9, seconds(200));
   assert.equal(sharedStretch(Uint32Array.from(long), Uint32Array.from(long), 15, 150), null);
+});
+
+test("an intro heard in part runs on to the end of the chapter it opens", () => {
+  // Game of Thrones S1E09: sound finds 0:00-1:03 of titles that are chapter 2, 0:06-1:48, after the HBO logo.
+  const chapters = [
+    { start: 0, end: 6, title: "" },
+    { start: 6, end: 108, title: "" },
+    { start: 108, end: 900, title: "" },
+  ];
+  assert.deepEqual(introChapter({ start: 0, end: 63 }, chapters), { start: 0, end: 108 });
+  // Run on already: the same again, so the check for sound few episodes share leaves it alone.
+  assert.deepEqual(introChapter({ start: 0, end: 108 }, chapters), { start: 0, end: 108 });
+  // Too little of the chapter heard, or a chapter that starts far from it: left as sound found it.
+  assert.equal(introChapter({ start: 0, end: 30 }, chapters), null);
+  assert.equal(introChapter({ start: 40, end: 100 }, chapters), null);
+  // A chapter longer than any intro is a scene, not the titles.
+  assert.equal(introChapter({ start: 108, end: 300 }, chapters), null);
+  assert.equal(introChapter({ start: 0, end: 63 }, []), null);
 });
 
 test("chapter names mark the intro, recap and credits", () => {
