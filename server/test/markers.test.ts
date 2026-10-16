@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { Library } from "../src/library.ts";
-import { blackCredits, chapterMarks, creditsBefore, findClip, findRecap, Markers, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -130,6 +130,31 @@ test("credits before known end logos: walking back through mostly dark keyframes
   // Nothing dark right before the logos, or too short a stretch: no credits.
   assert.equal(creditsBefore(frames([[0, 120, 70], [120, 160, 15]]), 160), null);
   assert.equal(creditsBefore(frames([[0, 154, 15], [154, 160, 80]]), 160), null);
+});
+
+test("credits by sound start at the earliest outro the episode shares", () => {
+  // Archer S1E03: E02 shares only the last 16 s of its outro, E04 and E05 share it from 1205.6 on.
+  assert.equal(outroStart([{ start: 1216.3, length: 16 }, { start: 1205.6, length: 40 }, { start: 1209.4, length: 36 }]), 1205.6);
+  // A short early match isn't trusted over longer ones; on its own it still counts.
+  assert.equal(outroStart([{ start: 1100, length: 15 }, { start: 1205.6, length: 40 }]), 1205.6);
+  assert.equal(outroStart([{ start: 1216.3, length: 16 }]), 1216.3);
+  assert.equal(outroStart([]), null);
+});
+
+test("credits found by sound move back to where the cards already showing there start", () => {
+  // Two frames a second.
+  const frames = (spec: [number, number, number][]) =>
+    spec.flatMap(([from, to, black]) => Array.from({ length: (to - from) * 2 }, (_, k) => ({ t: from + k / 2, black })));
+  // Archer S1E03: a bright scene, cards (~58% black) from 32 s, the outro music heard only from 60.3 s.
+  const late = frames([[0, 32, 5], [32, 62, 58]]);
+  assert.equal(cardsBefore(late, 60.3), 32);
+  // A brighter frame or two among the cards doesn't end them.
+  assert.equal(cardsBefore(frames([[0, 32, 5], [32, 45, 58], [45, 46, 30], [46, 62, 58]]), 60.3), 32);
+  // The music starts with the cards: stays put.
+  assert.equal(cardsBefore(frames([[0, 59.5, 8], [59.5, 62, 58]]), 60.3), null);
+  // Not on cards at the mark, or dark all the way back (can't tell a dark scene from cards): stays put.
+  assert.equal(cardsBefore(frames([[0, 32, 58], [32, 62, 5]]), 60.3), null);
+  assert.equal(cardsBefore(frames([[0, 62, 58]]), 60.3), null);
 });
 
 test("credits by the picture: the last long stretch of black keyframes", () => {
