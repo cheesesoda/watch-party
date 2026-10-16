@@ -428,6 +428,39 @@ export interface MarkersConfig {
   ffprobe: string;
   /** Where what was found is kept (data/markers.json); "" keeps it in memory only. */
   file: string;
+  /** Skip times set by hand (data/skip-times.json); "" or left out keeps them in memory only. */
+  handFile?: string;
+}
+
+/**
+ * Skip times set by hand for one video, put over what was found kind by kind: a kind left out is still found, null
+ * means none. Kept apart from what was found, so looking again never replaces them.
+ */
+export interface HandSet extends SkipMarks {
+  /** The video's path in its library folder, so the file can be read and edited by hand. */
+  file?: string;
+}
+
+/** [raw] as skip times set by hand, or null when it isn't any: ranges need 0 <= start < end, credits a time >= 0. */
+export function handSet(raw: unknown): HandSet | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out: HandSet = {};
+  const time = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  for (const kind of ["intro", "recap"] as const) {
+    if (!(kind in r)) continue;
+    const v = r[kind] as { start?: unknown; end?: unknown } | null;
+    if (v === null) out[kind] = null;
+    else if (v && time(v.start) && time(v.end) && (v.end as number) > (v.start as number)) out[kind] = { start: round(v.start as number), end: round(v.end as number) };
+    else return null;
+  }
+  if ("credits" in r) {
+    if (r.credits === null) out.credits = null;
+    else if (time(r.credits)) out.credits = round(r.credits as number);
+    else return null;
+  }
+  if (typeof r.file === "string") out.file = r.file;
+  return out;
 }
 
 interface Entry {
@@ -465,6 +498,10 @@ an episode that played before. Runs in the background, one file at a time,
  */
 export class Markers {
   private cache: Record<string, Entry> = {};
+  /** Skip times set by hand, by video id, and when their file last changed (it's read again when it does). */
+  private hand: Record<string, HandSet> = {};
+  private handChanged = 0;
+  private handTimer: ReturnType<typeof setInterval> | null = null;
   private loaded: Promise<void>;
   private running: Promise<void> = Promise.resolve();
   private latest: MarkersEntry[] | null = null;
@@ -477,7 +514,12 @@ export class Markers {
     private config: MarkersConfig,
     private log: (line: string) => void = (line) => console.log(`skip: ${line}`),
   ) {
-    this.loaded = this.load();
+    this.loaded = Promise.all([this.load(), this.loadHand()]).then(() => {});
+    // Edits to the file by hand count without a restart.
+    if (config.handFile) {
+      this.handTimer = setInterval(() => void this.loadHand(), 5000);
+      this.handTimer.unref?.();
+    }
   }
 
   private static key(item: MediaItem): string {
@@ -486,10 +528,33 @@ export class Markers {
 
   /** What's known about this file's intro, recap and credits; undefined until it has been looked at, or if none. */
   get(item: MediaItem): SkipMarks | undefined {
+    const found = this.found(item);
+    const hand = this.hand[item.id];
+    const marks: SkipMarks = { ...found };
+    for (const kind of ["intro", "recap", "credits"] as const) if (hand && kind in hand) (marks as Record<string, unknown>)[kind] = hand[kind];
+    const { intro, recap, credits } = marks;
+    return intro || recap || credits != null ? marks : undefined;
+  }
+
+  /** What was found for the video, leaving out what was set by hand. */
+  found(item: MediaItem): SkipMarks | undefined {
     const entry = this.cache[item.id];
     if (!entry || entry.key !== Markers.key(item)) return undefined;
-    const { intro, recap, credits } = entry.marks;
-    return intro || recap || credits != null ? entry.marks : undefined;
+    return entry.marks;
+  }
+
+  /** What was set by hand for the video, if anything. */
+  handSet(item: MediaItem): HandSet | null {
+    return this.hand[item.id] ?? null;
+  }
+
+  /** Sets the video's skip times by hand ([marks], a kind left out still found), or with null goes back to what was found. */
+  async setHand(item: MediaItem, marks: SkipMarks | null): Promise<void> {
+    await this.loaded;
+    await this.loadHand();
+    if (marks) this.hand[item.id] = { file: item.relPath, ...marks };
+    else delete this.hand[item.id];
+    await this.saveHand();
   }
 
   /** The item with its marks, when there are any. */
@@ -522,6 +587,7 @@ export class Markers {
 
   async close(): Promise<void> {
     this.closed = true;
+    if (this.handTimer) clearInterval(this.handTimer);
     await this.idle().catch(() => {});
   }
 
@@ -947,6 +1013,45 @@ export class Markers {
       const json = JSON.parse(await fs.readFile(this.config.file, "utf8"));
       if (json && typeof json === "object" && json.files && typeof json.files === "object") this.cache = json.files;
     } catch {}
+  }
+
+  /** Reads the skip times set by hand again when their file has changed; a file that doesn't read keeps the last ones. */
+  private async loadHand(): Promise<void> {
+    const file = this.config.handFile;
+    if (!file) return;
+    let changed: number;
+    try {
+      changed = (await fs.stat(file)).mtimeMs;
+    } catch {
+      return;
+    }
+    if (changed === this.handChanged) return;
+    this.handChanged = changed;
+    try {
+      const json = JSON.parse(await fs.readFile(file, "utf8"));
+      const hand: Record<string, HandSet> = {};
+      let bad = 0;
+      for (const [id, raw] of Object.entries(json && typeof json === "object" ? json : {})) {
+        const set = handSet(raw);
+        if (set) hand[id] = set;
+        else bad++;
+      }
+      this.hand = hand;
+      this.log(`${Object.keys(hand).length} videos with skip times set by hand${bad ? ` (${bad} left out: not valid)` : ""}`);
+    } catch (err) {
+      this.log(`couldn't read ${path.basename(file)}, keeping the skip times set by hand before: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  private async saveHand(): Promise<void> {
+    const file = this.config.handFile;
+    if (!file) return;
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    // Laid out to be read and edited by hand.
+    await fs.writeFile(tmp, JSON.stringify(this.hand, null, 2) + "\n");
+    await fs.rename(tmp, file);
+    this.handChanged = (await fs.stat(file)).mtimeMs;
   }
 
   private async save(): Promise<void> {

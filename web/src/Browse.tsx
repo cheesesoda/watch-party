@@ -17,7 +17,8 @@ export interface Browse {
   /** Starts a party with these videos, one after another. */
   start: (ids: string[]) => void;
   /** The Details window, for episodes and extras, or straight on Fix match. */
-  openInfo: (id: string, fix?: boolean) => void;
+  /** fix: open on Fix match; "times": open on Set skip times. */
+  openInfo: (id: string, fix?: boolean | "times") => void;
   /** Goes to a movie or show page; the dashboard changes the address, the in-party picker its own view. */
   open?: (path: string) => void;
   /** The play buttons' name: "Start party" on the dashboard ("Play" while watching alone), "Play for everyone" in a party. */
@@ -383,7 +384,10 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
               <PlayIcon size={18} /> {startLabel(b)}
             </button>
             {b.queue && <QueueButton b={b} ids={playIds(item)} label={m?.title ?? item.title} />}
-            {b.details && <MoreMenu label={`More for ${item.title}`} items={[[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)]]} />}
+            <MoreMenu
+              label={`More for ${item.title}`}
+              items={[...(b.details ? [[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)] as [string, () => void]] : []), ["Set skip times", () => b.openInfo(item.id, "times")]]}
+            />
           </div>
         </div>
       </div>

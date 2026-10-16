@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { MediaItem } from "../../shared/protocol.ts";
-import { api, imageUrl, type LibraryResponse, type MatchCandidate } from "./api.ts";
+import type { MediaItem, SkipMarks, TimeRange } from "../../shared/protocol.ts";
+import { api, imageUrl, type LibraryResponse, type MatchCandidate, type SkipTimes } from "./api.ts";
 import { buildCatalog, byName, isLaterPart, isOwnedExtra, plural, type Show } from "./catalog.ts";
 import { ChevronLeftIcon, ChevronRightIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
@@ -450,6 +450,8 @@ export function Details(props: {
   item: MediaItem;
   /** Open on the Fix match search. */
   startFixing?: boolean;
+  /** Open on Set skip times. */
+  startTiming?: boolean;
   /** TMDB lookups are on, so Fix match and the TMDB credit apply. */
   canMatch: boolean;
   actionLabel: string;
@@ -467,6 +469,7 @@ export function Details(props: {
   const m = item.meta;
   const kind = item.episode ? "tv" : "movie";
   const [fixing, setFixing] = useState(!!props.startFixing);
+  const [timing, setTiming] = useState(!!props.startTiming);
   const [query, setQuery] = useState(item.episode?.show ?? item.title);
   const [results, setResults] = useState<MatchCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -524,7 +527,15 @@ export function Details(props: {
       }}
     >
       <div className="details" role="dialog" aria-modal="true" aria-label={heading} onClick={(e) => e.stopPropagation()}>
-        {!fixing && props.canMatch && <MoreMenu label="More" items={[[m ? "Fix match" : "Find details", () => setFixing(true)]]} />}
+        {!fixing && !timing && (
+          <MoreMenu
+            label="More"
+            items={[
+              ...(props.canMatch ? [[m ? "Fix match" : "Find details", () => setFixing(true)] as [string, () => void]] : []),
+              ["Set skip times", () => setTiming(true)],
+            ]}
+          />
+        )}
         <div className="details-main">
           <Poster path={m?.posterPath} size="w342" className="details-poster" />
           <div className="details-text">
@@ -584,9 +595,135 @@ export function Details(props: {
             )}
           </div>
         )}
+        {timing && <SkipTimesForm item={item} onDone={() => setTiming(false)} />}
         {props.canMatch && <p className="credit">Details and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>}
       </div>
     </div>
+  );
+}
+
+/** "1:23", "1:02:03" or "83.5" as seconds; "" as null (none); undefined when it isn't a time. */
+export function parseClock(text: string): number | null | undefined {
+  const t = text.trim();
+  if (!t) return null;
+  if (!/^\d+(\.\d+)?$|^\d+:\d{1,2}(\.\d+)?$|^\d+:\d{1,2}:\d{1,2}(\.\d+)?$/.test(t)) return undefined;
+  return t.split(":").reduce((sum, part) => sum * 60 + Number(part), 0);
+}
+
+/** Seconds as "1:02:03", with tenths when there are any ("20:16.3"), so a time saved as shown stays the same. */
+const clock = (s: number | null | undefined) => {
+  if (s == null) return "";
+  const tenths = Math.round(s * 10) % 10;
+  return fmtLength(Math.floor(Math.round(s * 10) / 10)) + (tenths ? `.${tenths}` : "");
+};
+
+/**
+ * Set skip times: the intro, recap and credits as the host wants them, kept over what the server found (looking
+ * again never replaces them), or back to what it found.
+ */
+function SkipTimesForm(props: { item: MediaItem; onDone: () => void }) {
+  const [times, setTimes] = useState<SkipTimes | null>(null);
+  const [fields, setFields] = useState({ introStart: "", introEnd: "", recapStart: "", recapEnd: "", credits: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const show = (t: SkipTimes) => {
+    setTimes(t);
+    const now = { ...t.found, ...(t.set ?? {}) };
+    setFields({ introStart: clock(now.intro?.start), introEnd: clock(now.intro?.end), recapStart: clock(now.recap?.start), recapEnd: clock(now.recap?.end), credits: clock(now.credits) });
+  };
+  useEffect(() => {
+    api.skipTimes(props.item.id).then(show, (err) => setError(err.message));
+  }, [props.item.id]);
+
+  const done = (p: Promise<SkipTimes>) => {
+    setBusy(true);
+    setError(null);
+    p.then(
+      (t) => {
+        show(t);
+        setBusy(false);
+        setSaved(true);
+      },
+      (err) => {
+        setError(err.message);
+        setBusy(false);
+      },
+    );
+  };
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    const range = (name: string, a: string, b: string) => {
+      const [start, end] = [parseClock(a), parseClock(b)];
+      if (start === undefined || end === undefined) throw new Error(`${name}: write times like 1:23 or 1:02:03.`);
+      if (start == null && end == null) return null;
+      if (start == null || end == null || end <= start) throw new Error(`${name}: give a start and an end after it, or leave both blank.`);
+      return { start, end };
+    };
+    try {
+      const credits = parseClock(fields.credits);
+      if (credits === undefined) throw new Error("Credits: write a time like 41:30.");
+      // Only what differs from what was found is set by hand; the rest is still found (and found again on a rescan).
+      const wanted: SkipMarks = { intro: range("Intro", fields.introStart, fields.introEnd), recap: range("Recap", fields.recapStart, fields.recapEnd), credits };
+      const found = times?.found ?? {};
+      const same = (a: TimeRange | number | null | undefined, b: TimeRange | number | null | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const set: SkipMarks = {};
+      for (const kind of ["intro", "recap", "credits"] as const) if (!same(wanted[kind], found[kind])) (set as Record<string, unknown>)[kind] = wanted[kind];
+      done(Object.keys(set).length ? api.setSkipTimes(props.item.id, set) : api.clearSkipTimes(props.item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const field = (key: keyof typeof fields, label: string) => (
+    <input
+      value={fields[key]}
+      inputMode="decimal"
+      placeholder="–"
+      aria-label={label}
+      onChange={(e) => {
+        setFields({ ...fields, [key]: e.target.value });
+        setSaved(false);
+      }}
+    />
+  );
+  const found = times?.found;
+  const foundLine = found && [found.intro && `intro ${clock(found.intro.start)}–${clock(found.intro.end)}`, found.recap && `recap ${clock(found.recap.start)}–${clock(found.recap.end)}`, found.credits != null && `credits ${clock(found.credits)}`].filter(Boolean).join(" · ");
+  return (
+    <form className="skip-times" onSubmit={save}>
+      <h3>Skip times</h3>
+      <p className="muted small">
+        {times ? (foundLine ? `Found by the server: ${foundLine}.` : "The server hasn't found any.") : "Loading…"} {times?.set && "These are set by hand and stay through rescans."}
+      </p>
+      <div className="skip-rows">
+        <span>Intro</span>
+        {field("introStart", "Intro starts")}
+        <span>to</span>
+        {field("introEnd", "Intro ends")}
+        <span>Recap</span>
+        {field("recapStart", "Recap starts")}
+        <span>to</span>
+        {field("recapEnd", "Recap ends")}
+        <span>Credits</span>
+        {field("credits", "Credits start")}
+      </div>
+      <p className="muted small">Leave times blank for none. Parties pick up changes from the next video they play.</p>
+      {error && <p className="error">{error}</p>}
+      <div className="details-actions">
+        <button className="primary" disabled={busy || !times}>
+          {saved ? "Saved" : "Save"}
+        </button>
+        {times?.set && (
+          <button type="button" disabled={busy} onClick={() => done(api.clearSkipTimes(props.item.id))}>
+            Use found times
+          </button>
+        )}
+        <button type="button" onClick={props.onDone}>
+          Done
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -1150,6 +1150,28 @@ button.link:focus-visible {
 .fix-match .item[aria-current="true"] {
   border-color: var(--accent);
 }
+.skip-times {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--panel-2);
+  display: grid;
+  gap: 10px;
+}
+.skip-times h3,
+.skip-times p {
+  margin: 0;
+}
+.skip-rows {
+  display: grid;
+  grid-template-columns: auto 7.5em auto 7.5em;
+  align-items: center;
+  justify-content: start;
+  gap: 8px 10px;
+}
+.skip-rows input {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
 .credit {
   margin-top: 18px !important;
   color: var(--muted);

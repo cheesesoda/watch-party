@@ -4,8 +4,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import type { MediaItem } from "../../shared/protocol.ts";
 import { Library } from "../src/library.ts";
-import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, handSet, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -379,4 +380,40 @@ test("an episode whose outro is too short to find by comparing endings gets it f
   assert.ok(credits[2] != null && Math.abs(credits[2] - 260) < 4, JSON.stringify(credits));
   assert.ok(lines.some((l) => l.includes("credits in 3")), lines.join("\n"));
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("skip times set by hand go over what was found, kind by kind, and stay through looking again", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hand-"));
+  const file = path.join(dir, "markers.json");
+  const handFile = path.join(dir, "skip-times.json");
+  const item = { id: "a", relPath: "Show/S01E01.mkv", size: 1, addedAt: 0 } as unknown as MediaItem;
+  await fs.writeFile(file, JSON.stringify({ files: { a: { key: "1:0", v: 2, marks: { intro: { start: 0, end: 30 }, recap: null, credits: 1200 }, peers: 2 } } }));
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file, handFile }, () => {});
+  await markers.setHand(item, { intro: { start: 0, end: 108 } });
+  // The intro set by hand, the credits still as found.
+  assert.deepEqual(markers.get(item), { intro: { start: 0, end: 108 }, recap: null, credits: 1200 });
+  assert.deepEqual(markers.found(item)?.intro, { start: 0, end: 30 });
+  const saved = JSON.parse(await fs.readFile(handFile, "utf8"));
+  assert.deepEqual(saved, { a: { file: "Show/S01E01.mkv", intro: { start: 0, end: 108 } } });
+
+  // Edited by hand: read again without a restart (null: no credits at all).
+  await fs.writeFile(handFile, JSON.stringify({ a: { ...saved.a, credits: null } }));
+  await fs.utimes(handFile, new Date(), new Date(Date.now() + 2000));
+  await (markers as unknown as { loadHand(): Promise<void> }).loadHand();
+  assert.equal(markers.get(item)?.credits, null);
+
+  // After a restart too; and back to what was found when they're cleared.
+  const again = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file, handFile }, () => {});
+  await again.setHand(item, null);
+  assert.deepEqual(again.get(item), { intro: { start: 0, end: 30 }, recap: null, credits: 1200 });
+  await markers.close();
+  await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("skip times set by hand have to make sense", () => {
+  assert.deepEqual(handSet({ intro: { start: 7, end: 108.04 }, credits: null }), { intro: { start: 7, end: 108 }, credits: null });
+  assert.equal(handSet({ intro: { start: 108, end: 7 } }), null);
+  assert.equal(handSet({ credits: -1 }), null);
+  assert.equal(handSet("intro"), null);
 });
