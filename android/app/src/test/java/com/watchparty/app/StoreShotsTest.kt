@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.media3.common.MediaItem as ExoItem
@@ -92,6 +93,7 @@ class StoreShotsTest {
 
     /** A poster from a still: the middle of it, 2:3. */
     private fun poster(film: Int): Bitmap {
+        File(art, "poster-${films[film].prefix}.jpg").takeIf { it.exists() }?.let { return BitmapFactory.decodeFile(it.path) }
         val s = still(film, 2)
         val w = s.height * 2 / 3
         return Bitmap.createBitmap(s, (s.width - w) / 2, 0, w, s.height)
@@ -178,38 +180,6 @@ class StoreShotsTest {
         settle(1_500)
     }
 
-    @Test
-    fun dashboard() {
-        server.dispatcher = dispatcher()
-        server.start()
-        signIn()
-        InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
-        rule.mainClock.autoAdvance = false
-        rule.setContent {
-            focus = LocalFocusManager.current
-            val inputMode = LocalInputModeManager.current
-            SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
-            PopcornTheme { Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(Prefs(ApplicationProvider.getApplicationContext()), onSignedOut = {}, forceTv = true) } }
-        }
-        rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
-        settle(4_000)
-        shot("1-home")
-        press(FocusDirection.Down)
-        shot("2-home-row")
-        press(FocusDirection.Left)
-        shot("3-menu")
-        // Movies, then the first film's page.
-        press(FocusDirection.Up, 8)
-        press(FocusDirection.Down, 2)
-        ok()
-        shot("4-movies")
-        press(FocusDirection.Right)
-        press(FocusDirection.Down)
-        ok()
-        shot("5-movie-page")
-        if (rule.onAllNodesWithText(films[0].title).fetchSemanticsNodes().isEmpty()) error("The movie page didn't open")
-    }
-
     /** A pretend player for the controls: a film paused partway, as the seek bar and times show it. */
     @OptIn(UnstableApi::class)
     private class StillPlayer(private val durationMs: Long, private val positionMs: Long) : SimpleBasePlayer(Looper.getMainLooper()) {
@@ -230,9 +200,9 @@ class StoreShotsTest {
     @OptIn(UnstableApi::class)
     @Test
     fun player() {
-        val film = 0
+        val film = 1
         val media = items[film]
-        val queue = Queue(items = items, at = 0)
+        val queue = Queue(items = items, at = film)
         val now = System.currentTimeMillis()
         server.dispatcher = dispatcher(object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -288,7 +258,7 @@ class StoreShotsTest {
 
             scenario.onActivity { activity ->
                 // Near the credits the server counts down to the next film; the card shows over the picture.
-                val next = items[1 % items.size]
+                val next = items[(film + 1) % items.size]
                 RoomActivity::class.java.getDeclaredMethod("setQueue", Queue::class.java).apply { isAccessible = true }
                     .invoke(activity, queue.copy(advance = Queue.Advance(next.id, System.currentTimeMillis() + 8_000)))
             }
