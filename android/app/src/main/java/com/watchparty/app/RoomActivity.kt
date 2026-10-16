@@ -59,6 +59,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import android.text.TextUtils
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -179,10 +180,12 @@ class RoomActivity : ComponentActivity() {
     private var queue: Queue? = null
     /** The binge's next video and when it starts, while the Up next card counts down. Compose state, read by [nextCardView]. */
     private val nextUp = mutableStateOf<Pair<MediaItem, Long>?>(null)
+    /** Bumped to put the remote back on the Up next card's Play now (Up from the seek bar, or after the controls hide). */
+    private val nextFocus = mutableStateOf(0)
     private lateinit var nextCardView: ComposeView
     /** Skip intro / Skip recap while one is on: which, and where it ends (seconds). Compose state, read by [skipView]. */
     private val skipPart = mutableStateOf<Pair<String, Double>?>(null)
-    /** Bumped to put the remote back on Skip intro (after the controls hide). */
+    /** Bumped to put the remote on Skip intro (Up from the seek bar, or after the controls hide). */
     private val skipFocus = mutableStateOf(0)
     private lateinit var skipView: ComposeView
     /** Where the video was at the last check, and which video, so reaching the credits is noticed once as it happens. */
@@ -337,8 +340,15 @@ class RoomActivity : ComponentActivity() {
             super.dispatchKeyEvent(event)
             return true
         }
-        // The remote stays on the Up next card's buttons instead of bringing up the controls.
-        if (isTv && nextCardView.hasFocus() && event.keyCode in DPAD_KEYS) return super.dispatchKeyEvent(event)
+        // The remote stays on the Up next card's buttons instead of bringing up the controls; with the controls up,
+        // Down goes back to them.
+        if (isTv && nextCardView.hasFocus() && event.keyCode in DPAD_KEYS) {
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && playerView.isControllerFullyVisible) {
+                if (event.action == KeyEvent.ACTION_DOWN) playerView.requestFocus()
+                return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
         // On Skip intro, OK skips; any other direction brings up the controls, as it would without the button.
         if (isTv && skipView.hasFocus() && event.keyCode in DPAD_KEYS) {
             if (event.keyCode in OK_KEYS) return super.dispatchKeyEvent(event)
@@ -348,6 +358,7 @@ class RoomActivity : ComponentActivity() {
             }
             return true
         }
+        if (upToCorner(event)) return true
         if (showsControlsFirst(event)) {
             playerView.showController()
             return true
@@ -376,6 +387,35 @@ class RoomActivity : ComponentActivity() {
     private fun showsControlsFirst(event: KeyEvent): Boolean =
         !companion && event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS &&
             !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE && !upNextOpen.value
+
+    /**
+     * Up from the top of the TV's controls (the seek bar) goes to Skip intro / Skip recap or the Up next card, whichever
+     * shows. Left to Android it never did: Skip intro is only moved up above the seek bar (translationY), and focus
+     * search goes by where a view is laid out, which is down among the buttons, below the bar; the Up next card sits
+     * there too. So while the controls showed (paused, or just after a press) the remote couldn't reach either.
+     */
+    private fun upToCorner(event: KeyEvent): Boolean {
+        if (!isTv || companion || !::skipView.isInitialized || !::nextCardView.isInitialized) return false
+        val progress = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+        val focused = currentFocus
+        val onTopRow = focused != null && focused !== playerView && isInside(focused, playerView) &&
+            (focused === progress || progress == null || !progress.isShown || !progress.isFocusable)
+        val target = upFromControlsGoesTo(
+            keyCode = event.keyCode,
+            controlsShown = playerView.isControllerFullyVisible,
+            onTopRow = onTopRow,
+            panelOpen = chatPanel.visibility == View.VISIBLE || upNextOpen.value,
+            skipShown = skipPart.value != null && skipView.visibility == View.VISIBLE,
+            nextShown = nextUp.value != null && nextCardView.visibility == View.VISIBLE,
+        ) ?: return false
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (target) {
+                Corner.Skip -> focusCorner(skipView, skipFocus)
+                Corner.NextCard -> focusCorner(nextCardView, nextFocus)
+            }
+        }
+        return true
+    }
 
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
@@ -548,6 +588,8 @@ class RoomActivity : ComponentActivity() {
                     skipView.animate().translationY(if (visibility == View.VISIBLE) -dp(TV_CONTROLS_DP).toFloat() else 0f).setDuration(150).start()
                     if (visibility != View.VISIBLE && skipPart.value != null) skipFocus.value++
                 }
+                // Pausing brings the controls up and takes the remote off the Up next card; it goes back once they hide.
+                if (isTv && visibility != View.VISIBLE && nextUp.value != null) nextFocus.value++
                 // The phone's controls fade in rather than popping up.
                 if (!isTv && visibility == View.VISIBLE) (findViewById<View>(R.id.phone_shade)?.parent as? View)?.apply {
                     alpha = 0f
@@ -1776,6 +1818,7 @@ class RoomActivity : ComponentActivity() {
                     item = up.first,
                     at = up.second,
                     total = ADVANCE_MS,
+                    focusKey = nextFocus.value,
                     serverNow = { sync.clock.serverNow(System.currentTimeMillis()) },
                     onPlayNow = { hideNextCard(); connection.send(Protocol.advanceNow()) },
                     onStay = { hideNextCard(); connection.send(Protocol.cancelAdvance()) },
@@ -2220,5 +2263,39 @@ class RoomActivity : ComponentActivity() {
         fun start(context: Context, roomId: String, host: Boolean = true) {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))
         }
+    }
+}
+
+/**
+ * Puts the remote on the button in [view] (Skip intro / recap, or Up next's Play now). The view itself takes focus
+ * first: when the button showed up with the controls already up (as when the player opens), it never had focus, and a
+ * Compose focus request inside a view that doesn't have focus goes nowhere. Then [key] changing aims it at the button.
+ */
+internal fun focusCorner(view: View, key: MutableState<Int>) {
+    view.requestFocus()
+    key.value++
+}
+
+/** What sits over the bottom-right corner of the video for the remote to go to: Skip intro / recap, or the Up next card. */
+internal enum class Corner { Skip, NextCard }
+
+/**
+ * Where Up goes from the TV's controls, when not to the next control: from their top row (the seek bar), to Skip
+ * intro / Skip recap or the Up next card while one shows, unless chat or the Up next list is open. Null leaves the
+ * press to Android (and to [RoomActivity.dispatchKeyEvent]'s other rules).
+ */
+internal fun upFromControlsGoesTo(
+    keyCode: Int,
+    controlsShown: Boolean,
+    onTopRow: Boolean,
+    panelOpen: Boolean,
+    skipShown: Boolean,
+    nextShown: Boolean,
+): Corner? {
+    if (keyCode != KeyEvent.KEYCODE_DPAD_UP || !controlsShown || !onTopRow || panelOpen) return null
+    return when {
+        skipShown -> Corner.Skip
+        nextShown -> Corner.NextCard
+        else -> null
     }
 }
