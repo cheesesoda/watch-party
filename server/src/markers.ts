@@ -17,7 +17,7 @@ const INTRO_MAX = 150;
 const CREDITS_WINDOW = 480;
 const CREDITS_MIN = 15;
 /** Bump when finding gets better, so files looked at before are looked at again. */
-const VERSION = 2;
+const VERSION = 3;
 /** Skip chapters shorter than this get no button: gone before anyone could press it. */
 const SKIP_MIN = 10;
 /** A keyframe counts as credits when this much of it (%) is black: white text on black. */
@@ -36,9 +36,18 @@ function bits(n: number): number {
 }
 
 /**
+ * A theme edited to fit each episode (bars dropped or repeated: Game of Thrones S1's titles, Archer S1's outro) only
+ * lines up in pieces, each at its own offset. Pieces at least this long are joined when the next starts within
+ * MAX_GAP_SECONDS of where the last ended, and the other episode's copy jumps no more than JOIN_JUMP between them.
+ */
+const JOIN_PIECE = 4;
+const JOIN_JUMP = 20;
+
+/**
  * The longest stretch of sound two fingerprints share (an intro two episodes both have, say), at least [min] seconds
  * long, or null. Points that match exactly suggest how far apart the two are; each of the likeliest offsets is then
- * checked point by point, allowing small differences between the two encodes.
+ * checked point by point, allowing small differences between the two encodes. Pieces that follow on from each other
+ * at different offsets count as one stretch (a theme cut differently in each episode).
  */
 export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max = Infinity): Shared | null {
   const where = new Map<number, number[]>();
@@ -54,28 +63,53 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
   const offsets = [...votes.entries()].filter(([, n]) => n >= 3).sort((x, y) => y[1] - x[1]).slice(0, 25).map(([o]) => o);
   const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
   let best: { start: number; end: number; offset: number } | null = null;
+  // Stretches long and dense enough to be joined to others: in [a], and where they start and end in [b].
+  const pieces: { start: number; end: number; from: number; to: number }[] = [];
   for (const offset of offsets) {
     let start = -1;
     let last = -1;
+    let hits = 0;
     const close = () => {
-      if (start >= 0 && (!best || last - start > best.end - best.start)) best = { start, end: last, offset };
+      if (start < 0) return;
+      if (!best || last - start > best.end - best.start) best = { start, end: last, offset };
+      if ((last - start + 1) * POINT_SECONDS >= JOIN_PIECE && hits * 2 >= last - start + 1) pieces.push({ start, end: last, from: start - offset, to: last - offset });
     };
     for (let i = Math.max(0, offset); i < Math.min(a.length, b.length + offset); i++) {
       if (bits(a[i] ^ b[i - offset]) > MAX_BIT_DIFF) continue;
       if (start < 0 || i - last > gap) {
         close();
         start = i;
+        hits = 0;
       }
       last = i;
+      hits++;
     }
     close();
   }
   if (!best) return null;
-  const { start, end, offset } = best as { start: number; end: number; offset: number };
-  const length = (end - start + 1) * POINT_SECONDS;
+  const single = best as { start: number; end: number; offset: number };
+  let match = { start: single.start, end: single.end, from: single.start - single.offset, to: single.end - single.offset };
+  // Each piece with the longest run of pieces ending in it (earliest start in [a]), taken in order of where they start.
+  const jump = Math.round(JOIN_JUMP / POINT_SECONDS);
+  pieces.sort((x, y) => x.start - y.start || x.end - y.end);
+  const chains = pieces.map((p) => ({ ...p }));
+  for (let k = 0; k < pieces.length; k++) {
+    const q = pieces[k];
+    for (let j = 0; j < k; j++) {
+      const p = pieces[j];
+      if (q.end <= p.end || q.start - p.end > gap || Math.abs(q.from - p.to) > jump) continue;
+      const c = chains[j];
+      if (c.start < chains[k].start) chains[k] = { start: c.start, end: q.end, from: Math.min(c.from, q.from), to: Math.max(c.to, q.to) };
+    }
+    const c = chains[k];
+    const [length, other] = [c.end - c.start, c.to - c.from];
+    // The other episode's copy has to be about as long: pieces from all over it aren't one theme.
+    if (length > match.end - match.start && other * 2 >= length && other <= length * 2) match = c;
+  }
+  const length = (match.end - match.start + 1) * POINT_SECONDS;
   if (length < min || length > max) return null;
-  const range = (from: number): TimeRange => ({ start: round(from * POINT_SECONDS), end: round((from + end - start + 1) * POINT_SECONDS) });
-  return { a: range(start), b: range(start - offset) };
+  const range = (from: number, to: number): TimeRange => ({ start: round(from * POINT_SECONDS), end: round((to + 1) * POINT_SECONDS) });
+  return { a: range(match.start, match.end), b: range(match.from, match.to) };
 }
 
 const round = (s: number) => Math.round(s * 10) / 10;

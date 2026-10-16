@@ -33,6 +33,35 @@ test("finds the theme two episodes share, wherever it sits in each", () => {
   assert.ok(Math.abs(hit.b.start - 65) < 0.5 && Math.abs(hit.b.end - 105) < 0.5, JSON.stringify(hit));
 });
 
+test("a theme cut differently in each episode is found whole", () => {
+  // Game of Thrones S1: the same titles, but one episode drops 10 s of bars and repeats a later 5 s.
+  const theme = points(7, seconds(100));
+  const cut = [...theme.slice(0, seconds(30)), ...theme.slice(seconds(40), seconds(75)), ...theme.slice(seconds(70), seconds(100))];
+  const a = Uint32Array.from([...points(1, seconds(20)), ...cut, ...points(2, seconds(60))]);
+  const b = Uint32Array.from([...points(3, seconds(6)), ...theme, ...points(4, seconds(60))]);
+  const hit = sharedStretch(a, b, 15, 150);
+  assert.ok(hit);
+  // 30 + 35 + 30 s of it, from 20 s in [a]; all 100 s of it, from 6 s in [b].
+  assert.ok(Math.abs(hit.a.start - 20) < 0.5 && Math.abs(hit.a.end - 115) < 0.5, JSON.stringify(hit));
+  assert.ok(Math.abs(hit.b.start - 6) < 0.5 && Math.abs(hit.b.end - 106) < 0.5, JSON.stringify(hit));
+});
+
+test("pieces of a theme with something else between them stay apart", () => {
+  const theme = points(7, seconds(60));
+  // 10 s of other sound between the two halves: too long a gap to be one theme.
+  const a = Uint32Array.from([...points(1, seconds(20)), ...theme.slice(0, seconds(20)), ...points(5, seconds(10)), ...theme.slice(seconds(20)), ...points(2, seconds(30))]);
+  const b = Uint32Array.from([...points(3, seconds(10)), ...theme, ...points(4, seconds(30))]);
+  const hit = sharedStretch(a, b, 15, 150);
+  assert.ok(hit);
+  assert.ok(Math.abs(hit.a.end - hit.a.start - 40) < 0.5, JSON.stringify(hit));
+  // The same piece from far away in the other episode isn't joined either.
+  const far = Uint32Array.from([...points(3, seconds(10)), ...theme.slice(0, seconds(20)), ...points(6, seconds(60)), ...theme.slice(seconds(20)), ...points(4, seconds(30))]);
+  const glued = Uint32Array.from([...points(1, seconds(20)), ...theme, ...points(2, seconds(30))]);
+  const apart = sharedStretch(glued, far, 15, 150);
+  assert.ok(apart);
+  assert.ok(Math.abs(apart.a.end - apart.a.start - 40) < 0.5, JSON.stringify(apart));
+});
+
 test("nothing shared, or too short or long a stretch, is no intro", () => {
   const a = Uint32Array.from(points(1, seconds(120)));
   const b = Uint32Array.from(points(2, seconds(120)));
