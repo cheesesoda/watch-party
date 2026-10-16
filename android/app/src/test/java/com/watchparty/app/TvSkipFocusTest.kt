@@ -65,6 +65,9 @@ class TvSkipFocusTest {
         assertNull(upFromControlsGoesTo(KeyEvent.KEYCODE_DPAD_DOWN, true, true, false, true, false))
     }
 
+    /** The corner's ComposeView, which Up puts the remote in (as RoomActivity's skipView / nextCardView). */
+    private lateinit var corner: View
+
     /** The player's layout in small: a focusable stand-in for the seek bar, and the corner button moved up over it. */
     private fun player(content: @Composable () -> Unit): View {
         lateinit var seekBar: View
@@ -75,7 +78,7 @@ class TvSkipFocusTest {
             val root = FrameLayout(activity)
             root.addView(seekBar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 100, Gravity.BOTTOM).apply { bottomMargin = 200 })
             root.addView(
-                ComposeView(activity).apply {
+                ComposeView(activity).also { corner = it }.apply {
                     // As RoomActivity has it: no gray box around the rounded shape.
                     defaultFocusHighlightEnabled = false
                     translationY = -300f
@@ -116,16 +119,17 @@ class TvSkipFocusTest {
         val focusKey = mutableStateOf(0)
         var skipped = 0
         val seekBar = player { SkipPartButton(kind = "recap", tv = true, focusKey = focusKey.value) { skipped++ } }
-        // Paused: the controls show, the remote on the seek bar. Up does what RoomActivity does with it.
+        // The player opened with the controls up, so Skip recap showed without ever taking the remote: the remote is on
+        // the seek bar. Up does what RoomActivity does with it.
         controlsUp(seekBar)
         assertEquals(Corner.Skip, up(skip = true))
-        focusKey.value++
+        rule.runOnUiThread { focusCorner(corner, focusKey) }
         settle()
         rule.onAllNodesWithText("Skip recap")[0].assertIsFocused()
         assertFalse(seekBar.isFocused)
         // Resumed, with the controls up over it again: Up still gets there, and OK skips.
         controlsUp(seekBar)
-        focusKey.value++
+        rule.runOnUiThread { focusCorner(corner, focusKey) }
         settle()
         rule.onAllNodesWithText("Skip recap")[0].assertIsFocused()
         assertFalse(seekBar.isFocused)
@@ -153,7 +157,7 @@ class TvSkipFocusTest {
         // Pausing brought the controls up and took the remote off the card.
         controlsUp(seekBar)
         assertEquals(Corner.NextCard, up(next = true))
-        focusKey.value++
+        rule.runOnUiThread { focusCorner(corner, focusKey) }
         settle()
         rule.onAllNodesWithText("Play now")[0].assertIsFocused()
         assertFalse(seekBar.isFocused)

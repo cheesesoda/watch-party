@@ -59,6 +59,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import android.text.TextUtils
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -409,8 +410,8 @@ class RoomActivity : ComponentActivity() {
         ) ?: return false
         if (event.action == KeyEvent.ACTION_DOWN) {
             when (target) {
-                Corner.Skip -> skipFocus.value++
-                Corner.NextCard -> nextFocus.value++
+                Corner.Skip -> focusCorner(skipView, skipFocus)
+                Corner.NextCard -> focusCorner(nextCardView, nextFocus)
             }
         }
         return true
@@ -2263,6 +2264,16 @@ class RoomActivity : ComponentActivity() {
             context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))
         }
     }
+}
+
+/**
+ * Puts the remote on the button in [view] (Skip intro / recap, or Up next's Play now). The view itself takes focus
+ * first: when the button showed up with the controls already up (as when the player opens), it never had focus, and a
+ * Compose focus request inside a view that doesn't have focus goes nowhere. Then [key] changing aims it at the button.
+ */
+internal fun focusCorner(view: View, key: MutableState<Int>) {
+    view.requestFocus()
+    key.value++
 }
 
 /** What sits over the bottom-right corner of the video for the remote to go to: Skip intro / recap, or the Up next card. */
