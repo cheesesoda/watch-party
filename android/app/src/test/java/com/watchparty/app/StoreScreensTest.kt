@@ -8,7 +8,24 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
@@ -110,6 +127,49 @@ private object StoreLibrary {
                     ?.let { MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(it)) }
                     ?: MockResponse().setResponseCode(404)
                 else -> MockResponse().setResponseCode(404)
+            }
+        }
+    }
+
+    /**
+     * "It's a party" over the player, as Invite friends shows it (RoomActivity.makeParty, a classic dialog in its own
+     * window, which a screenshot of the activity doesn't include): drawn here the same way, in the same colors and
+     * sizes, with the same words, code and QR (an invite link to the built-in server's join page).
+     */
+    @Composable
+    fun Invite(tv: Boolean, video: String) {
+        val onSurface = Color(0xFFEEEAF3)
+        val variant = Color(0xFFB0A6BF)
+        val accent = Color(0xFFE09A62)
+        val code = "FX7Q2K"
+        Box(Modifier.fillMaxSize()) {
+            Video(video)
+            Box(Modifier.fillMaxSize().background(Color(0x99000000)))
+            Column(
+                Modifier.align(Alignment.Center).width(if (tv) 420.dp else 360.dp).clip(RoundedCornerShape(28.dp)).background(Color(0xFF31283E))
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
+            ) {
+                Text("It's a party", color = onSurface, fontSize = 24.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("Friends join with this code, or by scanning the code with their phone.", color = variant, fontSize = 14.sp, lineHeight = 20.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(code, color = onSurface, fontSize = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.12.em, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(if (tv) 180.dp else 200.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(10.dp)) {
+                        Image(qrBitmap("https://tv.chzsda.com/join/" + code.lowercase()), null, Modifier.fillMaxSize())
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    if (!tv) {
+                        Text("Copy invite link", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                        Spacer(Modifier.weight(1f))
+                    }
+                    // On a TV the remote starts on Done: a white pill, a little larger.
+                    val pill = if (tv) Modifier.scale(1.06f).clip(RoundedCornerShape(20.dp)).background(Color(0xFFF2EEF7)) else Modifier
+                    Text("Done", color = if (tv) Color(0xFF18131F) else accent, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                        modifier = pill.padding(horizontal = 16.dp, vertical = 10.dp))
+                }
             }
         }
     }
@@ -265,6 +325,13 @@ class StoreScreensTest {
         rule.settle(3_000) { false }
         rule.storeShot("7-up-next")
     }
+
+    @Test
+    fun invite() {
+        rule.setContent { PopcornTheme { StoreLibrary.Invite(tv = true, video = "video-tos.jpg") } }
+        rule.waitForIdle()
+        rule.storeShot("8-invite")
+    }
 }
 
 /**
@@ -373,5 +440,12 @@ class StoreTabletScreensTest {
         }
         rule.settle(3_000) { false }
         rule.storeShot("tablet-6-up-next")
+    }
+
+    @Test
+    fun invite() {
+        rule.setContent { PopcornTheme { StoreLibrary.Invite(tv = false, video = "video-tos.jpg") } }
+        rule.waitForIdle()
+        rule.storeShot("tablet-7-invite")
     }
 }
