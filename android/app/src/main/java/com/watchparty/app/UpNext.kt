@@ -524,7 +524,7 @@ internal fun ordinal(n: Int): String = "$n" + when {
  * orange bar that fills as the countdown runs; Stay here keeps watching. Anyone can press them.
  */
 @Composable
-internal fun NextCard(api: Api, tv: Boolean, item: MediaItem, at: Long, total: Long, serverNow: () -> Long, onPlayNow: (() -> Unit)?, onStay: (() -> Unit)?) {
+internal fun NextCard(api: Api, tv: Boolean, item: MediaItem, at: Long, total: Long, serverNow: () -> Long, onPlayNow: (() -> Unit)?, onStay: (() -> Unit)?, focusKey: Int = 0) {
     var left by remember(at) { mutableStateOf(at - serverNow()) }
     LaunchedEffect(at) {
         while (true) {
@@ -571,8 +571,9 @@ internal fun NextCard(api: Api, tv: Boolean, item: MediaItem, at: Long, total: L
             }
         }
     }
-    // The host's remote starts on Play now.
-    if (tv && onPlayNow != null) LaunchedEffect(Unit) { runCatching { play.requestFocus() } }
+    // The host's remote starts on Play now; [focusKey] changing puts it back there (Up from the seek bar, or after the
+    // controls hide).
+    if (tv && onPlayNow != null) LaunchedEffect(focusKey) { runCatching { play.requestFocus() } }
 }
 
 @Composable
