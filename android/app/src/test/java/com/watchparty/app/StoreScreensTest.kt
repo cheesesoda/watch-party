@@ -119,7 +119,7 @@ private object StoreLibrary {
         RoomSummary(
             id = "movies",
             media = tears,
-            members = listOf(Member("m1", "Jake", device = "tv"), Member("m2", "Sam", device = "phone"), Member("m3", "Riley", device = "web")),
+            members = listOf(Member("m1", "Jake", device = "tv"), Member("m2", "Sam", device = "phone"), Member("m3", "Maya", device = "web")),
             playback = RoomPlayback(position = 5 * 60.0 + 20, paused = false, duration = tears.duration),
         ),
     )
@@ -152,9 +152,9 @@ private object StoreLibrary {
         val names = listOf(Color(0xFF7CC4FF), Color(0xFF8EE09B), Color(0xFFF48FB1), Color(0xFFB39DFF), Color(0xFF6FE0D6), Color(0xFFFFB07A))
         fun color(name: String) = if (name == "Jake") Color(0xFFE09A62) else names[Math.floorMod(name.hashCode(), names.size)]
         val messages = listOf(
-            null to "Riley joined",
+            null to "Maya joined",
             "Sam" to "This opening is huge",
-            "Riley" to "The effects hold up so well",
+            "Maya" to "The effects hold up so well",
             "Jake" to "Told you",
             "Sam" to "Pause after this scene, popcorn refill",
         )
@@ -185,26 +185,24 @@ private object StoreLibrary {
     /**
      * Join with code (Dashboard's JoinCodeDialog, a Material 3 dialog in its own window, which a screenshot of the
      * activity doesn't include), drawn in place over the page: the same title, field, buttons and colors, with a code
-     * typed in. On a TV the remote is on Join.
+     * typed in. [join] puts the remote on Join, as on a TV.
      */
     @Composable
-    fun JoinCode(tv: Boolean) {
-        val join = remember { FocusRequester() }
+    fun JoinCode(join: FocusRequester? = null) {
         Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
             Surface(shape = RoundedCornerShape(28.dp), color = DialogSurface) {
                 Column(Modifier.widthIn(min = 280.dp, max = 560.dp).padding(24.dp)) {
-                    Text("Join a party", style = MaterialTheme.typography.headlineSmall)
+                    Text("Join a party", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(16.dp))
                     OutlinedTextField(value = "FX7Q2K", onValueChange = {}, label = { Text("Party code or invite link") }, singleLine = true)
                     Spacer(Modifier.height(24.dp))
                     Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DialogButton("Cancel") {}
-                        DialogButton("Join", modifier = Modifier.focusRequester(join)) {}
+                        DialogButton("Join", modifier = if (join != null) Modifier.focusRequester(join) else Modifier) {}
                     }
                 }
             }
         }
-        if (tv) LaunchedEffect(Unit) { runCatching { join.requestFocus() } }
     }
 
     /** A frame of the film behind the player's overlays. */
@@ -371,7 +369,10 @@ class StoreScreensTest {
 
     @Test
     fun joinWithCode() {
-        dashboard { StoreLibrary.JoinCode(tv = true) }
+        // On a TV the remote is on Join, once the page behind has settled.
+        val join = FocusRequester()
+        dashboard { StoreLibrary.JoinCode(join) }
+        rule.runOnIdle { join.requestFocus() }
         rule.settle(1_000) { false }
         rule.storeShot("9-join")
     }
@@ -497,7 +498,7 @@ class StoreTabletScreensTest {
 
     @Test
     fun joinWithCode() {
-        dashboard { StoreLibrary.JoinCode(tv = false) }
+        dashboard { StoreLibrary.JoinCode() }
         rule.storeShot("tablet-8-join")
     }
 }
