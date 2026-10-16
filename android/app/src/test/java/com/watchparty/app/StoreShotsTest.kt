@@ -224,7 +224,7 @@ class StoreShotsTest {
         server.start()
         signIn()
         val intent = Intent(ApplicationProvider.getApplicationContext(), RoomActivity::class.java)
-            .putExtra(RoomActivity.EXTRA_ROOM, "party1").putExtra(RoomActivity.EXTRA_HOST, true)
+            .putExtra(RoomActivity.EXTRA_ROOM, "k7qm2x").putExtra(RoomActivity.EXTRA_HOST, true)
         ActivityScenario.launch<RoomActivity>(intent).use { scenario ->
             fun idle(ms: Long) {
                 val until = System.currentTimeMillis() + ms
@@ -249,6 +249,35 @@ class StoreShotsTest {
             }
             idle(1_500)
             scenario.onActivity { save(it.window.decorView, "6-player") }
+
+            // Invite friends: the party's code and the QR code friends scan, with the invite link on the host's domain.
+            scenario.onActivity { activity ->
+                (field(activity, "playerView") as PlayerView).hideController()
+                Prefs(activity).serverUrl = BuildConfig.DEFAULT_SERVER
+                RoomActivity::class.java.getDeclaredMethod("makeParty").apply { isAccessible = true }.invoke(activity)
+            }
+            idle(1_500)
+            scenario.onActivity { activity ->
+                val dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog()
+                val page = activity.window.decorView
+                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                page.draw(canvas)
+                canvas.drawColor(Color.argb((255 * (dialog.window?.attributes?.dimAmount ?: 0.6f)).toInt(), 0, 0, 0))
+                val box = dialog.window!!.decorView
+                if (box.width == 0) {
+                    val most = (560 * activity.resources.displayMetrics.density).toInt()
+                    box.measure(View.MeasureSpec.makeMeasureSpec(most, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(page.height, View.MeasureSpec.AT_MOST))
+                    box.layout(0, 0, box.measuredWidth, box.measuredHeight)
+                }
+                canvas.save()
+                canvas.translate((page.width - box.width) / 2f, (page.height - box.height) / 2f)
+                box.draw(canvas)
+                canvas.restore()
+                File(out, "store-9-invite.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                dialog.dismiss()
+            }
+            idle(500)
 
             scenario.onActivity { activity ->
                 val playerView = field(activity, "playerView") as PlayerView
