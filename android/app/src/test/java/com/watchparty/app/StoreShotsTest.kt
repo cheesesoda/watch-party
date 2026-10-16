@@ -246,7 +246,8 @@ class StoreShotsTest {
                 content.addView(ImageView(activity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(still(film, 2)) }, 0, FrameLayout.LayoutParams(-1, -1))
                 content.setBackgroundColor(Color.BLACK)
                 playerView.setShutterBackgroundColor(Color.TRANSPARENT)
-                playerView.setBackgroundColor(Color.TRANSPARENT)
+                // Behind the controls, where the video would be (the activity's own black root covers anything further back).
+                playerView.background = android.graphics.drawable.BitmapDrawable(activity.resources, still(film, 2))
                 // The video's surface draws black here; the still stands in for it.
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)?.visibility = View.INVISIBLE
                 playerView.player = StillPlayer(((media.duration ?: 600.0) * 1000).toLong(), 300_000)
