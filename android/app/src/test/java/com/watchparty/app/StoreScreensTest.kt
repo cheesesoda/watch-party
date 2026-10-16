@@ -18,7 +18,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -132,46 +144,67 @@ private object StoreLibrary {
     }
 
     /**
-     * "It's a party" over the player, as Invite friends shows it (RoomActivity.makeParty, a classic dialog in its own
-     * window, which a screenshot of the activity doesn't include): drawn here the same way, in the same colors and
-     * sizes, with the same words, code and QR (an invite link to the built-in server's join page).
+     * Chat over the movie, as the player shows new messages (RoomActivity.renderChatOverlay, classic views): gray
+     * pills in the bottom-right corner, the sender's name in their color (yours in amber), joins in italics.
      */
     @Composable
-    fun Invite(tv: Boolean, video: String) {
-        val onSurface = Color(0xFFEEEAF3)
-        val variant = Color(0xFFB0A6BF)
-        val accent = Color(0xFFE09A62)
-        val code = "FX7Q2K"
+    fun Chat(video: String) {
+        val names = listOf(Color(0xFF7CC4FF), Color(0xFF8EE09B), Color(0xFFF48FB1), Color(0xFFB39DFF), Color(0xFF6FE0D6), Color(0xFFFFB07A))
+        fun color(name: String) = if (name == "Jake") Color(0xFFE09A62) else names[Math.floorMod(name.hashCode(), names.size)]
+        val messages = listOf(
+            null to "Riley joined",
+            "Sam" to "This opening is huge",
+            "Riley" to "The effects hold up so well",
+            "Jake" to "Told you",
+            "Sam" to "Pause after this scene, popcorn refill",
+        )
         Box(Modifier.fillMaxSize()) {
             Video(video)
-            Box(Modifier.fillMaxSize().background(Color(0x99000000)))
-            Column(
-                Modifier.align(Alignment.Center).width(if (tv) 420.dp else 360.dp).clip(RoundedCornerShape(28.dp)).background(Color(0xFF31283E))
-                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
-            ) {
-                Text("It's a party", color = onSurface, fontSize = 24.sp)
-                Spacer(Modifier.height(12.dp))
-                Text("Friends join with this code, or by scanning the code with their phone.", color = variant, fontSize = 14.sp, lineHeight = 20.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(code, color = onSurface, fontSize = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.12.em, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(if (tv) 180.dp else 200.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(10.dp)) {
-                        Image(qrBitmap("https://tv.chzsda.com/join/" + code.lowercase()), null, Modifier.fillMaxSize())
+            Column(Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp).width(340.dp)) {
+                for ((from, text) in messages) {
+                    val line = buildAnnotatedString {
+                        if (from == null) {
+                            withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = Color(0xFFCCCCCC))) { append(text) }
+                        } else {
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = color(from))) { append(from) }
+                            append("  ")
+                            append(text)
+                        }
                     }
-                }
-                Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    if (!tv) {
-                        Text("Copy invite link", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
-                        Spacer(Modifier.weight(1f))
-                    }
-                    // On a TV the remote starts on Done: a white pill, a little larger.
-                    val pill = if (tv) Modifier.scale(1.06f).clip(RoundedCornerShape(20.dp)).background(Color(0xFFF2EEF7)) else Modifier
-                    Text("Done", color = if (tv) Color(0xFF18131F) else accent, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        modifier = pill.padding(horizontal = 16.dp, vertical = 10.dp))
+                    Text(
+                        line, color = Color.White, fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 6.dp))
+                            .background(Color(0xAA262626)).padding(start = 12.dp, top = 6.dp, end = 12.dp, bottom = 7.dp),
+                    )
                 }
             }
         }
+    }
+
+    /**
+     * Join with code (Dashboard's JoinCodeDialog, a Material 3 dialog in its own window, which a screenshot of the
+     * activity doesn't include), drawn in place over the page: the same title, field, buttons and colors, with a code
+     * typed in. On a TV the remote is on Join.
+     */
+    @Composable
+    fun JoinCode(tv: Boolean) {
+        val join = remember { FocusRequester() }
+        Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
+            Surface(shape = RoundedCornerShape(28.dp), color = DialogSurface) {
+                Column(Modifier.widthIn(min = 280.dp, max = 560.dp).padding(24.dp)) {
+                    Text("Join a party", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(value = "FX7Q2K", onValueChange = {}, label = { Text("Party code or invite link") }, singleLine = true)
+                    Spacer(Modifier.height(24.dp))
+                    Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DialogButton("Cancel") {}
+                        DialogButton("Join", modifier = Modifier.focusRequester(join)) {}
+                    }
+                }
+            }
+        }
+        if (tv) LaunchedEffect(Unit) { runCatching { join.requestFocus() } }
     }
 
     /** A frame of the film behind the player's overlays. */
@@ -231,7 +264,7 @@ class StoreScreensTest {
     fun stop() = server.shutdown()
 
     /** The TV home, with the remote's focus working. */
-    private fun dashboard() {
+    private fun dashboard(overlay: @Composable () -> Unit = {}) {
         val prefs = signedIn(server)
         InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
         rule.mainClock.autoAdvance = false
@@ -240,7 +273,10 @@ class StoreScreensTest {
             val inputMode = LocalInputModeManager.current
             SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
             PopcornTheme {
-                Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}, forceTv = true) }
+                Box(Modifier.fillMaxSize().background(Bg)) {
+                    Dashboard(prefs, onSignedOut = {}, forceTv = true)
+                    overlay()
+                }
             }
         }
         rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
@@ -327,10 +363,17 @@ class StoreScreensTest {
     }
 
     @Test
-    fun invite() {
-        rule.setContent { PopcornTheme { StoreLibrary.Invite(tv = true, video = "video-tos.jpg") } }
+    fun chat() {
+        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-tos.jpg") } }
         rule.waitForIdle()
-        rule.storeShot("8-invite")
+        rule.storeShot("8-chat")
+    }
+
+    @Test
+    fun joinWithCode() {
+        dashboard { StoreLibrary.JoinCode(tv = true) }
+        rule.settle(1_000) { false }
+        rule.storeShot("9-join")
     }
 }
 
@@ -355,12 +398,15 @@ class StoreTabletScreensTest {
     @After
     fun stop() = server.shutdown()
 
-    private fun dashboard() {
+    private fun dashboard(overlay: @Composable () -> Unit = {}) {
         val prefs = signedIn(server)
         rule.mainClock.autoAdvance = false
         rule.setContent {
             PopcornTheme {
-                Box(Modifier.fillMaxSize().background(Bg)) { Dashboard(prefs, onSignedOut = {}) }
+                Box(Modifier.fillMaxSize().background(Bg)) {
+                    Dashboard(prefs, onSignedOut = {})
+                    overlay()
+                }
             }
         }
         rule.runOnIdle { rule.activity.window.decorView.dispatchWindowFocusChanged(true) }
@@ -443,9 +489,15 @@ class StoreTabletScreensTest {
     }
 
     @Test
-    fun invite() {
-        rule.setContent { PopcornTheme { StoreLibrary.Invite(tv = false, video = "video-tos.jpg") } }
+    fun chat() {
+        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-tos.jpg") } }
         rule.waitForIdle()
-        rule.storeShot("tablet-7-invite")
+        rule.storeShot("tablet-7-chat")
+    }
+
+    @Test
+    fun joinWithCode() {
+        dashboard { StoreLibrary.JoinCode(tv = false) }
+        rule.storeShot("tablet-8-join")
     }
 }
