@@ -99,6 +99,11 @@ const KEYFRAME_GAP = 40;
 const CLOSE_ODD = 8;
 /** Every half second, a card full of names can read a bit under [CREDITS_BLACK] for seconds at a time (Reacher S1E03). */
 const CLOSE_BLACK = 80;
+/**
+ * Credits found by sound start where the outro music does, which can be well into the credit cards (Archer S1E03: the
+ * cards start 28 s earlier). The picture this far before is checked for where the cards begin.
+ */
+const WALK_BACK = 60;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
@@ -349,6 +354,46 @@ export function creditsBefore(unsorted: { t: number; black: number }[], end: num
   return end - frames[start].t >= 10 ? frames[start].t : null;
 }
 
+/** A stretch of an episode's ending it shares with another episode: where it starts in this one, and how long it is. */
+export interface Outro {
+  start: number;
+  length: number;
+}
+
+/** Shorter than this, a shared ending is only trusted when no other episode shares a longer one. */
+const OUTRO_TRUSTED = 20;
+
+/** Where an episode's credits start by sound: the earliest of the outros it shares, leaving out short ones when longer ones agree. */
+export function outroStart(outros: Outro[]): number | null {
+  const long = outros.filter((o) => o.length >= OUTRO_TRUSTED);
+  const from = long.length ? long : outros;
+  return from.length ? Math.min(...from.map((o) => o.start)) : null;
+}
+
+/**
+ * Where credit cards that are already showing at [mark] (seconds into the window, frames two a second) started: walking
+ * back through mostly dark frames, two odd ones in a row allowed, to the first frame after a bright picture. Null when
+ * [mark] isn't on cards, when they start within 2 s of it anyway, or when nothing bright before them says where they
+ * start (a gap in the frames, or dark all the way back to the window's start).
+ */
+export function cardsBefore(unsorted: { t: number; black: number }[], mark: number): number | null {
+  const frames = [...unsorted].sort((a, b) => a.t - b.t);
+  const dark = (i: number) => frames[i].black >= STING_DARK;
+  let i = frames.length - 1;
+  while (i >= 0 && frames[i].t > mark) i--;
+  if (i < 0 || !dark(i) || mark - frames[i].t > 2) return null;
+  let start = i;
+  let bright = 0;
+  for (let j = i - 1; j >= 0; j--) {
+    if (frames[j + 1].t - frames[j].t > 3) return null;
+    if (dark(j)) {
+      start = j;
+      bright = 0;
+    } else if (++bright > 2) return mark - frames[start].t >= 2 ? frames[start].t : null;
+  }
+  return null;
+}
+
 function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; out: Buffer }> {
   return new Promise((resolve) => {
     let proc: ChildProcess;
@@ -394,6 +439,8 @@ interface Entry {
    * alone for the start of the credits).
    */
   creditsRetried?: boolean | number;
+  /** Whether credits found by sound have been checked against the picture for cards that start before them. */
+  walked?: boolean;
 }
 
 export interface MarkersEntry {
@@ -521,6 +568,22 @@ export class Markers {
       this.log(`updated ${old.length} earlier results (chapters joined, credits by picture)`);
       await this.save();
     }
+    // Credits found by sound before the picture was checked for cards starting earlier: checked once now.
+    const unwalked = entries.filter((e) => {
+      const entry = this.cache[e.item.id];
+      return e.item.episode && !e.item.extra && entry?.v === VERSION && entry.key === Markers.key(e.item) && !entry.walked && entry.sound?.credits != null && entry.marks.credits === entry.sound.credits;
+    });
+    if (unwalked.length) this.log(`checking where the credits start in ${unwalked.length} episodes`);
+    let moved = 0;
+    for (const [n, e] of unwalked.entries()) {
+      if (this.closed) return;
+      if (await this.walk(e)) moved++;
+      if ((n + 1) % 25 === 0 && n + 1 < unwalked.length) await this.save();
+    }
+    if (unwalked.length) {
+      this.log(`checked where the credits start in ${unwalked.length} episodes (${moved} moved earlier)`);
+      await this.save();
+    }
     for (const list of seasons.values()) {
       if (this.closed) return;
       list.sort((x, y) => x.item.episode!.episode - y.item.episode!.episode);
@@ -577,13 +640,16 @@ export class Markers {
       return tails.get(i)!;
     };
     const found: SkipMarks[] = list.map(() => ({}));
+    // Every outro an episode shares with a neighbour, as its credits start where the earliest one does: one neighbour
+    // can share only the end of it (Archer S1E02 shares 16 s of E03's, the rest share 27 s more).
+    const outros: Outro[][] = list.map(() => []);
+    const compared = new Set<string>();
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
       if (this.heard(list[i].item, list.length)) continue;
       // The nearest episodes first: they're the likeliest to share the season's theme as it is now.
       const partners = [i + 1, i - 1, i + 2, i - 2].filter((j) => j >= 0 && j < list.length);
       for (const j of partners) {
-        if (found[i].intro && found[i].credits != null) break;
         if (!found[i].intro) {
           const [a, b] = [await headOf(i), await headOf(j)];
           const hit = a && b ? sharedStretch(a, b, INTRO_MIN, INTRO_MAX) : null;
@@ -592,16 +658,18 @@ export class Markers {
             found[j].intro ??= hit.b;
           }
         }
-        if (found[i].credits == null) {
-          const [a, b] = [await tailOf(i), await tailOf(j)];
-          const hit = a && b ? sharedStretch(a, b, CREDITS_MIN) : null;
-          if (hit) {
-            found[i].credits = round(tailStart(i) + hit.a.start);
-            found[j].credits ??= round(tailStart(j) + hit.b.start);
-          }
+        const pair = `${Math.min(i, j)}|${Math.max(i, j)}`;
+        if (compared.has(pair)) continue;
+        compared.add(pair);
+        const [a, b] = [await tailOf(i), await tailOf(j)];
+        const hit = a && b ? sharedStretch(a, b, CREDITS_MIN) : null;
+        if (hit) {
+          outros[i].push({ start: round(tailStart(i) + hit.a.start), length: hit.a.end - hit.a.start });
+          outros[j].push({ start: round(tailStart(j) + hit.b.start), length: hit.b.end - hit.b.start });
         }
       }
     }
+    for (let i = 0; i < list.length; i++) found[i].credits = outroStart(outros[i]);
     const marks: SkipMarks[] = [];
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
@@ -630,7 +698,7 @@ export class Markers {
         const hit = findClip(tail, theirs.subarray(from, from + Math.round(OUTRO_CLIP / POINT_SECONDS)), STING_MIN);
         if (!hit) continue;
         if (hit.from <= OUTRO_START && hit.end - hit.start >= CREDITS_RETRY_MIN) {
-          marks[i].credits = round(tailStart(i) + hit.start);
+          marks[i].credits = await this.walkBack(list[i].absPath, round(tailStart(i) + hit.start), tailStart(i));
           sting = null;
           break;
         }
@@ -723,6 +791,7 @@ export class Markers {
         sound: entry ? entry.sound : { intro: found[i].intro ?? null, credits: found[i].credits ?? null },
         recapLooked: true,
         creditsRetried: CREDITS_RETRY,
+        walked: true,
       });
     }
     const missing = this.missingCredits(list);
@@ -749,6 +818,7 @@ export class Markers {
   private async combine(file: string, chapterList: { start: number; end: number; title: string }[], sound: SkipMarks, duration: number, tail: number): Promise<SkipMarks> {
     const chapters = chapterMarks(chapterList);
     let credits = chapters.credits ?? sound.credits ?? null;
+    if (chapters.credits == null && sound.credits != null) credits = await this.walkBack(file, sound.credits, tail);
     if (credits == null && duration > 0) {
       // Keyframes first, as they're quick to read. Credit cards are still pictures, so keyframes can be half a minute
       // apart there: a long gap between dark ones doesn't end the stretch. Then every half second around where it
@@ -763,6 +833,31 @@ export class Markers {
       }
     }
     return { intro: chapters.intro ?? sound.intro ?? null, recap: chapters.recap ?? null, credits };
+  }
+
+  /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */
+  private async walkBack(file: string, credits: number, tail: number): Promise<number> {
+    const start = Math.max(tail, credits - WALK_BACK);
+    const frames = await this.blackness(file, start, credits - start + 2, true);
+    const at = frames ? cardsBefore(frames, credits - start) : null;
+    if (at == null) return credits;
+    const moved = round(start + at);
+    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+    this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the outro music starts at ${clock(credits)})`);
+    return moved;
+  }
+
+  /** An episode whose credits came from sound, checked once for cards that start before them. Whether they moved. */
+  private async walk(e: MarkersEntry): Promise<boolean> {
+    const entry = this.cache[e.item.id];
+    const probe = await this.probe(e.absPath);
+    if (!probe) return false;
+    const credits = entry.marks.credits!;
+    const d = probe.duration;
+    const tail = Math.max(0, d - Math.min(CREDITS_WINDOW, d / 5));
+    const at = chapterMarks(probe.chapters).credits == null && d > 0 ? await this.walkBack(e.absPath, credits, tail) : credits;
+    this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits: at }, walked: true };
+    return at !== credits;
   }
 
   /**
@@ -804,10 +899,10 @@ export class Markers {
     const d = probe.duration;
     const tail = Math.max(0, d - Math.min(CREDITS_WINDOW, d / 5));
     const marks = e.item.episode ? await this.combine(e.absPath, probe.chapters, sound, d, tail) : chapterMarks(probe.chapters);
-    this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null } });
+    this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null }, walked: true });
   }
 
-  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean | number }): void {
+  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean | number; walked?: boolean }): void {
     this.cache[item.id] = { key: Markers.key(item), v: VERSION, ...entry };
   }
 
