@@ -100,6 +100,23 @@ class TvMenuFocusTest {
     private fun focusedNow(): String =
         rule.onAllNodes(isFocused(), useUnmergedTree = true).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)} @ ${it.boundsInRoot}" }.ifEmpty { "nothing" }
 
+    /** The merged node the remote is on: a menu row reads as its label. */
+    private fun focusedLabel(): String =
+        rule.onAllNodes(isFocused()).fetchSemanticsNodes().joinToString { "${it.config.getOrNull(SemanticsProperties.ContentDescription)}" }
+
+    @Test
+    fun leftLandsOnThePagesOwnMenuItem() {
+        page(alone = false) {}
+        windowFocus()
+        // Five cards a row: the second row sits level with Watch Parties or Join with code, the first with Home.
+        for (card in listOf(5, 0)) {
+            focusCard(card)
+            move(FocusDirection.Left)
+            assertTrue("Left from card $card landed on ${focusedLabel()}, not Movies", "Movies" in focusedLabel())
+            move(FocusDirection.Right)
+        }
+    }
+
     @Test
     fun rightFromTheMenuReachesThePage() = rightReachesThePage(alone = false)
 

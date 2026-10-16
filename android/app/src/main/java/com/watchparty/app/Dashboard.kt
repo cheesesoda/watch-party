@@ -622,6 +622,10 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     // the menu and never counts as "to the right": the menu sends Right to the page itself.
     // (No focusRestorer: on Compose 1.7 it crashes lazy rows with "Release should only be called once".)
     val page = remember { FocusRequester() }
+    // Left from the page lands on the menu item of the page you're on, not whichever item is level with the card.
+    val current = remember { FocusRequester() }
+    val here = section(route)
+    val hasItem = here == "search" || here == "home" || here == "movies" || here == "shows" || (here == "parties" && !adding) || (here == "settings" && !adding)
     // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
     // Right or Back from the menu: to the card the remote left the page from, or the page's first if it has gone.
     val memory = remember { FocusMemory() }
@@ -679,6 +683,8 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                     else Brush.horizontalGradient(listOf(Color(0xD9100C15), Color.Transparent)),
                 )
                 .onFocusChanged { open = it.hasFocus }
+                .focusProperties { enter = { if (hasItem) current else FocusRequester.Default } }
+                .focusGroup()
                 // The remote's Right goes back to the card it left (see backToPage); each item's right = page is the
                 // fallback for focus moves that don't come from a key.
                 .onPreviewKeyEvent {
@@ -694,25 +700,25 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
             Row(Modifier.padding(start = 11.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (open) LogoTitle(fontSize = 20.sp, markSize = 26.dp) else LogoMark(26.dp)
             }
-            TvMenuItem(R.drawable.ic_search, "Search", section(route) == "search", open, page) { go("search") }
+            TvMenuItem(R.drawable.ic_search, "Search", here == "search", open, page, current) { go("search") }
             // While adding to a party there's no other party to go to, and no signing out from under it.
             listOfNotNull(
                 NavItem("home", "Home", R.drawable.ic_nav_home),
                 NavItem("movies", "Movies", R.drawable.ic_nav_movies),
                 NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
                 NavItem("parties", "Watch Parties", R.drawable.ic_nav_parties).takeIf { !adding },
-            ).forEach { item -> TvMenuItem(item.icon, item.label, section(route) == item.route, open, page) { go(item.route) } }
-            if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, page, onCode)
+            ).forEach { item -> TvMenuItem(item.icon, item.label, here == item.route, open, page, current) { go(item.route) } }
+            if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, page, current, onCode)
             Spacer(Modifier.weight(1f))
-            TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, page, onRefresh)
-            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", section(route) == "settings", open, page, onSettings)
+            TvMenuItem(R.drawable.ic_refresh, "Refresh library", false, open, page, current, onRefresh)
+            if (!adding) TvMenuItem(R.drawable.ic_gear, "Settings", here == "settings", open, page, current, onSettings)
             if (!adding) TvModeItem(alone, open, page) { setAlone(!alone) }
         }
     }
 }
 
 @Composable
-private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolean, page: FocusRequester, onClick: () -> Unit) {
+private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolean, page: FocusRequester, current: FocusRequester, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
@@ -721,6 +727,7 @@ private fun TvMenuItem(icon: Int, label: String, selected: Boolean, open: Boolea
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (focused) FocusFill else if (selected) Tonal else Color.Transparent)
+            .then(if (selected) Modifier.focusRequester(current) else Modifier)
             .focusProperties { right = page }
             .remembersFocus()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
