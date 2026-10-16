@@ -843,7 +843,7 @@ export class Markers {
     if (at == null) return credits;
     const moved = round(start + at);
     const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-    this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the outro music starts at ${clock(credits)})`);
+    this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the sound match only lined up from ${clock(credits)})`);
     return moved;
   }
 
