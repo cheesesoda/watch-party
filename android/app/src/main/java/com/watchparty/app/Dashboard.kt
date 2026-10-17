@@ -1482,7 +1482,8 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
     ) {
         if (extras.isNotEmpty()) {
             item(key = "extras-title") { SectionTitle("Extras", a) }
-            items(extras, key = { it.id }) { EpisodeRow(it, lib, a) }
+            if (a.tv) item(key = "extras") { TvCards(extras, lib, a) }
+            else items(extras, key = { it.id }) { EpisodeRow(it, lib, a) }
         }
     }
 }
@@ -1546,14 +1547,18 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         val list = if (shown == -1) extras.orEmpty() else inSeason(shown)
         if (a.tv) {
             // On a TV the episodes are a sideways row of stills, like Google TV.
-            item(key = "episodes-$shown") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
-                    items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
-                }
-            }
+            item(key = "episodes-$shown") { TvCards(list, lib, a, special = { shown != -2 && it.episode?.season == 0 }) }
         } else {
             items(list, key = { it.id }) { EpisodeRow(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
         }
+    }
+}
+
+/** A TV's episodes or extras: a sideways row of stills, like Google TV, starting clear of the side menu. */
+@Composable
+private fun TvCards(list: List<MediaItem>, lib: Library, a: Actions, special: (MediaItem) -> Boolean = { false }) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
+        items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = special(it)) }
     }
 }
 

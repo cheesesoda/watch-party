@@ -18,8 +18,10 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -80,7 +82,11 @@ class TvScreensTest {
     )
 
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
-        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
+        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } } +
+        // Alien (first A–Z) has extras, added long ago so they stay out of Recently added.
+        listOf("Making Alien" to 720.0, "Deleted scenes" to 360.0).mapIndexed { i, (t, d) ->
+            MediaItem(id = "x$i", title = t, relPath = "Movies/Alien/Extras/$t.mkv", folder = "Movies/Alien/Extras", size = 1, addedAt = 1, duration = d, extra = ExtraInfo("Behind the scenes", of = "m4"))
+        }
 
     /**
      * Saved spots: movies, so removing one leaves a neighbor. The second and third have no TMDB art: the server grabs a
@@ -361,6 +367,29 @@ class TvScreensTest {
         shot("12d-show-scrolled-with-binge")
         val top2 = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         check(top2 == titleTop, "A scrolled page with the remote on Binge stayed scrolled (name at $top2, not $titleTop)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** A movie's extras are a row of cards clear of the side menu, as a show's are; they used to be phone rows under it. */
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test
+    fun movieExtrasStayClearOfTheMenu() {
+        // Movies from the menu, then the first movie (Alien).
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 2)
+        ok()
+        press(FocusDirection.Right)
+        press(FocusDirection.Down)
+        ok()
+        settle(3_000) { rule.onAllNodesWithText("Extras").fetchSemanticsNodes().isNotEmpty() }
+        press(FocusDirection.Down)
+        shot("13-movie-extras")
+        val heading = rule.onAllNodesWithText("Extras")[0].fetchSemanticsNode().boundsInRoot.left
+        val card = rule.onAllNodes(hasClickAction() and hasAnyDescendant(hasText("12 m")), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+        check(card != null, "The movie page shows no extras")
+        val menuEdge = with(rule.density) { 128.dp.toPx() }
+        check(card != null && card.left >= menuEdge - 1, "The first extra starts at ${card?.left}px, under the menu (it should start at ${menuEdge}px, like the Extras heading at ${heading}px)")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
