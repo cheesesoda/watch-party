@@ -317,6 +317,16 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             added = null
         }
     }
+    /**
+     * A party just started: its code shows at the top of Home, so go there. Started from a movie or show page, it used to
+     * stay put with nothing to show for it, and each press started another party.
+     */
+    val showStarted: suspend (RoomSummary) -> Unit = { room ->
+        started = room
+        rooms = rooms.filter { it.id != room.id } + room
+        go("home")
+        listStates.getOrPut("home") { LazyListState() }.scrollToItem(0)
+    }
     val spotActions = SpotActions(
         start = { spot ->
             spotOptions = null
@@ -325,11 +335,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 spots = spots.filter { it.id != spot.id }
                 // Watching alone goes straight to the player; a party shows its code first.
                 if (room?.solo == true) RoomActivity.start(context, room.id)
-                else if (room != null) {
-                    started = room
-                    rooms = rooms.filter { it.id != room.id } + room
-                    listState.scrollToItem(0)
-                } else guard { api.spots() }?.let { spots = it }
+                else if (room != null) showStarted(room)
+                else guard { api.spots() }?.let { spots = it }
             }
         },
         open = { spot ->
@@ -374,10 +381,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         start = { media, queue ->
             scope.launch {
                 guard { api.createRoom(media.id, queue, alone) }?.let { room ->
-                    if (room.solo) return@let RoomActivity.start(context, room.id)
-                    started = room
-                    rooms = rooms.filter { it.id != room.id } + room
-                    listState.scrollToItem(0)
+                    if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
                 }
             }
         },
