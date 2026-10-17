@@ -79,6 +79,7 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
 }
 
 const round = (s: number) => Math.round(s * 10) / 10;
+const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 /**
  * The second credits search: this much of a known outro is looked for, and this much of it has to match, starting
@@ -111,6 +112,17 @@ const WALK_BACK = 60;
 const CARD_BLACK = 18;
 /** Bumped when the walk back changes, so every sound mark is walked back again from where sound put it. */
 const WALKED = 2;
+/**
+ * A credits chapter can start a little before its cards (Reacher S2E06's starts 10 s early, in a dark scene): up to
+ * this far in, the first of at least CHAPTER_EARLY_CARDS seconds of true-black cards is where they start. It's
+ * only ever moved later.
+ */
+const CHAPTER_EARLY = 30;
+const CHAPTER_EARLY_CARDS = 5;
+/** Bumped when that check changes, so every credits chapter is checked again. */
+const CHAPTER_CHECK = 1;
+/** A season's first episode checked against the season before it for a recap ("Previously on" opening a new season). */
+const OPENER_RECAP = 2;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
@@ -383,6 +395,24 @@ export function creditsBefore(unsorted: { t: number; black: number }[], end: num
   return end - frames[start].t >= 10 ? frames[start].t : null;
 }
 
+/**
+ * Where the cards start, when a credits chapter starts before them: [unsorted] frames (two a second, true black) from
+ * where the chapter starts. Null when it starts on cards already, or no run of them starts within CHAPTER_EARLY.
+ */
+export function cardsAfter(unsorted: { t: number; black: number }[]): number | null {
+  const frames = [...unsorted].sort((a, b) => a.t - b.t);
+  const run = (from: number, length: number) => frames.filter((f) => f.t >= from && f.t < from + length);
+  const cards = (list: { black: number }[]) => list.length > 0 && list.filter((f) => f.black >= CREDITS_BLACK).length >= list.length * 0.8;
+  if (cards(run(0, 2))) return null;
+  for (const f of frames) {
+    if (f.t > CHAPTER_EARLY) break;
+    if (f.black < CREDITS_BLACK) continue;
+    const next = run(f.t, CHAPTER_EARLY_CARDS);
+    if (next.length >= CHAPTER_EARLY_CARDS * 2 - 1 && cards(next)) return f.t;
+  }
+  return null;
+}
+
 /** A stretch of an episode's ending it shares with another episode: where it starts in this one, and how long it is. */
 export interface Outro {
   start: number;
@@ -494,13 +524,15 @@ interface Entry {
   peers?: number;
   /** What sound alone found (version 2 on), so chapter rules can change without listening again. */
   sound?: SkipMarks;
-  /** Whether the episode's opening has been checked against earlier episodes for a recap. */
-  recapLooked?: boolean;
+  /** Whether the episode's opening has been checked against earlier episodes for a recap (OPENER_RECAP: and the season before). */
+  recapLooked?: boolean | number;
   /**
    * Which second credits search an episode without them has had (true: the first, which also took the end logos
    * alone for the start of the credits).
    */
   creditsRetried?: boolean | number;
+  /** Whether a credits chapter has been checked for cards that start after it (CHAPTER_CHECK). */
+  chaptersChecked?: number;
   /** Whether credits found by sound have been checked against the picture for cards that start before them. */
   walked?: boolean | number;
 }
@@ -668,6 +700,27 @@ export class Markers {
       const entry = this.cache[e.item.id];
       return e.item.episode && !e.item.extra && entry?.v === VERSION && entry.key === Markers.key(e.item) && entry.walked !== WALKED && entry.sound?.credits != null && (entry.marks.credits === entry.sound.credits || (entry.walked === true && entry.marks.credits != null && entry.marks.credits < entry.sound.credits));
     });
+    // Credits chapters from before they were checked for starting early: checked once now.
+    const unchecked = entries.filter((e) => {
+      const entry = this.cache[e.item.id];
+      return e.item.episode && !e.item.extra && entry?.v === VERSION && entry.key === Markers.key(e.item) && entry.chaptersChecked !== CHAPTER_CHECK && entry.marks.credits != null;
+    });
+    let early = 0;
+    for (const [n, e] of unchecked.entries()) {
+      if (this.closed) return;
+      const entry = this.cache[e.item.id];
+      const probe = await this.probe(e.absPath);
+      if (!probe) continue;
+      const chapter = chapterMarks(probe.chapters).credits;
+      const at = chapter != null && Math.abs(chapter - entry.marks.credits!) < 0.5 ? await this.chapterCards(e.absPath, chapter) : entry.marks.credits!;
+      if (at !== entry.marks.credits) early++;
+      this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits: at }, chaptersChecked: CHAPTER_CHECK };
+      if ((n + 1) % 25 === 0 && n + 1 < unchecked.length) await this.save();
+    }
+    if (unchecked.length) {
+      this.log(`checked credits chapters in ${unchecked.length} episodes (${early} start before their cards)`);
+      await this.save();
+    }
     if (unwalked.length) this.log(`checking where the credits start in ${unwalked.length} episodes`);
     let moved = 0;
     for (const [n, e] of unwalked.entries()) {
@@ -679,10 +732,14 @@ export class Markers {
       this.log(`checked where the credits start in ${unwalked.length} episodes (${moved} changed)`);
       await this.save();
     }
+    for (const list of seasons.values()) list.sort((x, y) => x.item.episode!.episode - y.item.episode!.episode);
     for (const list of seasons.values()) {
       if (this.closed) return;
-      list.sort((x, y) => x.item.episode!.episode - y.item.episode!.episode);
-      if (list.every((e) => this.fresh(e.item, list.length))) {
+      const ep = list[0].item.episode!;
+      // A season's first episode may recap the season before: looked at once more when that season is here.
+      const before = ep.season > 1 && ep.episode === 1 ? seasons.get(`${ep.show.toLowerCase()}|${ep.season - 1}`) : undefined;
+      const opener = before && this.cache[list[0].item.id]?.recapLooked !== OPENER_RECAP ? before : undefined;
+      if (!opener && list.every((e) => this.fresh(e.item, list.length))) {
         // Looked at before: no listening, but name the episodes still without credits once per start.
         const missing = this.missingCredits(list);
         const key = `${list[0].item.episode!.show}|${list[0].item.episode!.season}`;
@@ -690,7 +747,7 @@ export class Markers {
         this.listed.add(key);
         continue;
       }
-      await this.season(list);
+      await this.season(list, opener);
       await this.save();
     }
     // Movies only have chapter names to go on.
@@ -705,12 +762,14 @@ export class Markers {
     if (changed) await this.save();
   }
 
-  private async season(list: MarkersEntry[]): Promise<void> {
+  /** [previous]: the season before, when this season's first episode is still to be checked against it for a recap. */
+  private async season(list: MarkersEntry[], previous?: MarkersEntry[]): Promise<void> {
     const started = Date.now();
     const ep = list[0].item.episode!;
     const name = Markers.seasonName(list);
+    const fresh = (i: number) => this.fresh(list[i].item, list.length) && !(i === 0 && previous);
     const listen = list.filter((e) => !this.heard(e.item, list.length)).length;
-    const recapsDue = list.some((e) => !this.cache[e.item.id]?.recapLooked);
+    const recapsDue = !!previous || list.some((e) => !this.cache[e.item.id]?.recapLooked);
     const retries = list.filter((e) => !this.fresh(e.item, list.length)).length;
     this.log(`${name}: ${listen ? `listening for intros and credits in ${listen} of ${list.length} episodes` : recapsDue ? "checking for recaps" : `looking again for credits in ${retries} of ${list.length} episodes`}`);
     const probes = await Promise.all(list.map((e) => this.probe(e.absPath)));
@@ -825,7 +884,7 @@ export class Markers {
     const shared: TimeRange[][] = [];
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
-      if (this.fresh(list[i].item, list.length)) continue;
+      if (fresh(i)) continue;
       const head = await headOf(i);
       const others: Uint32Array[] = [];
       for (let k = 0; k < list.length && head; k++) {
@@ -850,7 +909,7 @@ export class Markers {
     for (let i = 0; i < list.length; i++) {
       if (this.closed) return;
       const e = list[i];
-      if (this.fresh(e.item, list.length)) {
+      if (fresh(i)) {
         const known = this.cache[e.item.id].marks;
         if (known.intro) intros++;
         if (known.credits != null) credits++;
@@ -859,7 +918,7 @@ export class Markers {
       }
       const chapters = chapterMarks(probes[i]?.chapters ?? []);
       // Back only for its credits: its recap was already looked for.
-      const looked = this.heard(e.item, list.length) && !!this.cache[e.item.id].recapLooked;
+      const looked = this.heard(e.item, list.length) && !!this.cache[e.item.id].recapLooked && !(i === 0 && previous);
       const head = looked ? null : await headOf(i);
       const intro = marks[i].intro ?? null;
       let detected: TimeRange | null = null;
@@ -874,6 +933,9 @@ export class Markers {
           if (t) sources.push({ points: t, from: tailStart(j), ignore: ignoreIn(j) });
         }
         detected = findRecap(head, [...(intro ? [intro] : []), ...shared[i]], sources);
+      } else if (head && i === 0 && previous?.length) {
+        this.log(`${name}: recap check, episode ${e.item.episode!.episode} against season ${ep.season - 1}`);
+        detected = findRecap(head, [...(intro ? [intro] : []), ...shared[i]], await this.seasonSources(previous));
       }
       const named = chapters.recap ?? null;
       // A recap chapter says where the recap is, unless the clips run on past where it says it ends.
@@ -889,7 +951,7 @@ export class Markers {
         marks: m,
         peers: entry ? entry.peers ?? list.length : list.length,
         sound: entry ? entry.sound : { intro: found[i].intro ?? null, credits: found[i].credits ?? null },
-        recapLooked: true,
+        recapLooked: i === 0 && previous ? OPENER_RECAP : true,
         creditsRetried: CREDITS_RETRY,
         walked: WALKED,
       });
@@ -897,6 +959,33 @@ export class Markers {
     const missing = this.missingCredits(list);
     this.listed.add(`${ep.show}|${ep.season}`);
     this.log(`${name}: intros in ${intros} of ${list.length}, recaps in ${recaps}, credits in ${credits} (${Math.round((Date.now() - started) / 1000)} s)${missing ? ` ${missing.text}` : ""}`);
+  }
+
+  /**
+   * What a season's first episode may recap from the season before: all of its last episode, and the openings and
+   * endings of the rest, their own intros and credits left out.
+   */
+  private async seasonSources(previous: MarkersEntry[]): Promise<RecapSource[]> {
+    const sources: RecapSource[] = [];
+    for (let j = previous.length - 1; j >= 0; j--) {
+      if (this.closed) break;
+      const e = previous[j];
+      const probe = await this.probe(e.absPath);
+      const d = probe?.duration ?? 0;
+      if (d <= 0) continue;
+      const { intro, credits } = this.cache[e.item.id]?.marks ?? {};
+      const ignore = (t: number) => t < 15 || (intro != null && t >= intro.start && t <= intro.end) || (credits != null && t >= credits);
+      if (j === previous.length - 1) {
+        const all = await this.fingerprint(e.absPath, 0, d, 20 * 60_000);
+        if (all) sources.push({ points: all, from: 0, ignore });
+        continue;
+      }
+      const tail = Math.max(0, d - Math.min(CREDITS_WINDOW, d / 5));
+      const [h, t] = [await this.fingerprint(e.absPath, 0, Math.min(INTRO_WINDOW, d / 4)), await this.fingerprint(e.absPath, tail, d - tail)];
+      if (h) sources.push({ points: h, from: 0, ignore });
+      if (t) sources.push({ points: t, from: tail, ignore });
+    }
+    return sources;
   }
 
   private static seasonName(list: MarkersEntry[]): string {
@@ -918,6 +1007,7 @@ export class Markers {
   private async combine(file: string, chapterList: { start: number; end: number; title: string }[], sound: SkipMarks, duration: number, tail: number): Promise<SkipMarks> {
     const chapters = chapterMarks(chapterList);
     let credits = chapters.credits ?? sound.credits ?? null;
+    if (chapters.credits != null) credits = await this.chapterCards(file, chapters.credits);
     if (chapters.credits == null && sound.credits != null) credits = await this.walkBack(file, sound.credits, tail);
     if (credits == null && duration > 0) {
       // Keyframes first, as they're quick to read. Credit cards are still pictures, so keyframes can be half a minute
@@ -936,6 +1026,16 @@ export class Markers {
     return { intro: chapters.intro ?? heard, recap: chapters.recap ?? null, credits };
   }
 
+  /** Where the cards of a credits chapter starting at [credits] start: later than it says when it starts early. */
+  private async chapterCards(file: string, credits: number): Promise<number> {
+    const frames = await this.blackness(file, credits, CHAPTER_EARLY + CHAPTER_EARLY_CARDS + 1, true, CARD_BLACK);
+    const at = frames ? cardsAfter(frames) : null;
+    if (at == null) return credits;
+    const moved = round(credits + at);
+    this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the credits chapter starts at ${clock(credits)})`);
+    return moved;
+  }
+
   /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */
   private async walkBack(file: string, credits: number, tail: number): Promise<number> {
     const start = Math.max(tail, credits - WALK_BACK);
@@ -943,7 +1043,6 @@ export class Markers {
     const at = frames ? cardsBefore(frames, credits - start) : null;
     if (at == null) return credits;
     const moved = round(start + at);
-    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
     this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the sound match only lined up from ${clock(credits)})`);
     return moved;
   }
@@ -1004,7 +1103,7 @@ export class Markers {
     this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null }, walked: WALKED });
   }
 
-  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean | number; walked?: boolean | number }): void {
+  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean | number; creditsRetried?: boolean | number; walked?: boolean | number }): void {
     this.cache[item.id] = { key: Markers.key(item), v: VERSION, ...entry };
   }
 

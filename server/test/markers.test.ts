@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { Library } from "../src/library.ts";
-import { blackCredits, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, handSet, introChapter, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, cardsAfter, cardsBefore, chapterMarks, creditsBefore, findClip, findRecap, handSet, introChapter, Markers, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -364,6 +364,123 @@ test("finds recaps in real files by matching earlier episodes, ending where the 
   }
   assert.equal(markers.get(eps[0])?.intro ?? null, null, JSON.stringify(markers.get(eps[0])));
   assert.ok(lines.some((l) => l.includes("Show season 1: intros in 0 of 3, recaps in 2, credits in 3")), lines.join("\n"));
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a credits chapter that starts before its cards moves to where they start, and only later", () => {
+  const frames = (from: number, to: number, black: number) => Array.from({ length: (to - from) * 2 }, (_, i) => ({ t: from + i / 2, black }));
+  // A dark scene (not true black) for 10 s, then cards.
+  assert.equal(cardsAfter([...frames(0, 10, 0), ...frames(10, 36, 100)]), 10);
+  // Already on cards: stays.
+  assert.equal(cardsAfter(frames(0, 36, 100)), null);
+  // A cut to black for a second isn't cards; nor are cards more than 30 s in.
+  assert.equal(cardsAfter([...frames(0, 5, 0), ...frames(5, 6, 100), ...frames(6, 36, 0)]), null);
+  assert.equal(cardsAfter([...frames(0, 31, 0), ...frames(31, 37, 100)]), null);
+});
+
+test("a credits chapter that starts early in a real file is moved to the cards, also in earlier results", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-early-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // 300 s: picture until 250 s, a dark scene to 260 s, then white lines on black. Episode 1's "End Credits" chapter
+  // starts at the dark scene, episode 2's on the cards.
+  for (const [n, at] of [[1, 250000], [2, 260000]]) {
+    const meta = path.join(dir, `chapters${n}.txt`);
+    await fs.writeFile(meta, `;FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=${at}\ntitle=Scene 1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=${at}\nEND=300000\ntitle=End Credits\n`);
+    const r = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", "testsrc2=s=320x180:r=24:d=250",
+      "-f", "lavfi", "-i", "color=c=0x303030:s=320x180:r=24:d=10",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=24:d=40",
+      "-f", "lavfi", "-i", melody(n * 4.7 + 0.3, 300),
+      "-i", meta,
+      "-filter_complex", "[1:v]noise=alls=30:allf=t[d];[2:v]drawbox=x=100:y=40:w=120:h=6:color=white:t=fill,drawbox=x=120:y=90:w=80:h=6:color=white:t=fill[c];[0:v][d][c]concat=n=3:v=1:a=0[v]",
+      "-map", "[v]", "-map", "3:a", "-map_metadata", "4", "-g", "48", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+      path.join(season, `Show S01E0${n}.mkv`),
+    ]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode).sort((a, b) => a.episode!.episode - b.episode!.episode);
+  const entries = eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item }));
+  const file = path.join(dir, "markers.json");
+  const check = (markers: Markers) => {
+    for (const ep of eps) {
+      const credits = markers.get(ep)?.credits;
+      assert.ok(credits != null && credits >= 259.5 && credits <= 261, `${ep.relPath} credits ${credits}`);
+    }
+  };
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await markers.warm(entries);
+  check(markers);
+  await markers.close();
+
+  // Found before the check: episode 1 still at its chapter, and checked once on the next start.
+  const json = JSON.parse(await fs.readFile(file, "utf8"));
+  for (const entry of Object.values<any>(json.files)) delete entry.chaptersChecked;
+  json.files[eps[0].id].marks.credits = 250;
+  await fs.writeFile(file, JSON.stringify(json));
+  const lines: string[] = [];
+  const again = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, (l) => lines.push(l));
+  await again.warm(entries);
+  check(again);
+  assert.ok(lines.some((l) => l.startsWith("checked credits chapters in 2 episodes (1 start before their cards)")), lines.join("\n"));
+  await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a season's first episode recaps the season before, also once that season turns up later", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-opener-"));
+  const sounds: Record<string, string> = {};
+  const make = async (name: string, seed: number, length: number) => {
+    sounds[name] = path.join(dir, `${name}.wav`);
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", melody(seed, length), sounds[name]]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  };
+  for (const [name, seed, length] of [
+    ["logo", 1.7, 6], ["credits", 9.9, 30], ["a1", 2.1, 40], ["a2", 2.9, 200], ["b1", 4.3, 240],
+    ["c1", 5.9, 250], ["d1", 3.3, 250], ["n1", 6.1, 3], ["n2", 6.7, 5],
+  ] as const) await make(name, seed, length);
+  const episode = async (s: number, n: number, pieces: [string, number, number][]) => {
+    const season = path.join(dir, "Show", `Season ${s}`);
+    await fs.mkdir(season, { recursive: true });
+    const args = ["-hide_banner", "-loglevel", "error", "-y"];
+    for (const [name, from, length] of pieces) args.push("-ss", String(from), "-t", String(length), "-i", sounds[name]);
+    args.push("-filter_complex", `${pieces.map((_, i) => `[${i}:a]`).join("")}concat=n=${pieces.length}:v=0:a=1[a]`, "-map", "[a]", "-c:a", "aac", path.join(season, `Show S0${s}E0${n}.mp4`));
+    const r = spawnSync("ffmpeg", args);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  };
+  // Season 2 opens with narration, 15 s from the middle of season 1's last episode, narration and 15 s of the start
+  // of its first (recap 0:03 to 0:38), then the logo.
+  await episode(2, 1, [["n1", 0, 3], ["b1", 100, 15], ["n2", 0, 5], ["a1", 20, 15], ["logo", 0, 6], ["c1", 0, 250], ["credits", 0, 30]]);
+  await episode(2, 2, [["logo", 0, 6], ["d1", 0, 250], ["credits", 0, 30]]);
+
+  const library = new Library([dir]);
+  const lines: string[] = [];
+  const file = path.join(dir, "markers.json");
+  const warm = async () => {
+    await library.scan();
+    const eps = (await library.list()).filter((i) => i.episode);
+    const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, (l) => lines.push(l));
+    await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+    return { markers, opener: eps.find((i) => i.episode!.season === 2 && i.episode!.episode === 1)! };
+  };
+  // Season 2 alone: nothing earlier to recap.
+  let { markers, opener } = await warm();
+  assert.equal(markers.get(opener)?.recap ?? null, null, JSON.stringify(markers.get(opener)));
+  // Season 1 added: the opener is checked against it once, without listening to season 2 for intros again.
+  await episode(1, 1, [["logo", 0, 6], ["a1", 0, 40], ["a2", 0, 200], ["credits", 0, 30]]);
+  await episode(1, 2, [["logo", 0, 6], ["b1", 0, 240], ["credits", 0, 30]]);
+  lines.length = 0;
+  ({ markers, opener } = await warm());
+  const recap = markers.get(opener)?.recap;
+  assert.ok(recap && Math.abs(recap.start - 3) < 3 && Math.abs(recap.end - 38) < 3, JSON.stringify(markers.get(opener)));
+  assert.ok(lines.some((l) => l.includes("Show season 2: recap check, episode 1 against season 1")), lines.join("\n"));
+  // Checked once: the next start leaves it be.
+  lines.length = 0;
+  await warm();
+  assert.ok(!lines.some((l) => l.includes("against season")), lines.join("\n"));
   await fs.rm(dir, { recursive: true, force: true });
 });
 
