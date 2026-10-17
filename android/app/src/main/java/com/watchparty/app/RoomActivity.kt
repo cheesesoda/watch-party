@@ -417,6 +417,21 @@ class RoomActivity : ComponentActivity() {
         return true
     }
 
+    /**
+     * How far Skip intro moves up while the TV's controls show: to just above the seek bar (and the room over it for the
+     * time bubble), measured from where the bar is, not a fixed amount, so it doesn't float halfway up the screen.
+     */
+    private fun skipLift(): Float {
+        val bar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+        val parent = skipView.parent as? View
+        if (bar == null || parent == null || bar.height == 0 || skipView.height == 0) return dp(TV_CONTROLS_DP).toFloat()
+        val barAt = IntArray(2).also { bar.getLocationInWindow(it) }[1]
+        val parentAt = IntArray(2).also { parent.getLocationInWindow(it) }[1]
+        // The pill's bottom edge (inside the view's shadow room) goes SKIP_GAP_DP above the bar.
+        val pillBottom = skipView.bottom - dp(SHADOW_ROOM_DP)
+        return (pillBottom - (barAt - parentAt) + dp(SKIP_GAP_DP)).coerceAtLeast(0).toFloat()
+    }
+
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY,
         KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
@@ -585,7 +600,7 @@ class RoomActivity : ComponentActivity() {
                 if (isTv) chatOverlay.animate().translationY(if (visibility == View.VISIBLE) -dp(80).toFloat() else 0f).setDuration(150).start()
                 // Skip intro sits above the TV's seek bar while the controls show, and gets the remote back after.
                 if (isTv && ::skipView.isInitialized) {
-                    skipView.animate().translationY(if (visibility == View.VISIBLE) -dp(TV_CONTROLS_DP).toFloat() else 0f).setDuration(150).start()
+                    skipView.animate().translationY(if (visibility == View.VISIBLE) -skipLift() else 0f).setDuration(150).start()
                     if (visibility != View.VISIBLE && skipPart.value != null) skipFocus.value++
                 }
                 // Pausing brings the controls up and takes the remote off the Up next card; it goes back once they hide.
@@ -1871,6 +1886,8 @@ class RoomActivity : ComponentActivity() {
         skipPart.value = part
         skipView.visibility = if (part != null) View.VISIBLE else View.GONE
         if (part == null && hadFocus && isTv) playerView.requestFocus()
+        // Showing up with the controls already up: once it's laid out, just above the seek bar.
+        if (appeared && isTv && playerView.isControllerFullyVisible) skipView.post { if (playerView.isControllerFullyVisible) skipView.translationY = -skipLift() }
         // The remote starts on it, so one OK skips, unless it's busy with the controls, chat or Up next.
         if (appeared && isTv && !playerView.isControllerFullyVisible && chatPanel.visibility != View.VISIBLE) skipFocus.value++
     }
@@ -2224,8 +2241,10 @@ class RoomActivity : ComponentActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_A,
         )
-        /** How far Skip intro moves up, above the TV's seek bar and buttons, while the controls show. */
-        private const val TV_CONTROLS_DP = 150
+        /** How far Skip intro moves up while the controls show, if the seek bar hasn't been laid out to measure. */
+        private const val TV_CONTROLS_DP = 122
+        /** The space between Skip intro and the TV's seek bar while the controls show. */
+        private const val SKIP_GAP_DP = 4
         private val DPAD_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
