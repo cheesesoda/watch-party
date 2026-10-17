@@ -302,7 +302,18 @@ class StoreShotsTest {
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.requestFocus()
             }
             idle(1_500)
-            scenario.onActivity { save(it.window.decorView, "7b-skip-with-controls") }
+            scenario.onActivity { activity ->
+                save(activity.window.decorView, "7b-skip-with-controls")
+                val skip = field(activity, "skipView") as View
+                val bar = (field(activity, "playerView") as PlayerView).findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+                val at = IntArray(2).also { bar?.getLocationInWindow(it) }
+                File(out, "skip-debug.txt").writeText(
+                    "skipPart=${(field(activity, "skipPart") as androidx.compose.runtime.MutableState<*>).value} vis=${skip.visibility} " +
+                        "w=${skip.width} h=${skip.height} top=${skip.top} bottom=${skip.bottom} ty=${skip.translationY} " +
+                        "bar=${bar?.height} barY=${at[1]} density=${activity.resources.displayMetrics.density} " +
+                        "lastMedia=${(field(activity, "lastMedia") as MediaItem?)?.id} loaded=${field(activity, "loadedMediaId")}\n"
+                )
+            }
             scenario.onActivity { (field(it, "playerView") as PlayerView).hideController() }
             idle(500)
 
