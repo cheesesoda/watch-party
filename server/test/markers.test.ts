@@ -399,6 +399,42 @@ test("credits from an unnamed last chapter on cards, true black only by the pict
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+test("credits whose cards aren't true black keep what the old black finds", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-gray-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // 320 s: picture until 270 s, then white lines on a very dark gray (black at 32, not at 18), no chapters.
+  const r = spawnSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", "testsrc2=s=320x180:r=8:d=270",
+    "-f", "lavfi", "-i", "color=0x0a0a0a:s=320x180:r=8:d=50",
+    "-f", "lavfi", "-i", melody(4.4, 320),
+    "-filter_complex", "[1:v]drawbox=x=100:y=40:w=120:h=6:color=white:t=fill[c];[0:v][c]concat=n=2:v=1:a=0[v]",
+    "-map", "[v]", "-map", "2:a", "-g", "16", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+    path.join(season, "Show S01E01.mkv"),
+  ]);
+  assert.equal(r.status, 0, r.stderr?.toString());
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const entries = eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item }));
+  const file = path.join(dir, "markers.json");
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await markers.warm(entries);
+  const found = markers.get(eps[0])?.credits;
+  assert.ok(found != null && found >= 268 && found <= 272.5, `credits ${found}`);
+
+  // Found before the true-black check: checked again, and kept.
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  const e = saved.files[eps[0].id];
+  saved.files[eps[0].id] = { ...e, ends: undefined };
+  await fs.writeFile(file, JSON.stringify(saved));
+  const again = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await again.warm(entries);
+  assert.equal(again.get(eps[0])?.credits, found);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 test("credits followed by bonus material are found before it", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-extra-"));
   const season = path.join(dir, "Show", "Season 1");

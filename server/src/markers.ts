@@ -110,6 +110,8 @@ const WALK_BACK = 60;
  * while night scenes (Lucifer) are mostly a little lighter and would pass for cards at the usual 32.
  */
 const CARD_BLACK = 18;
+/** The black credits were looked for in before true black: what's kept when true black finds nothing. */
+const OLD_BLACK = 32;
 /** Bumped when the walk back changes, so every sound mark is walked back again from where sound put it. */
 const WALKED = 2;
 /**
@@ -1011,7 +1013,7 @@ export class Markers {
     const chapters = chapterMarks(chapterList);
     let credits = chapters.credits ?? (await this.lastChapterCredits(file, chapterList, duration));
     if (credits == null && sound.credits != null) credits = await this.walkBack(file, sound.credits, tail);
-    if (credits == null && duration > 0) credits = await this.pictureCredits(file, duration, tail);
+    if (credits == null && duration > 0) credits = await this.cardCredits(file, duration, tail);
     const heard = sound.intro ? introChapter(sound.intro, chapterList) ?? sound.intro : null;
     return { intro: chapters.intro ?? heard, recap: chapters.recap ?? null, credits };
   }
@@ -1031,6 +1033,14 @@ export class Markers {
    * second (and keep out a dark scene just before). Only true black counts: a night scene (Game of Thrones S7E05)
    * passes for cards at the usual 32. With nothing at the end, the credits may come before bonus material.
    */
+  /**
+   * Credits by the picture: true black first; when that finds nothing, what the old, looser black (32) finds, so no
+   * episode loses credits it had (Game of Thrones S6E06: its cards read under 85% true black at times).
+   */
+  private async cardCredits(file: string, duration: number, tail: number): Promise<number | null> {
+    return (await this.pictureCredits(file, duration, tail)) ?? (await this.pictureCredits(file, duration, tail, OLD_BLACK));
+  }
+
   private async pictureCredits(file: string, duration: number, tail: number, black = CARD_BLACK): Promise<number | null> {
     const frames = await this.blackness(file, tail, duration - tail, false, black);
     const rough = frames ? blackCredits(frames, duration - tail, KEYFRAME_GAP) : null;
@@ -1097,12 +1107,9 @@ export class Markers {
       if (last != null) credits = last;
       else if (before != null && entry.sound?.credits == null) {
         // Found by the picture when the old black (32) finds them there too, rather than by the second search.
-        const old = await this.pictureCredits(e.absPath, d, tail, 32);
-        if (old != null && Math.abs(old - before) <= 1) {
-          credits = await this.pictureCredits(e.absPath, d, tail);
-          // Nothing in true black: the second search gets its turn.
-          if (credits == null) retried = false;
-        }
+        const old = await this.pictureCredits(e.absPath, d, tail, OLD_BLACK);
+        // Nothing in true black keeps what the old black found.
+        if (old != null && Math.abs(old - before) <= 1) credits = (await this.pictureCredits(e.absPath, d, tail)) ?? before;
       }
     }
     this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits }, creditsRetried: retried, ends: ENDS };
