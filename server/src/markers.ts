@@ -1027,13 +1027,6 @@ export class Markers {
   }
 
   /**
-   * Credits by the picture (white text on true black), for when nothing else found them. Keyframes first, as they're
-   * quick to read. Credit cards are still pictures, so keyframes can be half a minute apart there: a long gap between
-   * dark ones doesn't end the stretch. Then every half second around where it seems to start, to find the exact
-   * second (and keep out a dark scene just before). Only true black counts: a night scene (Game of Thrones S7E05)
-   * passes for cards at the usual 32. With nothing at the end, the credits may come before bonus material.
-   */
-  /**
    * Credits by the picture: true black first; when that finds nothing, what the old, looser black (32) finds, so no
    * episode loses credits it had (Game of Thrones S6E06: its cards read under 85% true black at times).
    */
@@ -1041,6 +1034,13 @@ export class Markers {
     return (await this.pictureCredits(file, duration, tail)) ?? (await this.pictureCredits(file, duration, tail, OLD_BLACK));
   }
 
+  /**
+   * Credits by the picture (white text on true black), for when nothing else found them. Keyframes first, as they're
+   * quick to read. Credit cards are still pictures, so keyframes can be half a minute apart there: a long gap between
+   * dark ones doesn't end the stretch. Then every half second around where it seems to start, to find the exact
+   * second (and keep out a dark scene just before). Only true black counts: a night scene (Game of Thrones S7E05)
+   * passes for cards at the usual 32. With nothing at the end, the credits may come before bonus material.
+   */
   private async pictureCredits(file: string, duration: number, tail: number, black = CARD_BLACK): Promise<number | null> {
     const frames = await this.blackness(file, tail, duration - tail, false, black);
     const rough = frames ? blackCredits(frames, duration - tail, KEYFRAME_GAP) : null;
@@ -1098,7 +1098,6 @@ export class Markers {
     const entry = this.cache[e.item.id];
     const before = entry.marks.credits ?? null;
     let credits = before;
-    let retried = entry.creditsRetried;
     const probe = await this.probe(e.absPath);
     const d = probe?.duration ?? 0;
     if (probe && d > 0 && chapterMarks(probe.chapters).credits == null) {
@@ -1112,7 +1111,7 @@ export class Markers {
         if (old != null && Math.abs(old - before) <= 1) credits = (await this.pictureCredits(e.absPath, d, tail)) ?? before;
       }
     }
-    this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits }, creditsRetried: retried, ends: ENDS };
+    this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits }, ends: ENDS };
     if (credits === before) return false;
     this.log(`${path.basename(e.absPath)}: credits start at ${credits != null ? clock(credits) : "?"} (before: ${before != null ? clock(before) : "none"})`);
     return true;
