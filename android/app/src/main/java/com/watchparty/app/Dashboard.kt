@@ -31,6 +31,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewResponder
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -89,7 +92,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.foundation.focusGroup
@@ -103,14 +109,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -222,6 +232,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
     var started by remember { mutableStateOf<RoomSummary?>(null) }
+    /** A Start party press is waiting on the server. */
+    var starting by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<MediaItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
@@ -307,6 +319,16 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             added = null
         }
     }
+    /**
+     * A party just started: its code shows at the top of Home, so go there. Started from a movie or show page, it used to
+     * stay put with nothing to show for it, and each press started another party.
+     */
+    val showStarted: suspend (RoomSummary) -> Unit = { room ->
+        started = room
+        rooms = rooms.filter { it.id != room.id } + room
+        go("home")
+        listStates.getOrPut("home") { LazyListState() }.scrollToItem(0)
+    }
     val spotActions = SpotActions(
         start = { spot ->
             spotOptions = null
@@ -315,11 +337,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 spots = spots.filter { it.id != spot.id }
                 // Watching alone goes straight to the player; a party shows its code first.
                 if (room?.solo == true) RoomActivity.start(context, room.id)
-                else if (room != null) {
-                    started = room
-                    rooms = rooms.filter { it.id != room.id } + room
-                    listState.scrollToItem(0)
-                } else guard { api.spots() }?.let { spots = it }
+                else if (room != null) showStarted(room)
+                else guard { api.spots() }?.let { spots = it }
             }
         },
         open = { spot ->
@@ -362,12 +381,15 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         tv = tv,
         go = go,
         start = { media, queue ->
-            scope.launch {
-                guard { api.createRoom(media.id, queue, alone) }?.let { room ->
-                    if (room.solo) return@let RoomActivity.start(context, room.id)
-                    started = room
-                    rooms = rooms.filter { it.id != room.id } + room
-                    listState.scrollToItem(0)
+            // A second press while the party is still being set up doesn't start another one.
+            if (!starting) scope.launch {
+                starting = true
+                try {
+                    guard { api.createRoom(media.id, queue, alone) }?.let { room ->
+                        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
+                    }
+                } finally {
+                    starting = false
                 }
             }
         },
@@ -1322,6 +1344,7 @@ private fun SearchPage(lib: Library, a: Actions, state: LazyGridState) {
 // ---------- Movie and show pages ----------
 
 /** A movie's or show's page: backdrop, poster, title, facts, summary and buttons, then [below]. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DetailPage(
     lib: Library,
@@ -1340,6 +1363,17 @@ private fun DetailPage(
     val primary = remember { FocusRequester() }
     val tv = a.tv
     var headFocused by remember { mutableStateOf(false) }
+    // On a TV, Compose scrolls whatever takes focus to 30% down the screen (its pivot), so focusing Binge, which sits
+    // lower than that, scrolled the page down, and the effect below then snapped it back up: the page bounced each time
+    // the remote came back to the buttons (from the menu, or as the page opened). The header asks to be shown whole
+    // instead of just the button, which on a TV means scrolled to the top, so the page doesn't move when it's already there.
+    var headSize by remember { mutableStateOf(IntSize.Zero) }
+    val wholeHead = remember {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect = Rect(Offset.Zero, headSize.toSize())
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
+        }
+    }
     // While the remote is on the buttons, the whole header stays in view. Bring-into-view only reveals the button, so
     // coming back up from the episodes, or back to a page that was left scrolled down, cut the name off at the top.
     if (tv) LaunchedEffect(state) {
@@ -1356,6 +1390,8 @@ private fun DetailPage(
                     Column(
                         Modifier
                             .onFocusChanged { headFocused = it.hasFocus }
+                            .onSizeChanged { headSize = it }
+                            .bringIntoViewResponder(wholeHead)
                             .padding(start = 128.dp, end = 48.dp, top = 56.dp)
                             .width(560.dp),
                     ) {
@@ -1446,7 +1482,8 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
     ) {
         if (extras.isNotEmpty()) {
             item(key = "extras-title") { SectionTitle("Extras", a) }
-            items(extras, key = { it.id }) { EpisodeRow(it, lib, a) }
+            if (a.tv) item(key = "extras") { TvCards(extras, lib, a) }
+            else items(extras, key = { it.id }) { EpisodeRow(it, lib, a) }
         }
     }
 }
@@ -1510,14 +1547,18 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         val list = if (shown == -1) extras.orEmpty() else inSeason(shown)
         if (a.tv) {
             // On a TV the episodes are a sideways row of stills, like Google TV.
-            item(key = "episodes-$shown") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
-                    items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
-                }
-            }
+            item(key = "episodes-$shown") { TvCards(list, lib, a, special = { shown != -2 && it.episode?.season == 0 }) }
         } else {
             items(list, key = { it.id }) { EpisodeRow(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
         }
+    }
+}
+
+/** A TV's episodes or extras: a sideways row of stills, like Google TV, starting clear of the side menu. */
+@Composable
+private fun TvCards(list: List<MediaItem>, lib: Library, a: Actions, special: (MediaItem) -> Boolean = { false }) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
+        items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = special(it)) }
     }
 }
 
@@ -1567,8 +1608,15 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean
             else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center))
             if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
         }
-        EpisodeTitle(m, special, 13, Modifier.padding(top = if (focused) 12.dp else 8.dp))
-        if (focused) (m.meta?.overview ?: m.extra?.kind)?.let { Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        // The card takes the same room focused or not (the title only drawn 4dp higher, the summary hidden), so the
+        // page under it doesn't shift when the remote leaves the row, say for the menu.
+        EpisodeTitle(m, special, 13, Modifier.padding(top = 12.dp).offset(y = if (focused) 0.dp else (-4).dp))
+        (m.meta?.overview ?: m.extra?.kind)?.let {
+            Text(
+                it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = if (focused) Modifier else Modifier.alpha(0f).clearAndSetSemantics {},
+            )
+        }
     }
 }
 

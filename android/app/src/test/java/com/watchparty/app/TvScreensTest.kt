@@ -1,5 +1,6 @@
 package com.watchparty.app
 
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -17,8 +18,10 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsActions
@@ -38,10 +41,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestName
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.onRoot
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
@@ -57,6 +62,8 @@ import java.io.File
 class TvScreensTest {
     @get:Rule
     val rule = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule
+    val testName = TestName()
     private lateinit var focus: FocusManager
     private val server = MockWebServer()
     private val out = File("build/tv-screens").apply { mkdirs() }
@@ -75,7 +82,11 @@ class TvScreensTest {
     )
 
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
-        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
+        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } } +
+        // Alien (first A–Z) has extras, added long ago so they stay out of Recently added.
+        listOf("Making Alien" to 720.0, "Deleted scenes" to 360.0).mapIndexed { i, (t, d) ->
+            MediaItem(id = "x$i", title = t, relPath = "Movies/Alien/Extras/$t.mkv", folder = "Movies/Alien/Extras", size = 1, addedAt = 1, duration = d, extra = ExtraInfo("Behind the scenes", of = "m4"))
+        }
 
     /**
      * Saved spots: movies, so removing one leaves a neighbor. The second and third have no TMDB art: the server grabs a
@@ -85,7 +96,15 @@ class TvScreensTest {
         Spot("s1", items[0], 1200.0, savedAt = 2000),
         Spot("s2", items[1].copy(meta = null), 3000.0, savedAt = 1990),
         Spot("s3", items[2].copy(meta = null, title = "Inception"), 600.0, savedAt = 1980),
+        // Letterkenny S1E2: its page has Continue binge and the spot over the buttons, so a taller header.
+        Spot("s4", items[25], 900.0, savedAt = 1970),
     )
+
+    /**
+     * Tests that run as on a real Google TV, which reports leanback: there Compose scrolls whatever takes focus to 30%
+     * down the screen (its pivot) instead of just enough to show it.
+     */
+    private val onALeanbackTv = setOf("showPageWithASpotOpensWithoutBouncing", "bingeStaysPutGoingToTheMenuAndBack", "episodeStaysPutGoingToTheMenuAndBack")
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -104,7 +123,11 @@ class TvScreensTest {
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     // Starting a party (here, from a saved spot): the host watching alone, straight to the player.
-                    path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","solo":true}}""")
+                    // A party for a movie or show (not watching alone, not from a saved spot) is listed, with its code.
+                    path.startsWith("/api/rooms") && request.method == "POST" -> request.body.readUtf8().let { body ->
+                        if ("mediaId" in body && "solo" !in body) json("""{"room":{"id":"abc123","media":${Protocol.json.encodeToString(items[4])}}}""")
+                        else json("""{"room":{"id":"abc123","solo":true}}""")
+                    }
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots/s2/frame.jpg") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(5))
                     path.endsWith("/frame.jpg") -> MockResponse().setResponseCode(404)
@@ -123,6 +146,9 @@ class TvScreensTest {
         prefs.markSignedIn(true)
         // A TV has no touch screen: out of touch mode, and with the window focused, the remote's focus works.
         InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
+        if (testName.methodName in onALeanbackTv) {
+            shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager).setSystemFeature(PackageManager.FEATURE_LEANBACK, true)
+        }
         // The banner and progress keep asking for frames, so the clock only moves when told to.
         rule.mainClock.autoAdvance = false
         rule.setContent {
@@ -341,6 +367,128 @@ class TvScreensTest {
         shot("12d-show-scrolled-with-binge")
         val top2 = rule.onAllNodesWithText("Letterkenny")[0].fetchSemanticsNode().boundsInRoot.top
         check(top2 == titleTop, "A scrolled page with the remote on Binge stayed scrolled (name at $top2, not $titleTop)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** A movie's extras are a row of cards clear of the side menu, as a show's are; they used to be phone rows under it. */
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test
+    fun movieExtrasStayClearOfTheMenu() {
+        // Movies from the menu, then the first movie (Alien).
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 2)
+        ok()
+        press(FocusDirection.Right)
+        press(FocusDirection.Down)
+        ok()
+        settle(3_000) { rule.onAllNodesWithText("Extras").fetchSemanticsNodes().isNotEmpty() }
+        press(FocusDirection.Down)
+        shot("13-movie-extras")
+        val heading = rule.onAllNodesWithText("Extras")[0].fetchSemanticsNode().boundsInRoot.left
+        val card = rule.onAllNodes(hasClickAction() and hasAnyDescendant(hasText("12 m")), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+        check(card != null, "The movie page shows no extras")
+        val menuEdge = with(rule.density) { 128.dp.toPx() }
+        check(card != null && card.left >= menuEdge - 1, "The first extra starts at ${card?.left}px, under the menu (it should start at ${menuEdge}px, like the Extras heading at ${heading}px)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** Start party on a movie's page shows the party's code on Home; it used to stay on the page with nothing to show. */
+    @Test
+    fun startPartyFromAMoviePageShowsTheCode() {
+        // Movies from the menu, then the first movie (Alien), then its Start party.
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 2)
+        ok()
+        press(FocusDirection.Right)
+        press(FocusDirection.Down)
+        ok()
+        settle(3_000) { rule.onAllNodesWithText("Start party").fetchSemanticsNodes().isNotEmpty() }
+        shot("14-movie-page")
+        rule.onAllNodesWithText("Start party")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(3_000) { rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty() }
+        shot("15-party-started")
+        check(rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't show the party's code")
+        // Only Home has the party-ready card (its rows may be scrolled off below it, so onHome() can't tell).
+        check(rule.onAllNodesWithText("Party ready for", substring = true).fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't go Home, where the code shows")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** TV Shows from the menu, then onto the first show's card (Letterkenny, which has a saved spot). */
+    private fun toFirstShowCard() {
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 3)
+        ok()
+        press(FocusDirection.Right)
+        press(FocusDirection.Down)
+    }
+
+    private fun topOf(text: String) = rule.onAllNodesWithText(text).fetchSemanticsNodes().firstOrNull()?.boundsInRoot?.top
+
+    /** Steps the clock one frame at a time, noting where [text] is on each frame. */
+    private fun watch(text: String, frames: Int = 60): List<Float?> = List(frames) {
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        topOf(text)
+    }
+
+    /** Opening a show's page with a saved spot (a taller header) used to scroll it down and snap it back up. */
+    @Test
+    fun showPageWithASpotOpensWithoutBouncing() {
+        toFirstShowCard()
+        rule.onNode(isFocused()).performSemanticsAction(SemanticsActions.OnClick)
+        val tops = mutableListOf<Float?>()
+        repeat(90) {
+            rule.mainClock.advanceTimeByFrame()
+            rule.waitForIdle()
+            if (rule.onAllNodesWithText("Continue binge").fetchSemanticsNodes().isNotEmpty()) tops += topOf("Letterkenny")
+        }
+        shot("40-show-page-with-spot")
+        assertTrue("The show's page didn't open", tops.isNotEmpty())
+        assertTrue("The show's page moved as it opened (name at ${tops.distinct()})", tops.distinct().size == 1 && tops[0] != null)
+    }
+
+    /** Left from the page into the menu and Back out of it (the same return as Right), noting [text] on every frame. */
+    private fun intoTheMenuAndBack(text: String): List<Float?> {
+        val tops = mutableListOf(topOf(text))
+        rule.runOnIdle { focus.moveFocus(FocusDirection.Left) }
+        tops += watch(text)
+        check(menuOpen(), "Left didn't open the menu")
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        tops += watch(text)
+        check(!menuOpen(), "Back didn't leave the menu")
+        return tops
+    }
+
+    /** The remote on Continue binge, into the menu and back: the page used to bounce on the way back. */
+    @Test
+    fun bingeStaysPutGoingToTheMenuAndBack() {
+        toFirstShowCard()
+        ok()
+        settle(1_000) { false }
+        check(rule.onAllNodes(isFocused() and hasText("Continue binge")).fetchSemanticsNodes().isNotEmpty(), "The remote isn't on Continue binge")
+        val tops = intoTheMenuAndBack("Letterkenny")
+        shot("41-binge-back-from-menu")
+        check(tops.distinct().size == 1 && tops[0] != null, "The page moved going to the menu and back from Binge (name at ${tops.distinct()})")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** The remote on an episode, into the menu and back: the card lost its summary and the page under it shifted. */
+    @Test
+    fun episodeStaysPutGoingToTheMenuAndBack() {
+        toFirstShowCard()
+        ok()
+        // Down to the season chips, then the first episode.
+        press(FocusDirection.Down, 2)
+        settle(1_000) { false }
+        val chip = topOf("Season 1")
+        val card = rule.onNode(isFocused()).fetchSemanticsNode().boundsInRoot.top
+        check(chip != null && card > chip, "The remote isn't on an episode (focused at $card, Season 1 at $chip)")
+        val tops = intoTheMenuAndBack("Season 1")
+        shot("42-episode-back-from-menu")
+        check(tops.distinct().size == 1 && tops[0] != null, "The page moved going to the menu and back from an episode (Season 1 at ${tops.distinct()})")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }
