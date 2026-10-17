@@ -381,7 +381,8 @@ class TvScreensTest {
         settle(3_000) { rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty() }
         shot("15-party-started")
         check(rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't show the party's code")
-        check(onHome(), "Start party on a movie page didn't go Home, where the code shows")
+        // Only Home has the party-ready card (its rows may be scrolled off below it, so onHome() can't tell).
+        check(rule.onAllNodesWithText("Party ready for", substring = true).fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't go Home, where the code shows")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
