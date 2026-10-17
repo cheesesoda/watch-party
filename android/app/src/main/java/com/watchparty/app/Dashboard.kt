@@ -232,6 +232,8 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
     var started by remember { mutableStateOf<RoomSummary?>(null) }
+    /** A Start party press is waiting on the server. */
+    var starting by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<MediaItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var shownInfo by rememberSaveable { mutableStateOf<String?>(null) }
@@ -379,9 +381,15 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         tv = tv,
         go = go,
         start = { media, queue ->
-            scope.launch {
-                guard { api.createRoom(media.id, queue, alone) }?.let { room ->
-                    if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
+            // A second press while the party is still being set up doesn't start another one.
+            if (!starting) scope.launch {
+                starting = true
+                try {
+                    guard { api.createRoom(media.id, queue, alone) }?.let { room ->
+                        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
+                    }
+                } finally {
+                    starting = false
                 }
             }
         },
