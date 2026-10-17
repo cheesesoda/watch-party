@@ -205,7 +205,7 @@ class StoreShotsTest {
     @Test
     fun player() {
         val film = 1
-        val media = items[film]
+        val media = items[film].copy(marks = SkipMarks(intro = TimeRange(0.0, 900.0)))
         val queue = Queue(items = items, at = film)
         val now = System.currentTimeMillis()
         server.dispatcher = dispatcher(object : WebSocketListener() {
