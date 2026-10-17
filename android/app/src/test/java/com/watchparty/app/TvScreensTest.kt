@@ -123,7 +123,11 @@ class TvScreensTest {
                 return when {
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     // Starting a party (here, from a saved spot): the host watching alone, straight to the player.
-                    path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","solo":true}}""")
+                    // A party for a movie or show (not watching alone, not from a saved spot) is listed, with its code.
+                    path.startsWith("/api/rooms") && request.method == "POST" -> request.body.readUtf8().let { body ->
+                        if ("mediaId" in body && "solo" !in body) json("""{"room":{"id":"abc123","media":${Protocol.json.encodeToString(items[4])}}}""")
+                        else json("""{"room":{"id":"abc123","solo":true}}""")
+                    }
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots/s2/frame.jpg") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(5))
                     path.endsWith("/frame.jpg") -> MockResponse().setResponseCode(404)
@@ -386,6 +390,28 @@ class TvScreensTest {
         check(card != null, "The movie page shows no extras")
         val menuEdge = with(rule.density) { 128.dp.toPx() }
         check(card != null && card.left >= menuEdge - 1, "The first extra starts at ${card?.left}px, under the menu (it should start at ${menuEdge}px, like the Extras heading at ${heading}px)")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** Start party on a movie's page shows the party's code on Home; it used to stay on the page with nothing to show. */
+    @Test
+    fun startPartyFromAMoviePageShowsTheCode() {
+        // Movies from the menu, then the first movie (Alien), then its Start party.
+        press(FocusDirection.Left)
+        press(FocusDirection.Up, 8)
+        press(FocusDirection.Down, 2)
+        ok()
+        press(FocusDirection.Right)
+        press(FocusDirection.Down)
+        ok()
+        settle(3_000) { rule.onAllNodesWithText("Start party").fetchSemanticsNodes().isNotEmpty() }
+        shot("14-movie-page")
+        rule.onAllNodesWithText("Start party")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(3_000) { rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty() }
+        shot("15-party-started")
+        check(rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't show the party's code")
+        // Only Home has the party-ready card (its rows may be scrolled off below it, so onHome() can't tell).
+        check(rule.onAllNodesWithText("Party ready for", substring = true).fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't go Home, where the code shows")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
