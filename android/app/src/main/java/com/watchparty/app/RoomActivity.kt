@@ -418,8 +418,9 @@ class RoomActivity : ComponentActivity() {
     }
 
     /**
-     * How far Skip intro moves up while the TV's controls show: to just above the seek bar (and the room over it for the
-     * time bubble), measured from where the bar is, not a fixed amount, so it doesn't float halfway up the screen.
+     * How far Skip intro moves up while the TV's controls show: to just above the seek bar's line, measured from where
+     * the bar is, not a fixed amount, so it doesn't float halfway up the screen. The bar's time bubble can't reach it:
+     * that sits over the dot, which is near the start while an intro or recap plays.
      */
     private fun skipLift(): Float {
         val bar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
@@ -427,9 +428,11 @@ class RoomActivity : ComponentActivity() {
         if (bar == null || parent == null || bar.height == 0 || skipView.height == 0) return dp(TV_CONTROLS_DP).toFloat()
         val barAt = IntArray(2).also { bar.getLocationInWindow(it) }[1]
         val parentAt = IntArray(2).also { parent.getLocationInWindow(it) }[1]
-        // The pill's bottom edge (inside the view's shadow room) goes SKIP_GAP_DP above the bar.
+        // The pill's bottom edge (inside the view's shadow room) goes SKIP_GAP_DP above the bar's line, which TvTimeBar
+        // draws 10dp up from its bottom.
         val pillBottom = skipView.bottom - dp(SHADOW_ROOM_DP)
-        return (pillBottom - (barAt - parentAt) + dp(SKIP_GAP_DP)).coerceAtLeast(0).toFloat()
+        val line = barAt - parentAt + bar.height - dp(10)
+        return (pillBottom - line + dp(SKIP_GAP_DP)).coerceAtLeast(0).toFloat()
     }
 
     private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
@@ -2242,9 +2245,9 @@ class RoomActivity : ComponentActivity() {
             KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_A,
         )
         /** How far Skip intro moves up while the controls show, if the seek bar hasn't been laid out to measure. */
-        private const val TV_CONTROLS_DP = 122
-        /** The space between Skip intro and the TV's seek bar while the controls show. */
-        private const val SKIP_GAP_DP = 4
+        private const val TV_CONTROLS_DP = 96
+        /** The space between Skip intro and the TV's seek bar line while the controls show. */
+        private const val SKIP_GAP_DP = 20
         private val DPAD_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
