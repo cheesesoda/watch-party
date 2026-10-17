@@ -291,7 +291,7 @@ class StoreShotsTest {
             scenario.onActivity { activity ->
                 val playerView = field(activity, "playerView") as PlayerView
                 playerView.hideController()
-                RoomActivity::class.java.getDeclaredMethod("showSkip", Pair::class.java).apply { isAccessible = true }.invoke(activity, Pair("intro", 30.0))
+                RoomActivity::class.java.getDeclaredMethod("showSkip", Pair::class.java).apply { isAccessible = true }.invoke(activity, Pair("intro", 400.0))
             }
             idle(1_500)
             scenario.onActivity { save(it.window.decorView, "7-skip-intro") }
