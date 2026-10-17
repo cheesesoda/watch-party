@@ -295,6 +295,16 @@ class StoreShotsTest {
             }
             idle(1_500)
             scenario.onActivity { save(it.window.decorView, "7-skip-intro") }
+            // The controls up over it: Skip intro moves up to just above the seek bar.
+            scenario.onActivity { activity ->
+                val playerView = field(activity, "playerView") as PlayerView
+                playerView.showController()
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.requestFocus()
+            }
+            idle(1_500)
+            scenario.onActivity { save(it.window.decorView, "7b-skip-with-controls") }
+            scenario.onActivity { (field(it, "playerView") as PlayerView).hideController() }
+            idle(500)
 
             scenario.onActivity { activity ->
                 // Near the credits the server counts down to the next film; the card shows over the picture.
