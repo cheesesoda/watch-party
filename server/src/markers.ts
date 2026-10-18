@@ -106,6 +106,11 @@ const CLOSE_BLACK = 80;
  */
 const WALK_BACK = 60;
 /**
+ * When the cards are still showing that far back, the match was on the logos after them (Reacher S2E07: the cards
+ * start 1:46 before): looked at this far back instead.
+ */
+const WALK_BACK_FAR = 180;
+/**
  * How dark a pixel has to be to count as black when looking for where cards start: card backgrounds are true black,
  * while night scenes (Lucifer) are mostly a little lighter and would pass for cards at the usual 32.
  */
@@ -113,7 +118,7 @@ const CARD_BLACK = 18;
 /** The black credits were looked for in before true black: what's kept when true black finds nothing. */
 const OLD_BLACK = 32;
 /** Bumped when the walk back changes, so every sound mark is walked back again from where sound put it. */
-const WALKED = 2;
+const WALKED = 3;
 /**
  * A credits chapter can start a little before its cards (Reacher S2E06's starts 10 s early, in a dark scene): up to
  * this far in, the first of at least CHAPTER_EARLY_CARDS seconds of true-black cards is where they start. It's
@@ -1197,9 +1202,15 @@ export class Markers {
 
   /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */
   private async walkBack(file: string, credits: number, tail: number): Promise<number> {
-    const start = Math.max(tail, credits - WALK_BACK);
-    const frames = await this.blackness(file, start, credits - start + 2, true, CARD_BLACK);
-    const at = frames ? cardsBefore(frames, credits - start) : null;
+    let start = Math.max(tail, credits - WALK_BACK);
+    let frames = await this.blackness(file, start, credits - start + 2, true, CARD_BLACK);
+    let at = frames ? cardsBefore(frames, credits - start) : null;
+    const first = frames?.reduce<{ t: number; black: number } | null>((a, f) => (!a || f.t < a.t ? f : a), null);
+    if (at == null && first && first.black >= STING_DARK && start > tail) {
+      start = Math.max(tail, credits - WALK_BACK_FAR);
+      frames = await this.blackness(file, start, credits - start + 2, true, CARD_BLACK);
+      at = frames ? cardsBefore(frames, credits - start) : null;
+    }
     if (at == null) return credits;
     const moved = round(start + at);
     this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the sound match only lined up from ${clock(credits)})`);
