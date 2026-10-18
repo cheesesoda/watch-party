@@ -495,7 +495,7 @@ class TvScreensTest {
     /** Home's banner, with the remote on its buttons, used to sit scrolled up with its title cut off at the top. */
     @Test
     fun homeBannerShowsWholeOnItsButtons() {
-        val eyebrow = "New in your library"
+        val eyebrow = "NEW IN YOUR LIBRARY"
         fun whole(where: String) {
             settle(1_000) { false }
             val top = topOf(eyebrow)
