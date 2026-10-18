@@ -996,6 +996,24 @@ private fun HomePage(
     if (tv) LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 }
 
+/**
+ * Answers its children's bring-into-view requests with its own whole bounds. On a TV, Compose scrolls whatever takes
+ * focus to 30% down the screen (its pivot), so a button low in a page's header scrolled the page down and cut the title
+ * off at the top; asking for the whole header instead means, on a TV, scrolled to the top.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.wholeInView(): Modifier {
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    val whole = remember {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect = Rect(Offset.Zero, size.toSize())
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
+        }
+    }
+    return onSizeChanged { size = it }.bringIntoViewResponder(whole)
+}
+
 /** The page's backdrop across the top of the screen, fading into the page at the bottom and left. */
 @Composable
 private fun BackdropBehind(api: Api, path: String, modifier: Modifier = Modifier, height: Float = 0.78f) {
@@ -1019,7 +1037,8 @@ private fun TvBanner(featured: List<Featured>, a: Actions, firstFocus: FocusRequ
     }
     LaunchedEffect(index) { onShown(index) }
     val f = featured[index.coerceAtMost(featured.lastIndex)]
-    Column(Modifier.padding(top = 56.dp).heightIn(min = 270.dp).width(560.dp).onFocusChanged { holding = it.hasFocus }) {
+    // Shown whole while the remote is on its buttons, so the title isn't cut off at the top.
+    Column(Modifier.wholeInView().padding(top = 56.dp).heightIn(min = 270.dp).width(560.dp).onFocusChanged { holding = it.hasFocus }) {
         Eyebrow("New in your library")
         Text(f.title, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 48.sp, lineHeight = 50.sp, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(f.facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
@@ -1367,13 +1386,6 @@ private fun DetailPage(
     // lower than that, scrolled the page down, and the effect below then snapped it back up: the page bounced each time
     // the remote came back to the buttons (from the menu, or as the page opened). The header asks to be shown whole
     // instead of just the button, which on a TV means scrolled to the top, so the page doesn't move when it's already there.
-    var headSize by remember { mutableStateOf(IntSize.Zero) }
-    val wholeHead = remember {
-        object : BringIntoViewResponder {
-            override fun calculateRectForParent(localRect: Rect): Rect = Rect(Offset.Zero, headSize.toSize())
-            override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
-        }
-    }
     // While the remote is on the buttons, the whole header stays in view. Bring-into-view only reveals the button, so
     // coming back up from the episodes, or back to a page that was left scrolled down, cut the name off at the top.
     if (tv) LaunchedEffect(state) {
@@ -1390,8 +1402,7 @@ private fun DetailPage(
                     Column(
                         Modifier
                             .onFocusChanged { headFocused = it.hasFocus }
-                            .onSizeChanged { headSize = it }
-                            .bringIntoViewResponder(wholeHead)
+                            .wholeInView()
                             .padding(start = 128.dp, end = 48.dp, top = 56.dp)
                             .width(560.dp),
                     ) {

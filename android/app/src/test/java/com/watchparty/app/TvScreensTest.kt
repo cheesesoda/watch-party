@@ -104,7 +104,7 @@ class TvScreensTest {
      * Tests that run as on a real Google TV, which reports leanback: there Compose scrolls whatever takes focus to 30%
      * down the screen (its pivot) instead of just enough to show it.
      */
-    private val onALeanbackTv = setOf("showPageWithASpotOpensWithoutBouncing", "bingeStaysPutGoingToTheMenuAndBack", "episodeStaysPutGoingToTheMenuAndBack")
+    private val onALeanbackTv = setOf("homeBannerShowsWholeOnItsButtons", "showPageWithASpotOpensWithoutBouncing", "bingeStaysPutGoingToTheMenuAndBack", "episodeStaysPutGoingToTheMenuAndBack")
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -489,6 +489,30 @@ class TvScreensTest {
         val tops = intoTheMenuAndBack("Season 1")
         shot("42-episode-back-from-menu")
         check(tops.distinct().size == 1 && tops[0] != null, "The page moved going to the menu and back from an episode (Season 1 at ${tops.distinct()})")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /** Home's banner, with the remote on its buttons, used to sit scrolled up with its title cut off at the top. */
+    @Test
+    fun homeBannerShowsWholeOnItsButtons() {
+        val eyebrow = "NEW IN YOUR LIBRARY"
+        fun whole(where: String) {
+            settle(1_000) { false }
+            // Unscrolled, the eyebrow sits 56dp down (the banner's top padding); scrolled at all, the title is next to go.
+            val top = topOf(eyebrow)
+            val unscrolled = with(rule.density) { 56.dp.toPx() }
+            check(top != null && top >= unscrolled - 1f, "The banner is scrolled up $where (eyebrow at $top, unscrolled at $unscrolled)")
+        }
+        whole("as Home opens")
+        press(FocusDirection.Right)
+        whole("on Details")
+        press(FocusDirection.Down)
+        check(rule.onNode(isFocused()).fetchSemanticsNode().boundsInRoot.top > (topOf("Pick up where you left off") ?: Float.MAX_VALUE), "Down didn't reach a saved spot")
+        press(FocusDirection.Up)
+        whole("back up from Pick up where you left off")
+        press(FocusDirection.Right)
+        whole("on Details after coming back up")
+        shot("43-home-banner-whole")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 }
