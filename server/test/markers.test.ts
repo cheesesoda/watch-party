@@ -230,7 +230,24 @@ test("an unnamed last chapter near the end may be the credits, and credits can c
   assert.equal(creditsBeforeExtras(keys([[0, 300, 10], [300, 360, 96], [360, 840, 20], [600, 612, 96]]), 840), 300);
   // Black at the very end is the usual credits, not these; nor is a short dark stretch.
   assert.equal(creditsBeforeExtras(keys([[0, 700, 10], [700, 840, 96]]), 840), null);
-  assert.equal(creditsBeforeExtras(keys([[0, 300, 10], [300, 320, 96], [320, 840, 20]]), 840), null);
+  assert.equal(creditsBeforeExtras(keys([[0, 300, 10], [300, 320, 96], [320, 840, 20]]), 840), null);  // Game of Thrones S8E04: pages full of names read 72-84 % after the first ones (97 %); the dark scene before is 0.
+  const s8 = keys([[0, 300, 0], [300, 320, 98], [320, 400, 78], [400, 840, 5]]);
+  assert.equal(creditsBeforeExtras(s8, 840), null, "two name pages in a row end the run at 85");
+  assert.equal(creditsBeforeExtras(s8, 840, 85, 65), 300);
+  // Nor does a run start on a name page: a dim stretch alone is no credits.
+  assert.equal(creditsBeforeExtras(keys([[0, 300, 0], [300, 400, 78], [400, 840, 5]]), 840, 85, 65), null);
+});
+
+test("credits by the picture carry on through pages full of names, but start on a black one", () => {
+  const keys = (spec: [number, number, number][]) =>
+    spec.flatMap(([from, to, black]) => Array.from({ length: (to - from) / 4 }, (_, k) => ({ t: from + k * 4, black })));
+  // Game of Thrones S8E06: 97 % pages, then 72-84 % from 34 s in to the end; a dark scene before reads 0.
+  const s8 = keys([[0, 180, 0], [180, 214, 98], [214, 252, 78]]);
+  assert.equal(blackCredits(s8, 252, 40), null, "the run stops 38 s before the end at 85");
+  assert.equal(blackCredits(s8, 252, 40, 1, 85, 65), 180);
+  // A dim scene (70 %) before the first black page stays out, and dim pages alone are no credits.
+  assert.equal(blackCredits(keys([[0, 160, 0], [160, 180, 70], [180, 214, 98], [214, 252, 78]]), 252, 40, 1, 85, 65), 180);
+  assert.equal(blackCredits(keys([[0, 180, 0], [180, 252, 78]]), 252, 40, 1, 85, 65), null);
 });
 
 const canFingerprint =
@@ -506,6 +523,110 @@ test("finds recaps in real files by matching earlier episodes, ending where the 
   }
   assert.equal(markers.get(eps[0])?.intro ?? null, null, JSON.stringify(markers.get(eps[0])));
   assert.ok(lines.some((l) => l.includes("Show season 1: intros in 0 of 3, recaps in 2, credits in 3")), lines.join("\n"));
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a recap of the middle of an episode three back is found, also in episodes looked at before", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-recap3-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  const sounds: Record<string, string> = {};
+  for (const [name, seed, length] of [
+    ["logo", 1.7, 6], ["credits", 9.9, 30], ["a1", 2.1, 300], ["b1", 4.3, 300], ["c1", 5.9, 300], ["d1", 3.3, 300], ["n1", 6.1, 3], ["n2", 6.7, 5],
+  ] as const) {
+    sounds[name] = path.join(dir, `${name}.wav`);
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", melody(seed, length), sounds[name]]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const episode = (n: number, pieces: [string, number, number][]) => {
+    const args = ["-hide_banner", "-loglevel", "error", "-y"];
+    for (const [name, from, length] of pieces) args.push("-ss", String(from), "-t", String(length), "-i", sounds[name]);
+    args.push("-filter_complex", `${pieces.map((_, i) => `[${i}:a]`).join("")}concat=n=${pieces.length}:v=0:a=1[a]`, "-map", "[a]", "-c:a", "aac", path.join(season, `Show S01E0${n}.mp4`));
+    const r = spawnSync("ffmpeg", args);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  };
+  episode(1, [["logo", 0, 6], ["a1", 0, 300], ["credits", 0, 30]]);
+  episode(2, [["logo", 0, 6], ["b1", 0, 300], ["credits", 0, 30]]);
+  episode(3, [["logo", 0, 6], ["c1", 0, 300], ["credits", 0, 30]]);
+  // Episode 4 recaps the middle of episode 1 (2:30 and 3:20 in, past its opening and before its ending): 0:03 to 0:38.
+  episode(4, [["n1", 0, 3], ["a1", 150, 15], ["n2", 0, 5], ["a1", 200, 15], ["logo", 0, 6], ["d1", 0, 300], ["credits", 0, 30]]);
+
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode).sort((a, b) => a.episode!.episode - b.episode!.episode);
+  const entries = eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item }));
+  const file = path.join(dir, "markers.json");
+  const found = (markers: Markers) => {
+    const recap = markers.get(eps[3])?.recap;
+    assert.ok(recap && Math.abs(recap.start - 3) < 3 && Math.abs(recap.end - 38) < 3, JSON.stringify(markers.get(eps[3])));
+  };
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await markers.warm(entries);
+  found(markers);
+  await markers.close();
+
+  // Looked at before, without finding it: looked at once more.
+  const json = JSON.parse(await fs.readFile(file, "utf8"));
+  for (const entry of Object.values<any>(json.files)) entry.recapLooked = true;
+  json.files[eps[3].id].marks.recap = null;
+  await fs.writeFile(file, JSON.stringify(json));
+  const lines: string[] = [];
+  const again = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, (l) => lines.push(l));
+  await again.warm(entries);
+  found(again);
+  assert.ok(lines.some((l) => l.includes("Show season 1: checking for recaps")), lines.join("\n"));
+  await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("credits with pages full of names before bonus material that ends on black are found, also when missed before", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-names-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // 1100 s, no chapters, a different song over each: picture until 830 s, credits to 900 s (a black page, then pages
+  // full of names, 75 % black), bonus interviews to 1065 s, then 35 s of black.
+  for (const n of [1, 2]) {
+    const r = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", "testsrc2=s=320x180:r=24:d=830",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=24:d=10",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=24:d=60",
+      "-f", "lavfi", "-i", "testsrc2=s=320x180:r=24:d=165",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=24:d=35",
+      "-f", "lavfi", "-i", melody(n * 4.7 + 0.3, 1100),
+      "-filter_complex",
+      "[1:v]drawbox=x=100:y=40:w=120:h=6:color=white:t=fill[a];[2:v]drawbox=x=0:y=0:w=320:h=45:color=white:t=fill[b];[0:v][a][b][3:v][4:v]concat=n=5:v=1:a=0[v]",
+      "-map", "[v]", "-map", "5:a", "-g", "96", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+      path.join(season, `Show S01E0${n}.mkv`),
+    ]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const entries = eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item }));
+  const file = path.join(dir, "markers.json");
+  const check = (markers: Markers) => {
+    for (const ep of eps) {
+      const credits = markers.get(ep)?.credits;
+      assert.ok(credits != null && credits >= 829 && credits <= 832, `${ep.relPath} credits ${credits}`);
+    }
+  };
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await markers.warm(entries);
+  check(markers);
+  await markers.close();
+
+  // Found by the rules before: none, and the black at the end. Checked once more on the next start.
+  const json = JSON.parse(await fs.readFile(file, "utf8"));
+  for (const entry of Object.values<any>(json.files)) entry.ends = 1;
+  json.files[eps[0].id].marks.credits = null;
+  json.files[eps[1].id].marks.credits = 1065;
+  await fs.writeFile(file, JSON.stringify(json));
+  const again = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file }, () => {});
+  await again.warm(entries);
+  check(again);
+  await again.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
