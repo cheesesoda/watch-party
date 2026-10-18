@@ -125,9 +125,12 @@ const CHAPTER_EARLY_CARDS = 5;
 const CHAPTER_CHECK = 1;
 /**
  * Bumped when finding recaps changes, so episodes without one are looked at again. 2: the last RECAP_WHOLE episodes
- * are compared in full (Reacher S2E07 recaps the middle of E05).
+ * are compared in full (Reacher S2E07 recaps the middle of E05). 3: short clips with few points matching exactly count
+ * (RECAP_OFFSETS).
  */
-const RECAPS = 2;
+const RECAPS = 3;
+/** The same for a season's first episode against the season before. 2: against all of its episodes, RECAP_OFFSETS. */
+const OPENERS = 2;
 /** Earlier episodes compared in full for a recap; older ones only by their openings and endings. */
 const RECAP_WHOLE = 3;
 /**
@@ -172,10 +175,18 @@ export function findClip(within: Uint32Array, clip: Uint32Array, min: number): (
 }
 
 /**
+ * Which offsets sharedStretches checks point by point: those where at least [votes] points match exactly, the [count]
+ * with most. A recap's clips are short and often mixed under narration, so few of their points match exactly: looking
+ * for them takes RECAP_OFFSETS.
+ */
+const SHARED_OFFSETS = { votes: 3, count: 60 };
+const RECAP_OFFSETS = { votes: 2, count: 1000 };
+
+/**
  * Every stretch of at least [min] seconds two fingerprints share, at any of their likeliest offsets: the clips a
  * recap took from an earlier episode, say.
  */
-export function sharedStretches(a: Uint32Array, b: Uint32Array, min: number): Shared[] {
+export function sharedStretches(a: Uint32Array, b: Uint32Array, min: number, offsets = SHARED_OFFSETS): Shared[] {
   const where = new Map<number, number[]>();
   b.forEach((v, j) => {
     const list = where.get(v);
@@ -186,10 +197,10 @@ export function sharedStretches(a: Uint32Array, b: Uint32Array, min: number): Sh
   a.forEach((v, i) => {
     for (const j of where.get(v) ?? []) votes.set(i - j, (votes.get(i - j) ?? 0) + 1);
   });
-  const offsets = [...votes.entries()].filter(([, n]) => n >= 3).sort((x, y) => y[1] - x[1]).slice(0, 60).map(([o]) => o);
+  const likeliest = [...votes.entries()].filter(([, n]) => n >= offsets.votes).sort((x, y) => y[1] - x[1]).slice(0, offsets.count).map(([o]) => o);
   const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
   const found: Shared[] = [];
-  for (const offset of offsets) {
+  for (const offset of likeliest) {
     let start = -1;
     let last = -1;
     let hits = 0;
@@ -275,7 +286,7 @@ function varied(points: Uint32Array, range: TimeRange): boolean {
 export function findRecap(head: Uint32Array, skip: TimeRange[], sources: RecapSource[]): TimeRange | null {
   const clips: TimeRange[] = [];
   for (const source of sources) {
-    for (const hit of sharedStretches(head, source.points, RECAP_CLIP)) {
+    for (const hit of sharedStretches(head, source.points, RECAP_CLIP, RECAP_OFFSETS)) {
       if (source.ignore(source.from + (hit.b.start + hit.b.end) / 2)) continue;
       if (skip.some((r) => overlaps(hit.a, r))) continue;
       if (!varied(head, hit.a)) continue;
@@ -620,7 +631,7 @@ interface Entry {
   /** Whether the episode's opening has been checked against earlier episodes for a recap (RECAPS: as recaps are found now). */
   recapLooked?: boolean | number;
   /** Whether a season's first episode has been checked against the season before for a recap. */
-  openerChecked?: boolean;
+  openerChecked?: boolean | number;
   /**
    * Which second credits search an episode without them has had (true: the first, which also took the end logos
    * alone for the start of the credits).
@@ -762,6 +773,11 @@ export class Markers {
     return entry.recapLooked === RECAPS || (!!entry.recapLooked && entry.marks.recap != null);
   }
 
+  /** A season's first episode was compared with the season before by the current rules, or has a recap already. */
+  private static openerChecked(entry: Entry | undefined): boolean {
+    return !!entry && (entry.openerChecked === OPENERS || (!!entry.openerChecked && entry.marks.recap != null));
+  }
+
   /** Credits the first second search may have given (it took the end logos alone for their start). */
   private static retried(entry: Entry): boolean {
     return entry.creditsRetried === true && entry.sound?.credits == null;
@@ -856,7 +872,7 @@ export class Markers {
       const ep = list[0].item.episode!;
       // A season's first episode may recap the season before: looked at once more when that season is here.
       const before = ep.season > 1 && ep.episode === 1 ? seasons.get(`${ep.show.toLowerCase()}|${ep.season - 1}`) : undefined;
-      const opener = before && !this.cache[list[0].item.id]?.openerChecked ? before : undefined;
+      const opener = before && !Markers.openerChecked(this.cache[list[0].item.id]) ? before : undefined;
       if (!opener && list.every((e) => this.fresh(e.item, list.length))) {
         // Looked at before: no listening, but name the episodes still without credits once per start.
         const missing = this.missingCredits(list);
@@ -1072,7 +1088,7 @@ export class Markers {
         peers: entry ? entry.peers ?? list.length : list.length,
         sound: entry ? entry.sound : { intro: found[i].intro ?? null, credits: found[i].credits ?? null },
         recapLooked: RECAPS,
-        openerChecked: (i === 0 && !!previous) || this.cache[e.item.id]?.openerChecked,
+        openerChecked: i === 0 && previous ? OPENERS : this.cache[e.item.id]?.openerChecked,
         creditsRetried: CREDITS_RETRY,
         walked: WALKED,
       });
@@ -1083,8 +1099,8 @@ export class Markers {
   }
 
   /**
-   * What a season's first episode may recap from the season before: all of its last episode, and the openings and
-   * endings of the rest, their own intros and credits left out.
+   * What a season's first episode may recap from the season before: all of each of its episodes (a season opener's
+   * recap takes from the whole season), their own intros and credits left out.
    */
   private async seasonSources(previous: MarkersEntry[]): Promise<RecapSource[]> {
     const sources: RecapSource[] = [];
@@ -1096,15 +1112,8 @@ export class Markers {
       if (d <= 0) continue;
       const { intro, credits } = this.cache[e.item.id]?.marks ?? {};
       const ignore = (t: number) => t < 15 || (intro != null && t >= intro.start && t <= intro.end) || (credits != null && t >= credits);
-      if (j === previous.length - 1) {
-        const all = await this.fingerprint(e.absPath, 0, d, 20 * 60_000);
-        if (all) sources.push({ points: all, from: 0, ignore });
-        continue;
-      }
-      const tail = Math.max(0, d - Math.min(CREDITS_WINDOW, d / 5));
-      const [h, t] = [await this.fingerprint(e.absPath, 0, Math.min(INTRO_WINDOW, d / 4)), await this.fingerprint(e.absPath, tail, d - tail)];
-      if (h) sources.push({ points: h, from: 0, ignore });
-      if (t) sources.push({ points: t, from: tail, ignore });
+      const all = await this.fingerprint(e.absPath, 0, d, 20 * 60_000);
+      if (all) sources.push({ points: all, from: 0, ignore });
     }
     return sources;
   }
@@ -1291,7 +1300,7 @@ export class Markers {
     this.set(e.item, { marks, peers: entry.peers ?? 1, sound: { intro: sound.intro ?? null, credits: sound.credits ?? null }, walked: WALKED });
   }
 
-  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean | number; openerChecked?: boolean; creditsRetried?: boolean | number; walked?: boolean | number }): void {
+  private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean | number; openerChecked?: boolean | number; creditsRetried?: boolean | number; walked?: boolean | number }): void {
     this.cache[item.id] = { key: Markers.key(item), v: VERSION, ends: ENDS, ...entry };
   }
 
