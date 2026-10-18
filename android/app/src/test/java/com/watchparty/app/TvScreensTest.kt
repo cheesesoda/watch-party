@@ -498,8 +498,10 @@ class TvScreensTest {
         val eyebrow = "NEW IN YOUR LIBRARY"
         fun whole(where: String) {
             settle(1_000) { false }
+            // Unscrolled, the eyebrow sits 56dp down (the banner's top padding); scrolled at all, the title is next to go.
             val top = topOf(eyebrow)
-            check(top != null && top >= 0f, "The banner is cut off at the top $where (eyebrow at $top)")
+            val unscrolled = with(rule.density) { 56.dp.toPx() }
+            check(top != null && top >= unscrolled - 1f, "The banner is scrolled up $where (eyebrow at $top, unscrolled at $unscrolled)")
         }
         whole("as Home opens")
         press(FocusDirection.Right)
