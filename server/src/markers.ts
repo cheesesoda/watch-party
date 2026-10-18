@@ -79,6 +79,7 @@ export function sharedStretch(a: Uint32Array, b: Uint32Array, min: number, max =
 }
 
 const round = (s: number) => Math.round(s * 10) / 10;
+const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 /**
  * The second credits search: this much of a known outro is looked for, and this much of it has to match, starting
@@ -92,7 +93,7 @@ const STING_MIN = 8;
 /** Credit cards over a dark picture before the end logos: this % black is enough when the logos anchor them. */
 const STING_DARK = 50;
 /** Bumped when finding credits changes, so episodes without them (or given them by an older second search) are looked at again. */
-const CREDITS_RETRY = 3;
+const CREDITS_RETRY = 4;
 /** Between keyframes over still credit cards: this long a gap between two dark ones doesn't end the stretch. */
 const KEYFRAME_GAP = 40;
 /** Two frames a second: a picture card among the credits can take this many in a row. */
@@ -109,8 +110,15 @@ const WALK_BACK = 60;
  * while night scenes (Lucifer) are mostly a little lighter and would pass for cards at the usual 32.
  */
 const CARD_BLACK = 18;
+/** The black credits were looked for in before true black: what's kept when true black finds nothing. */
+const OLD_BLACK = 32;
 /** Bumped when the walk back changes, so every sound mark is walked back again from where sound put it. */
 const WALKED = 2;
+/**
+ * Bumped when credits by last chapter or by picture change, so episodes are checked again: the last chapter for
+ * credits, and credits found by the picture alone with the stricter black.
+ */
+const ENDS = 1;
 
 /**
  * Where [clip] plays inside [within], trying every offset (unlike sharedStretch, which starts from points that match
@@ -423,6 +431,74 @@ export function cardsBefore(unsorted: { t: number; black: number }[], mark: numb
   return null;
 }
 
+/**
+ * A last chapter that starts this close to the end and is at least this long may be the credits, when no chapter has
+ * a name (Game of Thrones: each season's last chapter is exactly its credits, 1:20 long).
+ */
+const LAST_CHAPTER_WITHIN = 180;
+const LAST_CHAPTER_MIN = 45;
+/** Names that say nothing about what a chapter is: "Chapter 7", "07", "00:52:10.000". */
+const UNNAMED = /^(chapter\s*\d+|\d+|[\d:.]+)?$/;
+/** Seconds after where the last chapter starts that have to be credit cards, and how many of their frames. */
+const CHAPTER_CARDS = 10;
+const CHAPTER_CARDS_SHARE = 0.8;
+
+/** Where the last chapter starts, when the chapters say nothing else and it could be the credits; null otherwise. */
+export function lastChapter(chapters: { start: number; end: number; title: string }[], duration: number): number | null {
+  if (chapters.length < 3 || !chapters.every((c) => UNNAMED.test(c.title.trim().toLowerCase()))) return null;
+  const last = chapters.reduce((a, b) => (b.start > a.start ? b : a));
+  if (duration - last.start > LAST_CHAPTER_WITHIN || Math.max(duration, last.end) - last.start < LAST_CHAPTER_MIN) return null;
+  return last.start;
+}
+
+/** Whether frames (two a second) from where a chapter starts show credit cards: most of them nearly all black. */
+export function onCards(frames: { t: number; black: number }[]): boolean {
+  return frames.length > 0 && frames.filter((f) => f.black >= CREDITS_BLACK).length >= frames.length * CHAPTER_CARDS_SHARE;
+}
+
+/**
+ * Bonus material after the credits ("Inside the Episode" on Game of Thrones S8) puts them out of reach of the usual
+ * window, so with nothing found there, an episode's last EXTRAS_WINDOW is looked at instead for the latest long run of
+ * black keyframes with at least EXTRAS_MIN of picture after it.
+ */
+const EXTRAS_WINDOW = 0.25;
+const EXTRAS_MIN = 180;
+const EXTRAS_RUN = 30;
+
+/**
+ * Where credits followed by bonus material start: the latest stretch of nearly black keyframes ([min] %, gaps up to
+ * KEYFRAME_GAP, one odd keyframe allowed) at least EXTRAS_RUN long that ends at least EXTRAS_MIN before the end of the
+ * window ([length]), or null.
+ */
+export function creditsBeforeExtras(unsorted: { t: number; black: number }[], length: number, min = CREDITS_BLACK): number | null {
+  const frames = [...unsorted].sort((a, b) => a.t - b.t);
+  let found: number | null = null;
+  let start = -1;
+  let last = -1;
+  let odd = 0;
+  const close = () => {
+    if (start >= 0 && frames[last].t - frames[start].t >= EXTRAS_RUN && length - frames[last].t >= EXTRAS_MIN) found = frames[start].t;
+  };
+  frames.forEach((f, i) => {
+    if (f.black < min) {
+      if (start >= 0 && ++odd > 1) {
+        close();
+        start = -1;
+      }
+      return;
+    }
+    if (start >= 0 && f.t - frames[last].t > KEYFRAME_GAP) {
+      close();
+      start = -1;
+    }
+    if (start < 0) start = i;
+    last = i;
+    odd = 0;
+  });
+  close();
+  return found;
+}
+
 function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; out: Buffer }> {
   return new Promise((resolve) => {
     let proc: ChildProcess;
@@ -503,6 +579,8 @@ interface Entry {
   creditsRetried?: boolean | number;
   /** Whether credits found by sound have been checked against the picture for cards that start before them. */
   walked?: boolean | number;
+  /** Which check of credits by last chapter and picture the episode has had (ENDS). */
+  ends?: number;
 }
 
 export interface MarkersEntry {
@@ -679,6 +757,22 @@ export class Markers {
       this.log(`checked where the credits start in ${unwalked.length} episodes (${moved} changed)`);
       await this.save();
     }
+    // Credits checked once more when finding them by last chapter or by the picture changed.
+    const unchecked = entries.filter((e) => {
+      const entry = this.cache[e.item.id];
+      return e.item.episode && !e.item.extra && entry?.v === VERSION && entry.key === Markers.key(e.item) && entry.ends !== ENDS;
+    });
+    if (unchecked.length) this.log(`checking the credits again in ${unchecked.length} episodes (last chapters, true black)`);
+    let changed = 0;
+    for (const [n, e] of unchecked.entries()) {
+      if (this.closed) return;
+      if (await this.recheck(e)) changed++;
+      if ((n + 1) % 25 === 0 && n + 1 < unchecked.length) await this.save();
+    }
+    if (unchecked.length) {
+      this.log(`checked the credits again in ${unchecked.length} episodes (${changed} changed)`);
+      await this.save();
+    }
     for (const list of seasons.values()) {
       if (this.closed) return;
       list.sort((x, y) => x.item.episode!.episode - y.item.episode!.episode);
@@ -694,15 +788,15 @@ export class Markers {
       await this.save();
     }
     // Movies only have chapter names to go on.
-    let changed = false;
+    let moviesChanged = false;
     for (const e of singles) {
       if (this.closed) return;
       if (this.fresh(e.item, 1)) continue;
       const probe = await this.probe(e.absPath);
       this.set(e.item, { marks: probe ? chapterMarks(probe.chapters) : {}, peers: 1 });
-      changed = true;
+      moviesChanged = true;
     }
-    if (changed) await this.save();
+    if (moviesChanged) await this.save();
   }
 
   private async season(list: MarkersEntry[]): Promise<void> {
@@ -917,23 +1011,57 @@ export class Markers {
    */
   private async combine(file: string, chapterList: { start: number; end: number; title: string }[], sound: SkipMarks, duration: number, tail: number): Promise<SkipMarks> {
     const chapters = chapterMarks(chapterList);
-    let credits = chapters.credits ?? sound.credits ?? null;
-    if (chapters.credits == null && sound.credits != null) credits = await this.walkBack(file, sound.credits, tail);
-    if (credits == null && duration > 0) {
-      // Keyframes first, as they're quick to read. Credit cards are still pictures, so keyframes can be half a minute
-      // apart there: a long gap between dark ones doesn't end the stretch. Then every half second around where it
-      // seems to start, to find the exact second (and keep out a dark scene just before).
-      const frames = await this.blackness(file, tail, duration - tail);
-      const rough = frames ? blackCredits(frames, duration - tail, KEYFRAME_GAP) : null;
-      if (rough != null) {
-        const from = Math.max(0, rough - 60);
-        const close = await this.blackness(file, tail + from, duration - tail - from, true);
-        const at = close ? blackCredits(close, duration - tail - from, 12, CLOSE_ODD, CLOSE_BLACK) : null;
-        credits = round(tail + (at != null ? from + at : rough));
-      }
-    }
+    let credits = chapters.credits ?? (await this.lastChapterCredits(file, chapterList, duration));
+    if (credits == null && sound.credits != null) credits = await this.walkBack(file, sound.credits, tail);
+    if (credits == null && duration > 0) credits = await this.cardCredits(file, duration, tail);
     const heard = sound.intro ? introChapter(sound.intro, chapterList) ?? sound.intro : null;
     return { intro: chapters.intro ?? heard, recap: chapters.recap ?? null, credits };
+  }
+
+  /** Where the last chapter starts, when it could be the credits (lastChapter) and starts on credit cards. */
+  private async lastChapterCredits(file: string, chapterList: { start: number; end: number; title: string }[], duration: number): Promise<number | null> {
+    const at = lastChapter(chapterList, duration);
+    if (at == null) return null;
+    const frames = await this.blackness(file, at, CHAPTER_CARDS, true, CARD_BLACK);
+    return frames && onCards(frames) ? round(at) : null;
+  }
+
+  /**
+   * Credits by the picture: true black first; when that finds nothing, what the old, looser black (32) finds, so no
+   * episode loses credits it had (Game of Thrones S6E06: its cards read under 85% true black at times).
+   */
+  private async cardCredits(file: string, duration: number, tail: number): Promise<number | null> {
+    return (await this.pictureCredits(file, duration, tail)) ?? (await this.pictureCredits(file, duration, tail, OLD_BLACK));
+  }
+
+  /**
+   * Credits by the picture (white text on true black), for when nothing else found them. Keyframes first, as they're
+   * quick to read. Credit cards are still pictures, so keyframes can be half a minute apart there: a long gap between
+   * dark ones doesn't end the stretch. Then every half second around where it seems to start, to find the exact
+   * second (and keep out a dark scene just before). Only true black counts: a night scene (Game of Thrones S7E05)
+   * passes for cards at the usual 32. With nothing at the end, the credits may come before bonus material.
+   */
+  private async pictureCredits(file: string, duration: number, tail: number, black = CARD_BLACK): Promise<number | null> {
+    const frames = await this.blackness(file, tail, duration - tail, false, black);
+    const rough = frames ? blackCredits(frames, duration - tail, KEYFRAME_GAP) : null;
+    if (rough != null) {
+      const from = Math.max(0, rough - 60);
+      const close = await this.blackness(file, tail + from, duration - tail - from, true, black);
+      const at = close ? blackCredits(close, duration - tail - from, 12, CLOSE_ODD, CLOSE_BLACK) : null;
+      return round(tail + (at != null ? from + at : rough));
+    }
+    const wide = duration * (1 - EXTRAS_WINDOW);
+    if (wide >= tail || black !== CARD_BLACK) return null;
+    const more = await this.blackness(file, wide, duration - wide, false, CARD_BLACK);
+    const early = more ? creditsBeforeExtras(more, duration - wide) : null;
+    if (early == null) return null;
+    // Keyframes can be far apart, so the cards may start well before the first black one: walked back every half second.
+    const from = Math.max(0, early - 60);
+    const close = await this.blackness(file, wide + from, early - from + EXTRAS_RUN, true, CARD_BLACK);
+    const at = close ? cardsBefore(close, early - from + EXTRAS_RUN - 5) : null;
+    const credits = round(wide + (at != null ? from + at : early));
+    this.log(`${path.basename(file)}: credits start at ${clock(credits)}, with more after them`);
+    return credits;
   }
 
   /** [credits] found by sound, moved back to where the credit cards start when they're already showing there. */
@@ -943,7 +1071,6 @@ export class Markers {
     const at = frames ? cardsBefore(frames, credits - start) : null;
     if (at == null) return credits;
     const moved = round(start + at);
-    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
     this.log(`${path.basename(file)}: credits start at ${clock(moved)}, where the cards do (the sound match only lined up from ${clock(credits)})`);
     return moved;
   }
@@ -963,11 +1090,39 @@ export class Markers {
   }
 
   /**
+   * An episode's credits checked again: a last chapter on credit cards goes over what sound or the picture found (Game
+   * of Thrones: the picture took the dark last scene, sound the music over it), and credits found by the picture
+   * alone are looked for again counting only true black. Whether they changed.
+   */
+  private async recheck(e: MarkersEntry): Promise<boolean> {
+    const entry = this.cache[e.item.id];
+    const before = entry.marks.credits ?? null;
+    let credits = before;
+    const probe = await this.probe(e.absPath);
+    const d = probe?.duration ?? 0;
+    if (probe && d > 0 && chapterMarks(probe.chapters).credits == null) {
+      const tail = Math.max(0, d - Math.min(CREDITS_WINDOW, d / 5));
+      const last = await this.lastChapterCredits(e.absPath, probe.chapters, d);
+      if (last != null) credits = last;
+      else if (before != null && entry.sound?.credits == null) {
+        // Found by the picture when the old black (32) finds them there too, rather than by the second search.
+        const old = await this.pictureCredits(e.absPath, d, tail, OLD_BLACK);
+        // Nothing in true black keeps what the old black found.
+        if (old != null && Math.abs(old - before) <= 1) credits = (await this.pictureCredits(e.absPath, d, tail)) ?? before;
+      }
+    }
+    this.cache[e.item.id] = { ...entry, marks: { ...entry.marks, credits }, ends: ENDS };
+    if (credits === before) return false;
+    this.log(`${path.basename(e.absPath)}: credits start at ${credits != null ? clock(credits) : "?"} (before: ${before != null ? clock(before) : "none"})`);
+    return true;
+  }
+
+  /**
    * How black (%) each keyframe is over [length] seconds from [start] (only keyframes are decoded, so it's quick), or
    * with [every], two frames a second (everything is decoded, so only for a few minutes).
    */
   private async blackness(file: string, start: number, length: number, every = false, threshold = 32): Promise<{ t: number; black: number }[] | null> {
-    if (length < CREDITS_MIN) return null;
+    if (length < 1) return null;
     const filter = `${every ? "fps=2," : ""}scale=128:-2,blackframe=amount=0:threshold=${threshold},metadata=print:file=-`;
     const args = ["-hide_banner", "-nostdin", "-loglevel", "error", ...(every ? [] : ["-skip_frame", "nokey"]), "-ss", String(start), "-i", file, "-t", String(length), "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", filter, "-f", "null", "-"];
     const r = await run(this.config.ffmpeg, args, 5 * 60_000);
@@ -1005,7 +1160,7 @@ export class Markers {
   }
 
   private set(item: MediaItem, entry: { marks: SkipMarks; peers: number; sound?: SkipMarks; recapLooked?: boolean; creditsRetried?: boolean | number; walked?: boolean | number }): void {
-    this.cache[item.id] = { key: Markers.key(item), v: VERSION, ...entry };
+    this.cache[item.id] = { key: Markers.key(item), v: VERSION, ends: ENDS, ...entry };
   }
 
   private async probe(file: string): Promise<{ duration: number; chapters: { start: number; end: number; title: string }[] } | null> {
