@@ -542,6 +542,39 @@ test("an episode whose outro is too short to find by comparing endings gets it f
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+test("credits matched by sound on the end logos walk back to cards that start more than a minute before", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-logos-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // 700 s: picture until 570 s, then 110 s of cards (white lines on black) over each episode's own music, then 20 s of
+  // the same logos (picture and sound) in every episode. Sound only matches the logos at 680 s (Reacher S2E07).
+  for (const n of [1, 2, 3]) {
+    const r = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", "testsrc2=s=320x180:r=24:d=570",
+      "-f", "lavfi", "-i", "color=black:s=320x180:r=24:d=110",
+      "-f", "lavfi", "-i", "testsrc=s=320x180:r=24:d=20",
+      "-f", "lavfi", "-i", melody(n * 3.1 + 0.4, 680),
+      "-f", "lavfi", "-i", melody(8.8, 20),
+      "-filter_complex", "[1:v]drawbox=x=100:y=40:w=120:h=6:color=white:t=fill,drawbox=x=120:y=90:w=80:h=6:color=white:t=fill[c];[0:v][c][2:v]concat=n=3:v=1:a=0[v];[3:a][4:a]concat=n=2:v=0:a=1[a]",
+      "-map", "[v]", "-map", "[a]", "-g", "48", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+      path.join(season, `Show S01E0${n}.mkv`),
+    ]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file: path.join(dir, "markers.json") }, () => {});
+  await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  for (const ep of eps) {
+    const credits = markers.get(ep)?.credits;
+    assert.ok(credits != null && credits >= 569 && credits <= 572, `${ep.relPath} credits ${credits}`);
+  }
+  await markers.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 test("skip times set by hand go over what was found, kind by kind, and stay through looking again", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hand-"));
   const file = path.join(dir, "markers.json");
