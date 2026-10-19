@@ -17,7 +17,7 @@ import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
 import { History } from "./history.ts";
 import { Spots } from "./spots.ts";
-import { srtToVtt } from "./subtitles.ts";
+import { englishSubtitles, srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
 export interface App {
@@ -36,7 +36,14 @@ export function createApp(config: Config): App {
   const library = new Library(config.mediaDirs);
   const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
-  const markers = new Markers({ ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg", ffprobe: config.transcode?.ffprobe ?? "ffprobe", file: config.markersFile ?? "", handFile: config.skipTimesFile ?? "" });
+  const markers = new Markers({
+    ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg",
+    ffprobe: config.transcode?.ffprobe ?? "ffprobe",
+    file: config.markersFile ?? "",
+    handFile: config.skipTimesFile ?? "",
+    // Recaps sound can't find are looked for in a video's English subtitles.
+    subtitles: (e) => englishSubtitles(library, transcoder, e.absPath, e.item),
+  });
   // What parties play carries its intro and credits times, for Skip intro and the Up next card, and its length once
   // known, so a video without a credits mark still counts as watched near its end.
   const history = new History(config.historyFile);

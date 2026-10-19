@@ -630,6 +630,48 @@ test("credits with pages full of names before bonus material that ends on black 
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+test("recaps sound can't hear are found in the subtitles, once, and never over a recap set by hand", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-subs-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // Three episodes with nothing in common to hear (a recap remixed under narration sounds new).
+  for (const n of [1, 2, 3]) {
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", melody(n * 3.7 + 0.2, 240), "-c:a", "aac", path.join(season, `Show S01E0${n}.mp4`)]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const subs: Record<number, string> = {
+    1: "1\n00:01:00,000 --> 00:01:03,000\nSomebody killed my brother.\n\n2\n00:02:00,000 --> 00:02:04,000\nThe money went through the warehouse.\n",
+    2: "1\n00:00:05,000 --> 00:00:07,000\nPreviously on Show...\n\n2\n00:00:08,000 --> 00:00:11,000\nSomebody killed my brother.\n\n3\n00:00:13,000 --> 00:00:17,500\nThe money went through the warehouse.\n\n4\n00:01:00,000 --> 00:01:03,000\nA whole new line of dialogue.\n\n5\n00:01:04,000 --> 00:01:07,000\nAnd another one after it.\n",
+    3: "1\n00:00:05,000 --> 00:00:07,000\nPreviously on Show...\n\n2\n00:00:08,000 --> 00:00:11,000\nSomebody killed my brother.\n\n3\n00:00:13,000 --> 00:00:17,500\nThe money went through the warehouse.\n",
+  };
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const file = path.join(dir, "markers.json");
+  const handFile = path.join(dir, "skip-times.json");
+  let reads = 0;
+  const config = { ffmpeg: "ffmpeg", ffprobe: "ffprobe", file, handFile, subtitles: async (e: { item: MediaItem }) => (reads++, subs[e.item.episode!.episode]) };
+  const lines: string[] = [];
+  const markers = new Markers(config, (l) => lines.push(l));
+  // Episode 3's recap is set by hand as none.
+  await markers.setHand(eps[2], { recap: null });
+  await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  assert.equal(markers.get(eps[0])?.recap ?? null, null);
+  assert.deepEqual(markers.get(eps[1])?.recap, { start: 5, end: 17.5 });
+  assert.equal(markers.get(eps[2])?.recap ?? null, null);
+  assert.ok(lines.some((l) => l.includes("Show season 1: recaps from subtitles in 1 of 1 (E02 0:05-0:17)")), lines.join("\n"));
+  await markers.close();
+
+  // Read once: looking again (a restart) doesn't read them again.
+  const before = reads;
+  const again = new Markers(config, () => {});
+  await again.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  assert.equal(reads, before);
+  assert.deepEqual(again.get(eps[1])?.recap, { start: 5, end: 17.5 });
+  await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 test("a credits chapter that starts before its cards moves to where they start, and only later", () => {
   const frames = (from: number, to: number, black: number) => Array.from({ length: (to - from) * 2 }, (_, i) => ({ t: from + i / 2, black }));
   // A dark scene (not true black) for 10 s, then cards.
