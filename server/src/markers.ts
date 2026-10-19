@@ -134,7 +134,10 @@ const CHAPTER_CHECK = 1;
  * (RECAP_OFFSETS).
  */
 const RECAPS = 3;
-/** The same for a season's first episode against the season before. 2: against all of its episodes, RECAP_OFFSETS. */
+/**
+ * The same for a season's first episode against the seasons before. 2: against all of their episodes (Reacher S3E01
+ * recaps seasons 1 and 2), RECAP_OFFSETS.
+ */
 const OPENERS = 2;
 /** Earlier episodes compared in full for a recap; older ones only by their openings and endings. */
 const RECAP_WHOLE = 3;
@@ -180,17 +183,24 @@ export function findClip(within: Uint32Array, clip: Uint32Array, min: number): (
 }
 
 /**
- * Which offsets sharedStretches checks point by point: those where at least [votes] points match exactly, the [count]
- * with most. A recap's clips are short and often mixed under narration, so few of their points match exactly: looking
- * for them takes RECAP_OFFSETS.
+ * Which offsets sharedStretches checks point by point: those where at least [votes] points match, the [count] with
+ * most; points match when they differ in at most [near] bits. A recap's clips are short and mixed again under
+ * narration and music, so hardly any of their points match the earlier episode exactly (Reacher S2E07: none at all
+ * with most of the season): looking for them takes RECAP_OFFSETS.
  */
-const SHARED_OFFSETS = { votes: 3, count: 60 };
-const RECAP_OFFSETS = { votes: 2, count: 1000 };
+const SHARED_OFFSETS = { votes: 3, count: 60, near: 0 };
+export const RECAP_OFFSETS = { votes: 2, count: 1000, near: 3 };
 
 /**
  * Every stretch of at least [min] seconds two fingerprints share, at any of their likeliest offsets: the clips a
  * recap took from an earlier episode, say.
  */
+/** The first of a 32-bit difference's 4 bytes that is 0 (the bytes two points share), or 4. */
+function firstSharedByte(diff: number): number {
+  for (let k = 0; k < 4; k++) if (((diff >>> (k * 8)) & 0xff) === 0) return k;
+  return 4;
+}
+
 export function sharedStretches(a: Uint32Array, b: Uint32Array, min: number, offsets = SHARED_OFFSETS): Shared[] {
   const where = new Map<number, number[]>();
   b.forEach((v, j) => {
@@ -199,9 +209,32 @@ export function sharedStretches(a: Uint32Array, b: Uint32Array, min: number, off
     else where.set(v, [j]);
   });
   const votes = new Map<number, number>();
-  a.forEach((v, i) => {
-    for (const j of where.get(v) ?? []) votes.set(i - j, (votes.get(i - j) ?? 0) + 1);
-  });
+  if (offsets.near) {
+    // Points at most 3 bits apart share at least one of their 4 bytes: look up each byte, then count the bits.
+    const bytes = Array.from({ length: 4 }, () => new Map<number, number[]>());
+    b.forEach((v, j) => {
+      for (let k = 0; k < 4; k++) {
+        const key = (v >>> (k * 8)) & 0xff;
+        const list = bytes[k].get(key);
+        if (list) list.push(j);
+        else bytes[k].set(key, [j]);
+      }
+    });
+    a.forEach((v, i) => {
+      for (let k = 0; k < 4; k++) {
+        for (const j of bytes[k].get((v >>> (k * 8)) & 0xff) ?? []) {
+          const diff = v ^ b[j];
+          // Counted once, under the first byte the two share.
+          if (firstSharedByte(diff) !== k) continue;
+          if (bits(diff) <= offsets.near) votes.set(i - j, (votes.get(i - j) ?? 0) + 1);
+        }
+      }
+    });
+  } else {
+    a.forEach((v, i) => {
+      for (const j of where.get(v) ?? []) votes.set(i - j, (votes.get(i - j) ?? 0) + 1);
+    });
+  }
   const likeliest = [...votes.entries()].filter(([, n]) => n >= offsets.votes).sort((x, y) => y[1] - x[1]).slice(0, offsets.count).map(([o]) => o);
   const gap = Math.round(MAX_GAP_SECONDS / POINT_SECONDS);
   const found: Shared[] = [];
@@ -875,9 +908,12 @@ export class Markers {
     for (const list of seasons.values()) {
       if (this.closed) return;
       const ep = list[0].item.episode!;
-      // A season's first episode may recap the season before: looked at once more when that season is here.
-      const before = ep.season > 1 && ep.episode === 1 ? seasons.get(`${ep.show.toLowerCase()}|${ep.season - 1}`) : undefined;
-      const opener = before && !Markers.openerChecked(this.cache[list[0].item.id]) ? before : undefined;
+      // A season's first episode may recap the seasons before: looked at once more when they're here.
+      const before: MarkersEntry[] = [];
+      if (ep.season > 1 && ep.episode === 1) {
+        for (let n = 1; n < ep.season; n++) before.push(...(seasons.get(`${ep.show.toLowerCase()}|${n}`) ?? []));
+      }
+      const opener = before.length && !Markers.openerChecked(this.cache[list[0].item.id]) ? before : undefined;
       if (!opener && list.every((e) => this.fresh(e.item, list.length))) {
         // Looked at before: no listening, but name the episodes still without credits once per start.
         const missing = this.missingCredits(list);
@@ -901,7 +937,7 @@ export class Markers {
     if (moviesChanged) await this.save();
   }
 
-  /** [previous]: the season before, when this season's first episode is still to be checked against it for a recap. */
+  /** [previous]: the seasons before, when this season's first episode is still to be checked against them for a recap. */
   private async season(list: MarkersEntry[], previous?: MarkersEntry[]): Promise<void> {
     const started = Date.now();
     const ep = list[0].item.episode!;
@@ -1075,7 +1111,8 @@ export class Markers {
         }
         detected = findRecap(head, [...(intro ? [intro] : []), ...shared[i]], sources);
       } else if (head && i === 0 && previous?.length) {
-        this.log(`${name}: recap check, episode ${e.item.episode!.episode} against season ${ep.season - 1}`);
+        const earlier = [...new Set(previous.map((p) => p.item.episode!.season))];
+        this.log(`${name}: recap check, episode ${e.item.episode!.episode} against season${earlier.length > 1 ? "s" : ""} ${earlier.join(", ")}`);
         detected = findRecap(head, [...(intro ? [intro] : []), ...shared[i]], await this.seasonSources(previous));
       }
       const named = chapters.recap ?? null;
@@ -1104,8 +1141,8 @@ export class Markers {
   }
 
   /**
-   * What a season's first episode may recap from the season before: all of each of its episodes (a season opener's
-   * recap takes from the whole season), their own intros and credits left out.
+   * What a season's first episode may recap from the seasons before: all of each of their episodes (a season opener's
+   * recap takes from whole seasons), their own intros and credits left out.
    */
   private async seasonSources(previous: MarkersEntry[]): Promise<RecapSource[]> {
     const sources: RecapSource[] = [];
