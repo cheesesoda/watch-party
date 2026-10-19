@@ -317,7 +317,7 @@ test("finds credits by the picture when the sound doesn't match, and brings vers
   // 300 s: picture until 260 s, then white lines on black (the credits); a different song over each episode's credits.
   // Chapters: a "Title Sequence" and an "Opening Credits" back to back.
   const meta = path.join(dir, "chapters.txt");
-  await fs.writeFile(meta, ";FFMETADATA1\n" + [[0, 10000, "Scene 1"], [10000, 15000, "Title Sequence"], [15000, 23000, "Opening Credits"], [23000, 300000, "Scene 2"]].map(([s, e, t]) => `[CHAPTER]\nTIMEBASE=1/1000\nSTART=${s}\nEND=${e}\ntitle=${t}\n`).join(""));
+  await fs.writeFile(meta, ";FFMETADATA1\n" + [[0, 10000, "Scene 1"], [10000, 15000, "Title Sequence"], [15000, 33000, "Opening Credits"], [33000, 300000, "Scene 2"]].map(([s, e, t]) => `[CHAPTER]\nTIMEBASE=1/1000\nSTART=${s}\nEND=${e}\ntitle=${t}\n`).join(""));
   for (const n of [1, 2]) {
     const r = spawnSync("ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-y",
@@ -339,7 +339,7 @@ test("finds credits by the picture when the sound doesn't match, and brings vers
   await markers.warm(entries);
   for (const ep of eps) {
     const marks = markers.get(ep);
-    assert.deepEqual(marks?.intro, { start: 10, end: 23 }, `${ep.relPath}: ${JSON.stringify(marks)}`);
+    assert.deepEqual(marks?.intro, { start: 10, end: 33 }, `${ep.relPath}: ${JSON.stringify(marks)}`);
     // Keyframes every 2 s, so the switch to black is found within one.
     assert.ok(marks?.credits != null && marks.credits >= 260 && marks.credits <= 262.5, `${ep.relPath} credits ${marks?.credits}`);
   }
@@ -353,7 +353,7 @@ test("finds credits by the picture when the sound doesn't match, and brings vers
   await upgraded.warm(entries);
   for (const ep of eps) {
     const marks = upgraded.get(ep);
-    assert.deepEqual(marks?.intro, { start: 10, end: 23 });
+    assert.deepEqual(marks?.intro, { start: 10, end: 33 });
     assert.ok(marks?.credits != null && marks.credits >= 260 && marks.credits <= 262.5, `credits ${marks?.credits}`);
   }
   assert.ok(lines.some((l) => l.startsWith("updated 2 earlier results")), lines.join("\n"));
@@ -839,6 +839,22 @@ test("skip times set by hand go over what was found, kind by kind, and stay thro
   assert.deepEqual(again.get(item), { intro: { start: 0, end: 30 }, recap: null, credits: 1200 });
   await markers.close();
   await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("intros found shorter than 20 s get no button, unless set by hand", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "short-"));
+  const file = path.join(dir, "markers.json");
+  const handFile = path.join(dir, "skip-times.json");
+  const item = { id: "a", relPath: "Show/S01E01.mkv", size: 1, addedAt: 0 } as unknown as MediaItem;
+  // A 13 s title card.
+  await fs.writeFile(file, JSON.stringify({ files: { a: { key: "1:0", v: 2, marks: { intro: { start: 248, end: 261 }, recap: { start: 6, end: 63 }, credits: 2425 }, peers: 2 } } }));
+  const markers = new Markers({ ffmpeg: "ffmpeg", ffprobe: "ffprobe", file, handFile }, () => {});
+  await (markers as unknown as { loaded: Promise<void> }).loaded;
+  assert.deepEqual(markers.get(item), { intro: null, recap: { start: 6, end: 63 }, credits: 2425 });
+  await markers.setHand(item, { intro: { start: 248, end: 261.5 } });
+  assert.deepEqual(markers.get(item)?.intro, { start: 248, end: 261.5 });
+  await markers.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
