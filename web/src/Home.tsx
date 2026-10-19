@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { episodeLabel } from "../../shared/specials.ts";
-import { worthSaving, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
+import { worthSaving, type MediaItem, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
-import { CaptionsIcon, FilmIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
+import { CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
+import { HistoryPage } from "./History.tsx";
 import { Details } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
@@ -21,6 +22,7 @@ const NAV: [string, string, (p: { size?: number }) => ReactNode][] = [
   ["/movies", "Movies", FilmIcon],
   ["/shows", "TV Shows", TvIcon],
   ["/parties", "Watch Parties", UsersIcon],
+  ["/history", "History", HistoryIcon],
   ["/subtitles", "Has subtitles", CaptionsIcon],
 ];
 
@@ -89,10 +91,11 @@ export function Home(props: {
     return () => clearInterval(t);
   }, [anyPlaying]);
 
-  const start = async (ids: string[], spot?: Spot) => {
+  /** position: where in the first video to start (Pick up, from History). */
+  const start = async (ids: string[], spot?: Spot, position?: number) => {
     setError(null);
     try {
-      const room = spot ? await api.startSpot(spot.id, alone) : await api.createRoom(ids[0], ids.length > 1 ? ids : undefined, alone);
+      const room = spot ? await api.startSpot(spot.id, alone) : await api.createRoom(ids[0], ids.length > 1 ? ids : undefined, alone, position);
       if (spot) setSpots((ss) => ss.filter((x) => x.id !== spot.id));
       if (room.solo) return navigate(`/room/${room.id}`);
       setStarted(room);
@@ -162,6 +165,22 @@ export function Home(props: {
     if (id) navigate(`/room/${id}`);
   };
 
+  // Mark as watched / not watched shows straight away; the server's answer (or the library again, if it fails) settles it.
+  const mark = (ids: string[], watched: boolean) => {
+    const now = Date.now();
+    const local = new Map(ids.map((id) => [id, watched ? { watchedAt: now, position: null, updatedAt: now } : null]));
+    const apply = (states: Map<string, MediaItem["watch"]>) =>
+      setLibrary((lib) => lib && { ...lib, items: lib.items.map((i) => (states.has(i.id) ? { ...i, watch: states.get(i.id) } : i)) });
+    apply(local);
+    api.markWatched(ids, watched).then(
+      (states) => apply(new Map(Object.entries(states))),
+      (e) => {
+        setError(e.message);
+        loadLibrary();
+      },
+    );
+  };
+
   const cat = useMemo(() => buildCatalog(library?.items ?? []), [library]);
   const browse: Browse = useMemo(
     () => ({
@@ -175,6 +194,7 @@ export function Home(props: {
         of: (show) => spots.find((sp) => show.episodes.some((e) => e.id === sp.media.id)),
         start: (sp) => void start([], sp),
       },
+      watch: { mark },
     }),
     [cat, library, spots, alone],
   );
@@ -232,6 +252,7 @@ export function Home(props: {
   else if (route === "/movies") page = <MoviesPage b={browse} />;
   else if (route === "/shows") page = <ShowsPage b={browse} />;
   else if (route === "/subtitles") page = <MoviesPage b={browse} subtitlesOnly />;
+  else if (route === "/history") page = <HistoryPage b={browse} startAt={(item, position) => void start([item.id], undefined, position)} />;
   else if (movieId || showKey) page = <p className="muted">That video isn't in the library anymore.</p>;
   else page = <HomeRows b={browse} />;
 

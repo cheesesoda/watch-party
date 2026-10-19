@@ -2974,3 +2974,190 @@ button.link:focus-visible {
   background: #eeeaf3;
   color: #18131f;
 }
+
+/* Watch history: a check on what's been watched, a bar for how far in. */
+.watched-mark {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.watch-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+.watch-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.ep-still-wrap {
+  position: relative;
+  flex: none;
+  display: block;
+  line-height: 0;
+}
+.ep-still-wrap .watched-mark {
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+}
+.ep-still-wrap .watch-bar {
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+}
+.ep-row.watched .ep-still {
+  opacity: 0.55;
+}
+.watch-toggle {
+  background: transparent;
+  border: 1.5px solid rgba(238, 234, 243, 0.25);
+  color: rgba(238, 234, 243, 0.65);
+}
+.watch-toggle:hover {
+  border-color: rgba(238, 234, 243, 0.5);
+  color: var(--text);
+}
+.watch-toggle.on,
+.watch-toggle.on:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.more-menu .menu button {
+  white-space: nowrap;
+}
+.more-menu .menu hr {
+  border: 0;
+  border-top: 1px solid var(--panel-2);
+  margin: 4px 0;
+}
+
+/* History */
+.history-day .eyebrow {
+  margin: 26px 0 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-right: 12px;
+  border-radius: 12px;
+}
+.history-row:hover,
+.history-row:focus-within {
+  background: var(--panel);
+}
+.history-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+}
+.history-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.history-art {
+  flex: none;
+  width: 150px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #3a3550, #1f1a29);
+  color: var(--muted);
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+.history-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.history-text {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.history-title {
+  font-weight: 600;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+.history-state {
+  flex: none;
+  width: 200px;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+.history-state.done {
+  color: var(--accent);
+}
+.history-state .progress-bar {
+  flex: none;
+}
+@media (max-width: 720px) {
+  .history-row {
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+  }
+  .history-open {
+    flex-basis: 100%;
+    padding-bottom: 4px;
+  }
+  .history-art {
+    width: 112px;
+  }
+  .history-title {
+    white-space: normal;
+  }
+  .history-state {
+    width: auto;
+    flex: 1;
+    text-align: left;
+    padding-left: 12px;
+  }
+}
