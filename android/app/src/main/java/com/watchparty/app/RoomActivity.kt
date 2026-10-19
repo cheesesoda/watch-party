@@ -170,7 +170,6 @@ class RoomActivity : ComponentActivity() {
     /** The host watching alone (Watch alone): no chat or voice until they invite friends. */
     private var solo = false
     private val chatButtons = mutableListOf<View>()
-    private val inviteButtons = mutableListOf<View>()
 
     /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
     private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
@@ -902,7 +901,7 @@ class RoomActivity : ComponentActivity() {
         muteButton = phoneButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         listOfNotNull(
-            phoneButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
+            phoneButton("Invite friends", R.drawable.ic_user_plus) { if (solo) askInvite() else showInvite() },
             phoneButton("Chat", R.drawable.ic_chat) { openChat() }.also { chatButtons.add(it) },
             voiceButton,
             muteButton,
@@ -1068,7 +1067,7 @@ class RoomActivity : ComponentActivity() {
             subtitles,
             tvButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             tvButton("Settings", R.drawable.ic_settings) { showSettings() },
-            tvButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
+            tvButton("Invite friends", R.drawable.ic_user_plus) { if (solo) askInvite() else showInvite() },
             tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
             playerSettings,
         ).forEach { right.addView(it) }
@@ -1764,7 +1763,7 @@ class RoomActivity : ComponentActivity() {
         )
     }
 
-    /** Watching alone or not: alone, there's Invite in place of Chat and Join voice, and no party code. */
+    /** Watching alone or not: alone, there's no Chat or Join voice, Invite makes it a party, and there's no party code. */
     private fun setSolo(on: Boolean) {
         solo = on && host
         sync.alone = solo
@@ -1772,7 +1771,6 @@ class RoomActivity : ComponentActivity() {
         val party = if (solo) View.GONE else View.VISIBLE
         chatButtons.forEach { it.visibility = party }
         if (voice == null) voiceButton.visibility = party
-        inviteButtons.forEach { it.visibility = if (solo) View.VISIBLE else View.GONE }
         renderPlayerInfo()
         if (lastMedia == null) titleText.text = nothingPlaying()
         renderChatOverlay()
@@ -1792,7 +1790,12 @@ class RoomActivity : ComponentActivity() {
     private fun makeParty() {
         connection.send(Protocol.invite())
         setSolo(false)
-        val link = inviteLink()
+        showInvite("It's a party")
+    }
+
+    /** The code and a QR of the invite link to scan; phones can also share or copy the link. */
+    private fun showInvite(title: String = "Invite friends") {
+        val link = inviteLink(prefs.serverUrl, roomCode)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1809,23 +1812,15 @@ class RoomActivity : ComponentActivity() {
             }, LinearLayout.LayoutParams(dp(if (isTv) 180 else 200), dp(if (isTv) 180 else 200)).apply { topMargin = dp(12) })
         }
         val builder = dialog()
-            .setTitle("It's a party")
+            .setTitle(title)
             .setMessage("Friends join with this code, or by scanning the code with their phone.")
             .setView(content)
             .setPositiveButton("Done", null)
-        if (!isTv) builder.setNeutralButton("Copy invite link") { _, _ ->
-            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Invite link", link))
-            Toast.makeText(this, "Invite link copied", Toast.LENGTH_SHORT).show()
+        if (!isTv) {
+            builder.setNeutralButton("Copy link") { _, _ -> copyInvite(this, link) }
+            builder.setNegativeButton("Share") { _, _ -> shareInvite(this, roomCode, link) }
         }
         present(builder)
-    }
-
-    /** The party's invite link: on the host's own domain for the built-in server, as on the web. */
-    private fun inviteLink(): String {
-        val server = Prefs.normalizeUrl(prefs.serverUrl)
-        val builtIn = server == Prefs.normalizeUrl(BuildConfig.DEFAULT_SERVER)
-        val base = if (builtIn && BuildConfig.INVITE_HOST.isNotBlank()) "https://${BuildConfig.INVITE_HOST}" else server
-        return "$base/join/${roomCode.lowercase()}"
     }
 
     /** Seconds into the video: the party's, on a phone that's only for chat. */
