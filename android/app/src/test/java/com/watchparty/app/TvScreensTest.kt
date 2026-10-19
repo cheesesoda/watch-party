@@ -83,12 +83,12 @@ class TvScreensTest {
         meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
-    private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
+    private val items = (listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
         listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } } +
         // Alien (first A–Z) has extras, added long ago so they stay out of Recently added.
         listOf("Making Alien" to 720.0, "Deleted scenes" to 360.0).mapIndexed { i, (t, d) ->
             MediaItem(id = "x$i", title = t, relPath = "Movies/Alien/Extras/$t.mkv", folder = "Movies/Alien/Extras", size = 1, addedAt = 1, duration = d, extra = ExtraInfo("Behind the scenes", of = "m4"))
-        }.let { list ->
+        }).let { list ->
             // Watched marks: Arrival and Letterkenny S1E1 watched, Letterkenny S1E2 and Alien partway.
             val marks = mapOf(
                 "m0" to WatchState(watchedAt = WATCHED_AT, updatedAt = WATCHED_AT),
@@ -542,7 +542,7 @@ class TvScreensTest {
         ok()
         settle(3_000) { rule.onAllNodesWithText("Stopped at", substring = true).fetchSemanticsNodes().isNotEmpty() }
         shot("54-history")
-        check(rule.onAllNodesWithText("Today").fetchSemanticsNodes().isNotEmpty(), "History has no Today")
+        check(rule.onAllNodesWithText("TODAY").fetchSemanticsNodes().isNotEmpty(), "History has no Today")
         check(!menuOpen(), "History didn't put the remote on its first row")
         ok()
         shot("55-history-details")

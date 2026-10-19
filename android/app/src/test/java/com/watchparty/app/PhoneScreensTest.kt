@@ -72,8 +72,8 @@ class PhoneScreensTest {
         meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
-    private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
-        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }.let { list ->
+    private val items = (listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
+        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }).let { list ->
             // Watched marks: Arrival and Letterkenny S1E1 watched, Letterkenny S1E2 and Alien partway.
             val at = 1_792_000_000_000L
             val marks = mapOf(
@@ -225,6 +225,6 @@ class PhoneScreensTest {
         tap("History")
         settle(3_000) { rule.onAllNodesWithText("Stopped at", substring = true).fetchSemanticsNodes().isNotEmpty() }
         shot("p14-history")
-        assertTrue("History has no Today", rule.onAllNodesWithText("Today").fetchSemanticsNodes().isNotEmpty())
+        assertTrue("History has no Today", rule.onAllNodesWithText("TODAY").fetchSemanticsNodes().isNotEmpty())
     }
 }
