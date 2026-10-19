@@ -182,7 +182,9 @@ class Api(private val baseUrl: String, private val token: String) {
         }
     }
 
-    fun hlsUrl(mediaId: String): String = "$baseUrl/api/media/$mediaId/hls/index.m3u8"
+    /** The server's converted copy; [light]: its lighter one for slow connections. */
+    fun hlsUrl(mediaId: String, light: Boolean = false): String =
+        "$baseUrl/api/media/$mediaId/hls/${if (light) "light/" else ""}index.m3u8"
 
     /** Sent with every video request, since HLS segment links don't carry the token. */
     fun authHeaders(): Map<String, String> = if (token.isEmpty()) emptyMap() else mapOf("Authorization" to "Bearer $token")

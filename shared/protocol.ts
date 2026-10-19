@@ -258,9 +258,12 @@ export type ClientMessage =
   | { type: "seek"; position: number; at?: number; skip?: "intro" | "recap" }
   /**
    * This screen has loaded `position` during a hold (see PlaybackState.hold). `late`: the hold had already given up on
-   * it, and it has now caught up (for the log). `converted`: it plays the server's converted copy.
+   * it, and it has now caught up (for the log). `converted`: it plays the server's converted copy; `light`: its
+   * lighter copy for slow connections.
    */
-  | { type: "ready"; position: number; late?: boolean; converted?: boolean }
+  | { type: "ready"; position: number; late?: boolean; converted?: boolean; light?: boolean }
+  /** This screen changed its video quality (for the log). `auto`: by itself, after waiting for video too often. */
+  | { type: "quality"; light: boolean; auto?: boolean }
   /** This member's screen plays the video (false for a phone that's only for chat). Holds wait for these screens. */
   | { type: "player"; on: boolean }
   | { type: "select"; mediaId: string }

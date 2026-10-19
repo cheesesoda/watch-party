@@ -12,6 +12,11 @@ const AHEAD_WINDOW = 8;
 const SEGMENT_TIMEOUT_MS = 45_000;
 /** Converted copies nobody has asked for in this long are stopped and deleted. */
 const IDLE_MS = 3 * 60_000;
+/**
+ * The lighter copy for slow connections: 720p at about 3 Mbps with 128k audio, against 1080p up to 10 Mbps and 192k
+ * for the usual converted copy.
+ */
+export const LIGHT = { height: 720, maxrate: "3M", bufsize: "6M", audio: "128k" };
 
 export interface TranscodeConfig {
   ffmpeg: string;
@@ -117,7 +122,7 @@ export function playlist(duration: number, seg = SEGMENT_SECONDS): string {
  * Seeking with -ss and shifting timestamps back by the same amount keeps segment N at N * seg
  * seconds whichever segment a job starts from, so segments from different jobs fit together.
  */
-export function ffmpegArgs(opts: { input: string; probe: ProbeResult; start: number; outDir: string; encoder: string; seg?: number }): string[] {
+export function ffmpegArgs(opts: { input: string; probe: ProbeResult; start: number; outDir: string; encoder: string; seg?: number; light?: boolean }): string[] {
   const seg = opts.seg ?? SEGMENT_SECONDS;
   const at = opts.start * seg;
   const nvenc = opts.encoder === "h264_nvenc";
@@ -129,14 +134,15 @@ export function ffmpegArgs(opts: { input: string; probe: ProbeResult; start: num
   if (opts.probe.videoIndex !== null) {
     args.push("-map", `0:${opts.probe.videoIndex}`);
     // Never upscale; 1080p is plenty for streaming to friends. format=yuv420p turns 10-bit into what H.264 players expect.
-    args.push("-vf", "scale=-2:min(ih\\,1080),format=yuv420p");
+    args.push("-vf", `scale=-2:min(ih\\,${opts.light ? LIGHT.height : 1080}),format=yuv420p`);
     if (nvenc) args.push("-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-forced-idr", "1");
     else args.push("-c:v", "libx264", "-preset", "superfast", "-crf", "22", "-sc_threshold", "0");
-    args.push("-maxrate", "10M", "-bufsize", "20M", "-profile:v", "high");
+    if (opts.light) args.push("-maxrate", LIGHT.maxrate, "-bufsize", LIGHT.bufsize, "-profile:v", "high");
+    else args.push("-maxrate", "10M", "-bufsize", "20M", "-profile:v", "high");
     args.push("-force_key_frames", `expr:gte(t,n_forced*${seg})`);
   }
   if (opts.probe.audioIndex !== null) {
-    args.push("-map", `0:${opts.probe.audioIndex}`, "-c:a", "aac", "-b:a", "192k", "-ac", "2");
+    args.push("-map", `0:${opts.probe.audioIndex}`, "-c:a", "aac", "-b:a", opts.light ? LIGHT.audio : "192k", "-ac", "2");
   }
   args.push("-sn", "-dn", "-max_muxing_queue_size", "4096");
   // The extra 10 s keeps the first frames' timestamps positive. Otherwise the job starting at 0
@@ -244,6 +250,8 @@ interface Session {
   dir: string;
   input: string;
   probe: ProbeResult;
+  /** The lighter copy (LIGHT), kept apart from the usual one. */
+  light: boolean;
   job: Job | null;
   lastUsed: number;
 }
@@ -384,7 +392,8 @@ export class Transcoder {
     return result;
   }
 
-  private async session(id: string, input: string): Promise<Session | null> {
+  private async session(item: string, input: string, light: boolean): Promise<Session | null> {
+    const id = light ? `${item}-light` : item;
     let s = this.sessions.get(id);
     if (s && s.input === input) {
       s.lastUsed = Date.now();
@@ -398,26 +407,27 @@ export class Transcoder {
     const dir = path.join(this.config.dir, id);
     await fsp.rm(dir, { recursive: true, force: true });
     await fsp.mkdir(dir, { recursive: true });
-    s = { dir, input, probe, job: null, lastUsed: Date.now() };
+    s = { dir, input, probe, light, job: null, lastUsed: Date.now() };
     this.sessions.set(id, s);
     return s;
   }
 
-  async playlist(id: string, input: string): Promise<string | null> {
-    const s = await this.session(id, input);
+  /** [light]: the lighter copy for slow connections (LIGHT) instead of the usual one. */
+  async playlist(id: string, input: string, light = false): Promise<string | null> {
+    const s = await this.session(id, input, light);
     return s && playlist(s.probe.duration);
   }
 
   /** Path of segment n once it exists, converting from there if no running job will reach it soon. */
-  async segment(id: string, input: string, n: number): Promise<string | null> {
-    const s = await this.session(id, input);
+  async segment(id: string, input: string, n: number, light = false): Promise<string | null> {
+    const s = await this.session(id, input, light);
     if (!s || n < 0 || n >= segmentCount(s.probe.duration)) return null;
     const file = path.join(s.dir, `${n}.ts`);
     const deadline = Date.now() + SEGMENT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       s.lastUsed = Date.now();
       if (fs.existsSync(file)) return file;
-      if (this.sessions.get(id) !== s) return null;
+      if (this.sessions.get(light ? `${id}-light` : id) !== s) return null;
       const job = s.job;
       if (job) this.advance(s, job);
       const coming = job && !job.exited && n >= job.start && n <= job.done + AHEAD_WINDOW;
@@ -442,7 +452,7 @@ export class Transcoder {
   private startJob(s: Session, start: number): void {
     // SIGKILL: on a gentle stop ffmpeg finishes the segment it is on, leaving a short one behind.
     s.job?.proc.kill("SIGKILL");
-    const args = ffmpegArgs({ input: s.input, probe: s.probe, start, outDir: s.dir, encoder: this.encoderUsed ?? "libx264" });
+    const args = ffmpegArgs({ input: s.input, probe: s.probe, start, outDir: s.dir, encoder: this.encoderUsed ?? "libx264", light: s.light });
     const proc = spawn(this.config.ffmpeg, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     const job: Job = { proc, start, done: start - 1, exited: false, error: "" };
     // Not "Failed setup for format dxva2_vld: hwaccel initialisation returned error": the GPU couldn't decode this file,

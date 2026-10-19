@@ -76,6 +76,19 @@ test("ffmpegArgs seeks to the segment and keeps its place on the timeline", () =
   assert.equal(cpu[cpu.indexOf("-c:v") + 1], "libx264");
 });
 
+test("the lighter copy is 720p at about 3 Mbps with smaller sound, and never upscales", () => {
+  const probe = parseProbe({ format: { format_name: "matroska", duration: "60" }, streams: [{ index: 0, codec_type: "video", codec_name: "hevc" }, { index: 1, codec_type: "audio", codec_name: "ac3" }] });
+  for (const encoder of ["h264_nvenc", "libx264"]) {
+    const args = ffmpegArgs({ input: "/m/a.mkv", probe, start: 0, outDir: "/tmp/x", encoder, light: true });
+    const after = (flag: string) => args[args.indexOf(flag) + 1];
+    assert.equal(after("-vf"), "scale=-2:min(ih\\,720),format=yuv420p");
+    assert.equal(after("-maxrate"), "3M");
+    assert.equal(after("-b:a"), "128k");
+  }
+  const usual = ffmpegArgs({ input: "/m/a.mkv", probe, start: 0, outDir: "/tmp/x", encoder: "libx264" });
+  assert.equal(usual[usual.indexOf("-maxrate") + 1], "10M");
+});
+
 test("converts HEVC + AC3 into segments that line up across restarts", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-tc-"));
   const input = path.join(dir, "in.mkv");
