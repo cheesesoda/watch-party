@@ -160,7 +160,7 @@ class RoomActivity : ComponentActivity() {
 
     /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
     private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() = confirmLeave()
+        override fun handleOnBackPressed() = confirmLeave(back = true)
     }
 
     /** While the playback controls are showing, Back just hides them. */
@@ -1605,12 +1605,23 @@ class RoomActivity : ComponentActivity() {
         getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(view.windowToken, 0)
     }
 
-    private fun confirmLeave() {
-        // Watching alone, Leave just saves the spot (Pick up where you left off) without asking.
+    /** [back]: Back was pressed, rather than Leave. */
+    private fun confirmLeave(back: Boolean = false) {
+        // Watching alone, leaving saves the spot (Pick up where you left off). Leave goes straight away; Back asks first.
         if (solo) {
-            ended = true
-            connection.send(Protocol.end(save = true))
-            finish()
+            val stop = {
+                ended = true
+                connection.send(Protocol.end(save = true))
+                finish()
+            }
+            if (!back) return stop()
+            present(
+                dialog()
+                    .setTitle("Stop watching?")
+                    .setMessage("Your spot is saved, so you can pick up where you left off.")
+                    .setPositiveButton("Stop watching") { _, _ -> stop() }
+                    .setNegativeButton("Keep watching", null),
+            )
             return
         }
         if (!host) {
