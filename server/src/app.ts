@@ -379,10 +379,11 @@ export function createApp(config: Config): App {
     res.json({ info });
   });
 
-  // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS.
-  app.get("/api/media/:id/hls/index.m3u8", async (req, res) => {
-    const entry = await library.get(req.params.id);
-    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath));
+  // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS. Under light/, the
+  // lighter copy for slow connections.
+  const hlsPlaylist = (light: boolean) => async (req: express.Request, res: express.Response) => {
+    const entry = await library.get(String(req.params.id));
+    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath, light));
     if (!text) return void res.status(404).json({ error: "This file can't be converted." });
     // A playlist opened with ?token= passes it on to its segments, which players fetch by relative link.
     const token = typeof req.query.token === "string" ? req.query.token : "";
@@ -390,15 +391,14 @@ export function createApp(config: Config): App {
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     res.setHeader("Cache-Control", "no-cache");
     res.send(text);
-  });
-
-  app.get("/api/media/:id/hls/:segment", async (req, res) => {
-    const match = /^(\d{1,6})\.ts$/.exec(req.params.segment);
-    const entry = match && (await library.get(req.params.id));
+  };
+  const hlsSegment = (light: boolean) => async (req: express.Request, res: express.Response) => {
+    const match = /^(\d{1,6})\.ts$/.exec(String(req.params.segment));
+    const entry = match && (await library.get(String(req.params.id)));
     if (!entry) return void res.status(404).json({ error: "Not found." });
     let file: string | null;
     try {
-      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]));
+      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]), light);
     } catch (err) {
       return void res.status(500).json({ error: `Converting failed: ${(err as Error).message}` });
     }
@@ -408,7 +408,11 @@ export function createApp(config: Config): App {
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
-  });
+  };
+  app.get("/api/media/:id/hls/index.m3u8", hlsPlaylist(false));
+  app.get("/api/media/:id/hls/light/index.m3u8", hlsPlaylist(true));
+  app.get("/api/media/:id/hls/light/:segment", hlsSegment(true));
+  app.get("/api/media/:id/hls/:segment", hlsSegment(false));
 
   app.get("/api/media/:id/subtitles/:index", async (req, res) => {
     const entry = await library.get(req.params.id);
