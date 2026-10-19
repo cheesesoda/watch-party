@@ -34,6 +34,17 @@ export interface MediaItem {
   part?: PartInfo | null;
   /** Where its intro, recap and credits are, once the server has looked (see SkipMarks). */
   marks?: SkipMarks | null;
+  /** Whether it was watched, or how far in it got (in the library list; see WatchState). */
+  watch?: WatchState | null;
+}
+
+/** A video's watched mark, kept for everyone on the server. */
+export interface WatchState {
+  /** When it was watched to the credits, or marked watched (ms since epoch); null if it hasn't been. */
+  watchedAt: number | null;
+  /** How far in the last time it played (seconds), when it stopped before the credits; null if not. */
+  position: number | null;
+  updatedAt: number;
 }
 
 /**
@@ -207,6 +218,28 @@ export interface Spot {
   next: MediaItem[];
   /** When it was saved (ms since epoch). */
   savedAt: number;
+}
+
+/** One video played in one party (or Watch alone), for History. */
+export interface Play {
+  id: string;
+  mediaId: string;
+  /** When it started and when it last played (ms since epoch). */
+  startedAt: number;
+  lastAt: number;
+  /** Where it was the last time it played (seconds). */
+  position: number;
+  /** Everyone who was there. */
+  names: string[];
+  /** Watched alone the whole time. */
+  solo: boolean;
+  /** It reached the credits. */
+  watched: boolean;
+}
+
+/** A play with its video, as History lists it. */
+export interface HistoryEntry extends Play {
+  media: MediaItem;
 }
 
 export interface RoomPlayback {

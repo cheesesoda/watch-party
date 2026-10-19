@@ -29,6 +29,8 @@ export interface Browse {
   queue?: { has: (id: string) => boolean; add: (ids: string[], label: string) => void };
   /** On the dashboard: the show's saved spot (Pick up where you left off), and starting a party there. */
   spot?: { of: (show: Show) => Spot | undefined; start: (s: Spot) => void };
+  /** On the dashboard: Mark as watched / not watched. */
+  watch?: { mark: (ids: string[], watched: boolean) => void };
 }
 
 const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
@@ -38,6 +40,22 @@ export const movieLink = (item: MediaItem) => `/movie/${item.id}`;
 export const showLink = (show: Show) => `/show/${encodeURIComponent(show.key)}`;
 /** A movie in several files plays all of them. */
 const playIds = (item: MediaItem) => item.part?.ids ?? [item.id];
+
+export const isWatched = (item: MediaItem) => !!item.watch?.watchedAt;
+/** How far in (0 to 1) a partly watched video is; null when it's watched, not started, or its length isn't known. */
+export function progressOf(item: MediaItem): number | null {
+  const at = item.watch?.position;
+  if (item.watch?.watchedAt || at == null || !item.duration) return null;
+  return Math.min(1, at / item.duration);
+}
+/** "Watched Oct 17", or "34 m left" partway through. */
+export function watchLine(item: MediaItem): string {
+  if (item.watch?.watchedAt) return `Watched ${new Date(item.watch.watchedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  const at = item.watch?.position;
+  return at != null && item.duration && at < item.duration ? `${fmtRuntime(item.duration - at)} left` : "";
+}
+/** A movie in several files is watched once every part is; its bar is the first part partly watched. */
+const movieParts = (item: MediaItem, cat: Catalog) => (item.part?.ids ?? [item.id]).map((id) => cat.byId.get(id) ?? item);
 
 /** "2015 · 2 h 0 m · ★ 7.6 · Action, Adventure · Subtitles" */
 function movieFacts(item: MediaItem, cat: Catalog): string[] {
@@ -80,6 +98,9 @@ export function PosterCard(props: {
   /** Adds it to Up next; [queued] when it's already there. */
   onQueue?: () => void;
   queued?: boolean;
+  /** A check when it's been watched; a bar for how far in (a movie) or how many episodes are watched (a show). */
+  watched?: boolean;
+  progress?: number | null;
 }) {
   const [failed, setFailed] = useState(false);
   const art = props.details && props.poster && !failed;
@@ -97,6 +118,16 @@ export function PosterCard(props: {
             !art && <span className="pcard-fallback">{props.title}</span>
           )}
           {props.badge && <span className="pcard-badge">{props.badge}</span>}
+          {props.watched && !props.queued && (
+            <span className="watched-mark" title="Watched">
+              <CheckIcon size={14} />
+            </span>
+          )}
+          {props.progress != null && (
+            <span className="watch-bar">
+              <span style={{ width: `${props.progress * 100}%` }} />
+            </span>
+          )}
           {props.queued && (
             <span className="pcard-queued">
               <CheckIcon size={12} /> Up next
@@ -122,6 +153,7 @@ export function PosterCard(props: {
 
 export function MovieCard(props: { item: MediaItem; b: Browse }) {
   const { item, b } = props;
+  const parts = movieParts(item, b.cat);
   return (
     <PosterCard
       title={item.meta?.title ?? item.title}
@@ -135,17 +167,23 @@ export function MovieCard(props: { item: MediaItem; b: Browse }) {
       startLabel={startLabel(b)}
       onQueue={b.queue && (() => b.queue!.add(playIds(item), item.meta?.title ?? item.title))}
       queued={b.queue?.has(playIds(item)[0])}
+      watched={parts.every(isWatched)}
+      progress={parts.map(progressOf).find((p) => p != null)}
     />
   );
 }
 
 export function ShowCard(props: { show: Show; b: Browse }) {
   const { show } = props;
+  const total = show.episodes.length;
+  const seen = show.episodes.filter(isWatched).length;
   return (
     <PosterCard
       title={show.name}
       year={show.meta?.year}
-      sub={plural(show.episodes.length, "episode")}
+      sub={seen === 0 ? plural(total, "episode") : seen === total ? `All ${total} watched` : `${seen} of ${total} watched`}
+      watched={total > 0 && seen === total}
+      progress={seen > 0 && seen < total ? seen / total : null}
       poster={show.meta?.showPosterPath}
       badge={show.seasons.length ? plural(show.seasons.length, "season") : show.specials.length ? plural(show.specials.length, "special") : undefined}
       details={props.b.details}
@@ -374,7 +412,7 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
         {b.details && <Poster path={m?.posterPath} size="w342" className="hero-poster" />}
         <div className="hero-text">
           <h1>{m?.title ?? item.title}</h1>
-          <p className="facts">{movieFacts(item, b.cat).join(" · ")}</p>
+          <p className="facts">{[...movieFacts(item, b.cat), watchLine(item)].filter(Boolean).join(" · ")}</p>
           {!b.convert && !BROWSER_SAFE.has(item.mime) && (
             <p className="warn">Browsers may not play this format as-is. Install ffmpeg on the server so it can convert it.</p>
           )}
@@ -386,7 +424,13 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
             {b.queue && <QueueButton b={b} ids={playIds(item)} label={m?.title ?? item.title} />}
             <MoreMenu
               label={`More for ${item.title}`}
-              items={[...(b.details ? [[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)] as [string, () => void]] : []), ["Set skip times", () => b.openInfo(item.id, "times")]]}
+              items={[
+                ...(b.watch
+                  ? [[movieParts(item, b.cat).every(isWatched) ? "Mark as not watched" : "Mark as watched", () => b.watch!.mark(playIds(item), !movieParts(item, b.cat).every(isWatched))] as [string, () => void], null]
+                  : []),
+                ...(b.details ? [[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)] as [string, () => void]] : []),
+                ["Set skip times", () => b.openInfo(item.id, "times")],
+              ]}
             />
           </div>
         </div>
@@ -449,7 +493,22 @@ export function ShowPage(props: { b: Browse; show: Show }) {
                 <ListVideoIcon size={18} /> Binge all {show.seasons.length} seasons
               </button>
             )}
-            {b.details && <MoreMenu label={`More for ${show.name}`} items={[[m ? "Fix match" : "Find show details", () => b.openInfo(show.episodes[0].id, true)]]} />}
+            {(b.details || b.watch) && (
+              <MoreMenu
+                label={`More for ${show.name}`}
+                items={[
+                  ...(b.watch
+                    ? ([
+                        [`Mark ${bingeName} as watched`, () => b.watch!.mark(inSeason(binge).map((e) => e.id), true)],
+                        [`Mark ${bingeName} as not watched`, () => b.watch!.mark(inSeason(binge).map((e) => e.id), false)],
+                        ["Mark whole show as watched", () => b.watch!.mark(show.episodes.map((e) => e.id), true)],
+                      ] as [string, () => void][])
+                    : []),
+                  ...(b.watch && b.details ? [null] : []),
+                  ...(b.details ? [[m ? "Fix match" : "Find show details", () => b.openInfo(show.episodes[0].id, true)] as [string, () => void]] : []),
+                ]}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -482,13 +541,28 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
     props.context,
     item.extra?.kind,
     item.duration ? fmtRuntime(item.duration) : "",
+    watchLine(item),
     item.subtitles.length > 0 ? "Subtitles" : "",
     !b.convert && !BROWSER_SAFE.has(item.mime) ? "may not play in browser" : "",
   ].filter(Boolean);
+  const watched = isWatched(item);
+  const progress = progressOf(item);
   return (
-    <li className="ep-row">
+    <li className={watched ? "ep-row watched" : "ep-row"}>
       <button className="ep-open" onClick={() => b.openInfo(item.id)}>
-        {b.details && ep ? <Poster path={item.meta?.stillPath} size="w300" className="ep-still" /> : <span className="ep-still empty">{ep ? `E${ep.episode}` : ""}</span>}
+        <span className="ep-still-wrap">
+          {b.details && ep ? <Poster path={item.meta?.stillPath} size="w300" className="ep-still" /> : <span className="ep-still empty">{ep ? `E${ep.episode}` : ""}</span>}
+          {watched && (
+            <span className="watched-mark">
+              <CheckIcon size={14} />
+            </span>
+          )}
+          {progress != null && (
+            <span className="watch-bar">
+              <span style={{ width: `${progress * 100}%` }} />
+            </span>
+          )}
+        </span>
         <span className="ep-text">
           <span className="ep-title">
             {props.special && <span className="special-tag">Special</span>}
@@ -499,6 +573,17 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
         </span>
       </button>
       {b.queue && !props.playing && <QueueButton b={b} ids={[item.id]} label={item.title} small />}
+      {b.watch && !props.playing && (
+        <button
+          className={watched ? "round-icon watch-toggle on" : "round-icon watch-toggle"}
+          onClick={() => b.watch!.mark([item.id], !watched)}
+          title={watched ? "Mark as not watched" : "Mark as watched"}
+          aria-label={`${watched ? "Mark as not watched" : "Mark as watched"}: ${item.title}`}
+          aria-pressed={watched}
+        >
+          <CheckIcon size={18} />
+        </button>
+      )}
       {props.playing ? (
         <span className="ep-playing">Playing now</span>
       ) : (

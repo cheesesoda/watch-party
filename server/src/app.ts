@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, MediaItem, RoomSummary, ServerMessage, Spot } from "../../shared/protocol.ts";
+import type { ClientMessage, HistoryEntry, MediaItem, RoomSummary, ServerMessage, Spot } from "../../shared/protocol.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -15,6 +15,7 @@ import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
+import { History } from "./history.ts";
 import { Spots } from "./spots.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
@@ -36,11 +37,15 @@ export function createApp(config: Config): App {
   const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const markers = new Markers({ ffmpeg: config.transcode?.ffmpeg ?? "ffmpeg", ffprobe: config.transcode?.ffprobe ?? "ffprobe", file: config.markersFile ?? "", handFile: config.skipTimesFile ?? "" });
-  // What parties play carries its intro and credits times, for Skip intro and the Up next card.
+  // What parties play carries its intro and credits times, for Skip intro and the Up next card, and its length once
+  // known, so a video without a credits mark still counts as watched near its end.
+  const history = new History(config.historyFile);
   const rooms = new RoomManager((id) => {
-    const item = library.peek(id)?.item;
-    return item && markers.attach(metadata.enrich(item));
-  }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile));
+    const entry = library.peek(id);
+    if (!entry) return undefined;
+    const duration = transcoder.knownDuration(entry.absPath);
+    return markers.attach(metadata.enrich(duration ? { ...entry.item, duration } : entry.item));
+  }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
   const findMarks = async () => {
     const items = await library.list();
     await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
@@ -237,10 +242,15 @@ export function createApp(config: Config): App {
   // convert: the server can turn any file into something browsers play (ffmpeg is installed).
   // details: TMDB lookups are on, so the host can fix a wrong match.
   const libraryResponse = async () => ({
-    items: withDurations(await library.list()).map((item) => metadata.enrich(item)),
+    items: withDurations(await library.list()).map((item) => withWatch(metadata.enrich(item))),
     convert: (await transcoder.encoderName()) !== null,
     details: metadata.enabled,
   });
+
+  const withWatch = (item: MediaItem): MediaItem => {
+    const watch = history.state(item.id);
+    return watch ? { ...item, watch } : item;
+  };
 
   // Lengths come from ffprobe, which takes a moment per file, so they're read one file at a time in the
   // background. They're kept in data/durations.json, so after a restart they show straight away.
@@ -464,6 +474,31 @@ export function createApp(config: Config): App {
     res.set("Cache-Control", "private, max-age=86400").type("jpeg").send(bytes);
   });
 
+  // History: every video played, newest first, with who was there. Ones whose video left the library are skipped.
+  app.get("/api/history", async (_req, res) => {
+    rooms.keepSpots();
+    await library.list();
+    const entries: HistoryEntry[] = [];
+    for (const play of history.list()) {
+      const item = library.peek(play.mediaId)?.item;
+      if (item) entries.push({ ...play, media: withWatch(metadata.enrich(withDurations([item])[0])) });
+    }
+    res.json({ history: entries });
+  });
+
+  // Mark as watched / not watched: one video, or a whole season or show at once.
+  app.post("/api/watched", async (req, res) => {
+    const ids: unknown = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 5000 || ids.some((id) => typeof id !== "string") || typeof req.body?.watched !== "boolean") {
+      return void res.status(400).json({ error: "Send ids (video ids) and watched (true or false)." });
+    }
+    await library.list();
+    const known = (ids as string[]).filter((id) => library.peek(id));
+    if (known.length === 0) return void res.status(404).json({ error: "Those videos aren't in the library." });
+    history.mark(known, req.body.watched);
+    res.json({ watch: Object.fromEntries(known.map((id) => [id, history.state(id) ?? null])) });
+  });
+
   app.delete("/api/spots/:id", (req, res) => {
     if (!rooms.spots.remove(req.params.id)) return void res.status(404).json({ error: "No such spot." });
     res.status(204).end();
@@ -500,7 +535,10 @@ export function createApp(config: Config): App {
       await library.list();
       if (!queue.some((id) => library.peek(id))) return void res.status(400).json({ error: "Those files are not in the library." });
     }
-    res.status(201).json({ room: rooms.create(mediaId, queue as string[] | undefined, 0, solo).summary() });
+    // From History: Pick up starts the video where it stopped.
+    const at: unknown = req.body?.position;
+    const position = typeof at === "number" && Number.isFinite(at) && at > 0 ? at : 0;
+    res.status(201).json({ room: rooms.create(mediaId, queue as string[] | undefined, position, solo).summary() });
   });
 
   // Ends a party from the host's home screen, without joining it. Everyone in it is sent home.

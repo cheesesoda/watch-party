@@ -289,3 +289,30 @@ test("saved spots are listed, start a party where they stopped, and can be remov
   assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 204);
   assert.equal((await fetch(`${base}/api/spots/${third.id}`, { method: "DELETE", headers: auth() })).status, 404);
 });
+
+test("Mark as watched shows in the library; History lists plays with their video", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const id = items[0].id;
+  const mark = (body: unknown) => fetch(`${base}/api/watched`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await mark({ ids: [id] })).status, 400);
+  assert.equal((await mark({ ids: ["gone"], watched: true })).status, 404);
+  const res = await mark({ ids: [id, "gone"], watched: true });
+  assert.equal(res.status, 200);
+  assert.equal(typeof (await res.json()).watch[id].watchedAt, "number");
+  const after = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  assert.equal(typeof after.items[0].watch.watchedAt, "number");
+  await mark({ ids: [id], watched: false });
+  assert.equal((await (await fetch(`${base}/api/library`, { headers: auth() })).json()).items[0].watch, undefined);
+
+  const room = app.rooms.create(id, undefined, 120);
+  const host = room.join("Jake", () => {});
+  room.handle(host.id, { type: "play", position: 120 });
+  const { history } = await (await fetch(`${base}/api/history`, { headers: auth() })).json();
+  assert.equal(history[0].media.id, id);
+  assert.deepEqual(history[0].names, ["Jake"]);
+  assert.equal(Math.floor(history[0].position), 120);
+  room.end("test");
+
+  const start = await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ mediaId: id, position: 95 }) });
+  assert.equal(app.rooms.get((await start.json()).room.id)!.state.position, 95, "Pick up starts where it stopped");
+});

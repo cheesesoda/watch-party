@@ -1,4 +1,4 @@
-import type { MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot } from "../../shared/protocol.ts";
+import type { HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
 
 /** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
 export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
@@ -87,8 +87,14 @@ export const api = {
     call(`/api/rooms/${encodeURIComponent(id)}/end`, { method: "POST", body: JSON.stringify({ name, save }) }),
   /** queue: a binge, the videos to play one after another from the first. */
   /** solo: the host watching alone, with no code to share until they invite friends. */
-  createRoom: (mediaId?: string, queue?: string[], solo = false) =>
-    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue, solo }) }).then((r) => r.room),
+  /** position: where in the video to start (Pick up, from History). */
+  createRoom: (mediaId?: string, queue?: string[], solo = false, position?: number) =>
+    call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ mediaId, queue, solo, position }) }).then((r) => r.room),
+  /** Mark as watched / not watched; answers each video's new mark (null when it has none). */
+  markWatched: (ids: string[], watched: boolean) =>
+    call<{ watch: Record<string, WatchState | null> }>("/api/watched", { method: "POST", body: JSON.stringify({ ids, watched }) }).then((r) => r.watch),
+  /** Every video played, newest first. */
+  history: () => call<{ history: HistoryEntry[] }>("/api/history").then((r) => r.history),
   /** "Pick up where you left off": where parties stopped, newest first. */
   spots: () => call<{ spots: Spot[] }>("/api/spots").then((r) => r.spots),
   removeSpot: (id: string) => call(`/api/spots/${encodeURIComponent(id)}`, { method: "DELETE" }),

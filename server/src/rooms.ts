@@ -13,6 +13,7 @@ import type {
   SignalData,
 } from "../../shared/protocol.ts";
 import { expectedPosition, nearEnd, worthSaving } from "../../shared/protocol.ts";
+import { History } from "./history.ts";
 import { Spots, type SavedSpot } from "./spots.ts";
 
 export type Send = (msg: ServerMessage) => void;
@@ -79,6 +80,8 @@ export class Room {
   onEnded: () => void = () => {};
   /** Set by the RoomManager: keeps where the party stopped, for "Pick up where you left off". */
   onSave: (spot: RoomSpot) => void = () => {};
+  /** Set by the RoomManager: notes how far the video got (History) before it changes or the party ends. */
+  beforeChange: () => void = () => {};
   ended = false;
   readonly chat: ChatMessage[] = [];
   emptySince: number;
@@ -281,6 +284,7 @@ export class Room {
   select(mediaId: string): boolean {
     const media = this.lookup(mediaId);
     if (!media) return false;
+    if (this.media) this.beforeChange();
     this.cancelAdvance();
     this.cancelHold();
     if (!this.queue.includes(mediaId)) {
@@ -486,6 +490,7 @@ export class Room {
   /** `save`: keep where the party is (see [spot]) so a new party can pick up there. */
   end(by: string, save = false): void {
     if (this.ended) return;
+    this.beforeChange();
     const spot = save ? this.spot() : null;
     if (spot) this.onSave(spot);
     this.ended = true;
@@ -621,6 +626,7 @@ export class RoomManager {
     private idleMs = 30 * 60_000,
     private iceServers: IceServer[] = DEFAULT_ICE_SERVERS,
     readonly spots: Spots = new Spots(undefined, now),
+    readonly history: History = new History(undefined, now),
   ) {}
 
   /**
@@ -638,10 +644,13 @@ export class RoomManager {
     room.onEnded = () => {
       this.rooms.delete(id);
       this.spots.ended(id);
+      this.history.ended(id);
+      this.history.save();
       const key = room.media && this.key(room.media.id);
       if (key) this.lastEnded.set(key, this.now());
     };
     room.onSave = (spot) => this.save(spot);
+    room.beforeChange = () => this.track(room);
     if (queue && queue.length > 0) room.setQueue(queue);
     else if (mediaId) room.select(mediaId);
     if (room.media && position > 0) room.state = { ...room.state, position };
@@ -668,6 +677,7 @@ export class RoomManager {
     for (const [id, room] of this.rooms) {
       if (room.members.size === 0 && now - room.emptySince > this.idleMs) {
         this.spots.ended(id);
+        this.history.ended(id);
         const spot = room.spot();
         if (spot && !this.watchedSince(room, spot.mediaId)) this.save(spot);
         this.rooms.delete(id);
@@ -698,7 +708,24 @@ export class RoomManager {
       const spot = room.spot();
       const key = spot && this.key(spot.mediaId);
       this.spots.live(id, spot && key ? { ...spot, key } : null);
+      this.track(room);
     }
+    this.history.save();
+  }
+
+  /** How far the party's video has got, for watched marks and History. Only while someone is watching. */
+  private track(room: Room): void {
+    if (!room.media || room.members.size === 0) return;
+    this.history.track({
+      room: room.id,
+      solo: room.solo,
+      mediaId: room.media.id,
+      position: room.position(),
+      paused: room.state.paused,
+      duration: room.media.duration,
+      credits: room.media.marks?.credits,
+      names: room.memberList().map((m) => m.name),
+    });
   }
 
   /** Saved spots, without the ones of parties still playing. */

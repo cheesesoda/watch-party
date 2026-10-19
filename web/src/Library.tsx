@@ -728,7 +728,8 @@ function SkipTimesForm(props: { item: MediaItem; onDone: () => void }) {
 }
 
 /** A ⋮ button in the top-right corner with a small menu, for things that shouldn't take up room. */
-export function MoreMenu(props: { label: string; items: [string, () => void][] }) {
+/** null in [items] draws a line between groups. */
+export function MoreMenu(props: { label: string; items: ([string, () => void] | null)[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -753,7 +754,10 @@ export function MoreMenu(props: { label: string; items: [string, () => void][] }
       </button>
       {open && (
         <div className="menu" role="menu">
-          {props.items.map(([label, run]) => (
+          {props.items.map((item, i) => {
+            if (!item) return <hr key={i} />;
+            const [label, run] = item;
+            return (
             <button
               key={label}
               role="menuitem"
@@ -764,7 +768,8 @@ export function MoreMenu(props: { label: string; items: [string, () => void][] }
             >
               {label}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
