@@ -23,6 +23,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.test.core.app.ApplicationProvider
@@ -72,7 +73,26 @@ class PhoneScreensTest {
     )
 
     private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
-        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }
+        listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } }.let { list ->
+            // Watched marks: Arrival and Letterkenny S1E1 watched, Letterkenny S1E2 and Alien partway.
+            val at = 1_792_000_000_000L
+            val marks = mapOf(
+                "m0" to WatchState(watchedAt = at, updatedAt = at),
+                "e211" to WatchState(watchedAt = at, updatedAt = at),
+                "e212" to WatchState(position = 900.0, updatedAt = at),
+                "m4" to WatchState(position = 2400.0, updatedAt = at),
+            )
+            list.map { it.copy(watch = marks[it.id]) }
+        }
+
+    private val history by lazy {
+        val now = System.currentTimeMillis()
+        listOf(
+            HistoryEntry("h1", "e212", now - 3_600_000, now - 60_000, 900.0, listOf("Jake", "Sam", "Alex"), solo = false, watched = false, media = items[25]),
+            HistoryEntry("h2", "e211", now - 7_200_000, now - 3_700_000, 2990.0, listOf("Jake", "Sam", "Alex"), solo = false, watched = true, media = items[24]),
+            HistoryEntry("h3", "m0", now - 90_000_000, now - 86_400_000 - 60_000, 6990.0, listOf("Jake"), solo = true, watched = true, media = items[0]),
+        )
+    }
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -89,6 +109,8 @@ class PhoneScreensTest {
                 val path = request.path.orEmpty()
                 fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 return when {
+                    path.startsWith("/api/history") -> json("""{"history":${Protocol.json.encodeToString(history)}}""")
+                    path.startsWith("/api/watched") -> json("""{"watch":{}}""")
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots") -> json("""{"spots":[]}""")
@@ -183,5 +205,26 @@ class PhoneScreensTest {
         shot("p03-shows")
         tapPoster("Letterkenny")
         shot("p04-show-alone")
+    }
+
+    /** Watched marks on posters and a show's episodes, the round check, and History as a fifth tab (ui-redesign/watch-history/phone-*). */
+    @Test
+    fun watchHistory() {
+        shot("p10-home-marks")
+        tap("TV Shows")
+        shot("p11-shows-marks")
+        assertTrue("Letterkenny's poster doesn't say how much was watched", rule.onAllNodesWithText("1 of 8 watched").fetchSemanticsNodes().isNotEmpty())
+        tapPoster("Letterkenny")
+        shot("p12-show-marks")
+        assertTrue("No round check on the episodes", rule.onAllNodesWithContentDescription("Mark as watched").fetchSemanticsNodes().isNotEmpty())
+        // Marking S1E2 watched turns its check orange at once.
+        rule.onAllNodesWithContentDescription("Mark as watched")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(1_000) { false }
+        shot("p13-show-marked")
+        assertTrue("Marking didn't show at once", rule.onAllNodesWithText("2 of 8 watched").fetchSemanticsNodes().isNotEmpty() || rule.onAllNodesWithContentDescription("Mark as not watched").fetchSemanticsNodes().size >= 2)
+        tap("History")
+        settle(3_000) { rule.onAllNodesWithText("Stopped at", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        shot("p14-history")
+        assertTrue("History has no Today", rule.onAllNodesWithText("Today").fetchSemanticsNodes().isNotEmpty())
     }
 }

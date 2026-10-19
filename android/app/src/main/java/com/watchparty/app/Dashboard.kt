@@ -37,6 +37,7 @@ import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -151,6 +152,12 @@ private class Library(val items: List<MediaItem>) {
 
     fun show(name: String) = shows.firstOrNull { it.name == name }
 
+    /** A movie's files: one, or each part of a movie split into several. */
+    fun parts(m: MediaItem) = m.part?.ids?.mapNotNull { byId[it] }?.takeIf { it.isNotEmpty() } ?: listOf(m)
+
+    /** A movie in several files is watched once every part is. */
+    fun watched(m: MediaItem) = parts(m).all { it.watched }
+
     /** The newest movies and shows that have background art, for the banner. */
     val featured: List<Featured> = (
         movies.filter { it.extra == null && it.meta?.backdropPath != null }.map { Featured(it.meta!!.title, movieFacts(it), it.meta.backdropPath!!, "movie/${it.id}", it, it.addedAt) } +
@@ -192,6 +199,30 @@ internal fun runtime(seconds: Double): String {
     return if (m >= 60) "${m / 60} h ${m % 60} m" else "${maxOf(1, m)} m"
 }
 
+/** Watched to the credits, or marked watched. */
+private val MediaItem.watched get() = watch?.watchedAt != null
+
+/** How far in (0 to 1) a partly watched video is; null when it's watched, not started, or its length isn't known. */
+private fun progressOf(m: MediaItem): Float? {
+    val at = m.watch?.position ?: return null
+    val length = m.duration ?: return null
+    if (m.watched || length <= 0) return null
+    return (at / length).toFloat().coerceIn(0f, 1f)
+}
+
+/** "34 m left" partway through; null otherwise. */
+private fun timeLeft(m: MediaItem): String? {
+    val at = m.watch?.position ?: return null
+    val length = m.duration ?: return null
+    return if (!m.watched && at < length) "${runtime(length - at)} left" else null
+}
+
+/** "Watched Oct 17", or "34 m left" partway through (the bool: partway, drawn in orange). */
+private fun watchLine(m: MediaItem): Pair<String, Boolean>? {
+    m.watch?.watchedAt?.let { return "Watched " + java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date(it)) to false }
+    return timeLeft(m)?.let { it to true }
+}
+
 /**
  * What the pages call: start a party, open a page or a video's details. While [adding] to a party's Up next
  * ("Add videos" in the player), [start] plays for everyone in that party instead, and [queue] adds to Up next.
@@ -213,6 +244,10 @@ private class Actions(
     /** The Together / Alone switch is on Alone: Play starts just for the host. */
     val alone: Boolean = false,
     val setAlone: (Boolean) -> Unit = {},
+    /** Marks videos watched or not watched; null while adding to a party. */
+    val mark: ((List<String>, Boolean) -> Unit)? = null,
+    /** Starts a party with this video this far in (History's Pick up). */
+    val startAt: (MediaItem, Double) -> Unit = { m, _ -> start(m, null) },
 ) {
     val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else if (alone) "Play" else "Start party"
 }
@@ -286,6 +321,34 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     }
     val reload = { scope.launch { guard { api.library() }?.let { items = it; error = null } } }
     LaunchedEffect(Unit) { reload() }
+    // Back from the player, the watched marks have moved on, so load them again.
+    @Suppress("DEPRECATION")
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        var away = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) away = true
+            if (event == Lifecycle.Event.ON_RESUME && away) {
+                away = false
+                reload()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    /** Opened from History: where Start party picks up (0 to start over), until the details close. */
+    var resumeAt by remember { mutableStateOf<Double?>(null) }
+    // Marks show at once; the server's answer then replaces them, or the library reloads if it failed.
+    val mark = { ids: List<String>, watched: Boolean ->
+        val now = System.currentTimeMillis()
+        val set = ids.toSet()
+        items = items?.map { if (it.id in set) it.copy(watch = if (watched) WatchState(now, null, now) else null) else it }
+        scope.launch {
+            val states = guard { api.markWatched(ids, watched) }
+            if (states == null) reload() else items = items?.map { if (it.id in states) it.copy(watch = states[it.id]) else it }
+        }
+        Unit
+    }
     var fetchedAt by remember { mutableStateOf(0L) }
     var now by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
@@ -393,13 +456,26 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 }
             }
         },
-        info = { shownInfo = it.id },
+        info = { shownInfo = it.id; resumeAt = null },
         join = { RoomActivity.start(context, it.id) },
         end = { ending = it },
         spotOf = { show -> spots.firstOrNull { sp -> show.episodes.any { it.id == sp.media.id } } },
         startSpot = { spotActions.start(it) },
         alone = alone,
         setAlone = setAlone,
+        mark = mark,
+        startAt = { media, position ->
+            if (!starting) scope.launch {
+                starting = true
+                try {
+                    guard { api.createRoom(media.id, null, alone, position) }?.let { room ->
+                        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
+                    }
+                } finally {
+                    starting = false
+                }
+            }
+        },
     )
     val sinceFetch = (now - fetchedAt).coerceAtLeast(0)
 
@@ -417,6 +493,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             route == "movies" -> PosterGrid(lib, "Movies", lib.movies, emptyList(), actions, gridState, sortable = true)
             route == "shows" -> PosterGrid(lib, "TV Shows", emptyList(), lib.shows, actions, gridState, sortable = true)
             route == "search" -> SearchPage(lib, actions, gridState)
+            route == "history" -> HistoryPage(lib, actions, listState, onOpen = { entry -> shownInfo = entry.media.id; resumeAt = if (entry.watched) 0.0 else entry.position })
             route.startsWith("movie/") || route.startsWith("show/") -> Message("That isn't in the library anymore.", false)
             else -> HomePage(lib, rooms, if (adding) emptyList() else spots, spotActions, sinceFetch, started, error, actions, listState, onDismissStarted = { started = null }, removedAt = removedAt, onRefocused = { removedAt = null })
         }
@@ -499,17 +576,22 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     if (lib != null && shownMedia != null) {
         val media: MediaItem = shownMedia
         val show = media.episode?.let { lib.shows.firstOrNull { s -> media in s.episodes } }
+        val at = resumeAt
         DetailsDialog(
             api = api,
             media = media,
             length = listOfNotNull(media.extra?.kind, media.duration?.let(::clock), "Subtitles".takeIf { media.subtitles.isNotEmpty() }).joinToString(" · "),
             credit = lib.details,
-            onStart = { shownInfo = null; actions.start(media, media.part?.ids) },
+            // From History: picks up where it stopped, or starts over if it was watched.
+            onStart = { shownInfo = null; if (at != null) actions.startAt(media, at) else actions.start(media, media.part?.ids) },
             onBingeFrom = show?.takeIf { !adding }?.let { s -> { shownInfo = null; actions.start(media, s.episodes.drop(s.episodes.indexOf(media)).map { it.id }) } },
             onClose = { shownInfo = null },
             startLabel = actions.startLabel,
             onQueue = if (!adding) null else ({ shownInfo = null; actions.queue(media.part?.ids ?: listOf(media.id), media.meta?.title ?: media.title) }),
             queued = adding && PartyLink.queued(media.id),
+            left = timeLeft(media),
+            onMark = actions.mark?.let { mark -> { mark(listOf(media.id), !media.watched) } },
+            watched = media.watched,
         )
     }
 }
@@ -517,7 +599,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
 /** What Home's "Pick up where you left off" cards do. [options] is a TV's OK. */
 private class SpotActions(val start: (Spot) -> Unit, val open: (Spot) -> Unit, val remove: (Spot) -> Unit, val options: (Spot) -> Unit)
 
-private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "search", "settings")
+private val TOP_PAGES = setOf("home", "movies", "shows", "parties", "history", "search", "settings")
 
 // ---------- Shells: the phone's bottom bar and the TV's side menu ----------
 
@@ -528,6 +610,7 @@ private val NAV = listOf(
     NavItem("movies", "Movies", R.drawable.ic_nav_movies),
     NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
     NavItem("parties", "Parties", R.drawable.ic_nav_parties),
+    NavItem("history", "History", R.drawable.ic_nav_history),
 )
 
 /** Which menu item a page belongs to: a movie's page sits under Movies, a show's under TV shows. */
@@ -592,7 +675,7 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         NavigationBar(containerColor = Color(0xFF211A2A)) {
-            NAV.filter { !adding || it.route != "parties" }.forEach { item ->
+            NAV.filter { !adding || (it.route != "parties" && it.route != "history") }.forEach { item ->
                 NavigationBarItem(
                     selected = section(route) == item.route,
                     onClick = { go(item.route) },
@@ -647,7 +730,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
     // Left from the page lands on the menu item of the page you're on, not whichever item is level with the card.
     val current = remember { FocusRequester() }
     val here = section(route)
-    val hasItem = here == "search" || here == "home" || here == "movies" || here == "shows" || (here == "parties" && !adding) || (here == "settings" && !adding)
+    val hasItem = here == "search" || here == "home" || here == "movies" || here == "shows" || ((here == "parties" || here == "history" || here == "settings") && !adding)
     // Back in the menu just closes it, back to the page (registered after the dashboard's Back, so it goes first).
     // Right or Back from the menu: to the card the remote left the page from, or the page's first if it has gone.
     val memory = remember { FocusMemory() }
@@ -729,6 +812,7 @@ internal fun TvShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (B
                 NavItem("movies", "Movies", R.drawable.ic_nav_movies),
                 NavItem("shows", "TV Shows", R.drawable.ic_nav_shows),
                 NavItem("parties", "Watch Parties", R.drawable.ic_nav_parties).takeIf { !adding },
+                NavItem("history", "History", R.drawable.ic_nav_history).takeIf { !adding },
             ).forEach { item -> TvMenuItem(item.icon, item.label, here == item.route, open, page, current) { go(item.route) } }
             if (!adding) TvMenuItem(R.drawable.ic_keypad, "Join with code", false, open, page, current, onCode)
             Spacer(Modifier.weight(1f))
@@ -1151,7 +1235,7 @@ private fun ShelfRow(title: String, seeAll: Route?, a: Actions, content: LazyLis
 
 /** A 2:3 poster with the title under it; the remote's card grows and gets a white edge. */
 @Composable
-private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, sub: String?, poster: String?, badge: String?, width: Dp?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, sub: String?, poster: String?, badge: String?, width: Dp?, onClick: () -> Unit, modifier: Modifier = Modifier, watched: Boolean = false, progress: Float? = null) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(if (tv) 10.dp else 12.dp)
@@ -1173,6 +1257,7 @@ private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, s
             badge?.let {
                 Text(it, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(CircleShape).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp))
             }
+            WatchMarks(watched, progress)
         }
         // The body style's 24sp lines left a wide gap between the title and the line under it on the TV.
         val tight = if (tv) 16.sp else TextUnit.Unspecified
@@ -1181,14 +1266,55 @@ private fun PosterCard(api: Api, details: Boolean, tv: Boolean, title: String, s
     }
 }
 
+/**
+ * Over a poster or still: an orange check in the corner once it's watched, or a bar along the bottom for how far in
+ * (as on the web, ui-redesign/watch-history).
+ */
 @Composable
-private fun MovieCard(m: MediaItem, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
-    PosterCard(a.api, lib.details, a.tv, m.meta?.title ?: m.title, (m.meta?.year ?: m.year)?.toString(), m.meta?.posterPath, null, width, { a.go("movie/${m.id}") })
+private fun BoxScope.WatchMarks(watched: Boolean, progress: Float?, small: Boolean = false) {
+    if (watched) {
+        Box(
+            Modifier.align(Alignment.TopStart).padding(if (small) 5.dp else 6.dp).size(if (small) 18.dp else 22.dp).clip(CircleShape).background(Accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_check), contentDescription = "Watched", tint = OnFocus, modifier = Modifier.size(if (small) 11.dp else 13.dp))
+        }
+    } else if (progress != null) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 6.dp, end = 6.dp, bottom = 6.dp)
+                .fillMaxWidth()
+                .height(if (small) 3.dp else 4.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.22f)),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Accent))
+        }
+    }
 }
 
 @Composable
+private fun MovieCard(m: MediaItem, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
+    val parts = lib.parts(m)
+    PosterCard(
+        a.api, lib.details, a.tv, m.meta?.title ?: m.title, (m.meta?.year ?: m.year)?.toString(), m.meta?.posterPath, null, width, { a.go("movie/${m.id}") },
+        watched = parts.all { it.watched },
+        progress = parts.firstNotNullOfOrNull(::progressOf),
+    )
+}
+
+/** A show's poster: "3 of 8 watched" once some are, with a bar for how much of it. */
+@Composable
 private fun ShowCard(s: Show, lib: Library, a: Actions, width: Dp? = if (a.tv) 118.dp else 112.dp) {
-    PosterCard(a.api, lib.details, a.tv, s.name, plural(s.episodes.size, "episode"), s.meta?.showPosterPath, s.badge, width, { a.go("show/${s.name}") })
+    val total = s.episodes.size
+    val seen = s.episodes.count { it.watched }
+    val sub = if (seen == 0) plural(total, "episode") else if (seen == total) "All $total watched" else "$seen of $total watched"
+    PosterCard(
+        a.api, lib.details, a.tv, s.name, sub, s.meta?.showPosterPath, s.badge, width, { a.go("show/${s.name}") },
+        watched = total > 0 && seen == total,
+        progress = if (seen in 1 until total) seen.toFloat() / total else null,
+    )
 }
 
 /** A running party: its art with Watching/Paused and the code, then who's there and how far in. */
@@ -1360,6 +1486,112 @@ private fun SearchPage(lib: Library, a: Actions, state: LazyGridState) {
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 }
 
+/**
+ * History: every video played on this server, newest first, grouped by day (ui-redesign/watch-history/tv-history and
+ * phone-history). Each row is one video in one party or Watch alone. [onOpen] shows its details, where Start party
+ * picks up where it stopped.
+ */
+@Composable
+private fun HistoryPage(lib: Library, a: Actions, state: LazyListState, onOpen: (HistoryEntry) -> Unit) {
+    var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        try {
+            entries = a.api.history()
+        } catch (e: Exception) {
+            error = e.message ?: "Couldn't load History."
+        }
+    }
+    val days = remember(entries) {
+        val zone = java.time.ZoneId.systemDefault()
+        entries.orEmpty().groupBy { java.time.Instant.ofEpochMilli(it.lastAt).atZone(zone).toLocalDate() }.toList()
+    }
+    val first = remember { FocusRequester() }
+    val side = if (a.tv) 10.dp else 0.dp
+    LazyColumn(
+        state = state,
+        contentPadding = PaddingValues(start = if (a.tv) 86.dp else 16.dp, end = if (a.tv) 40.dp else 16.dp, top = if (a.tv) 32.dp else 4.dp, bottom = 32.dp),
+    ) {
+        item(key = "title") {
+            Column(Modifier.padding(start = side, bottom = 8.dp)) {
+                PageTitle("History", null)
+                Text("Everything played on this server, newest first.", color = Muted, fontSize = if (a.tv) 14.sp else 13.sp)
+            }
+        }
+        val loaded = entries
+        if (loaded == null) item(key = "loading") { Text(error ?: "Loading…", color = if (error != null) Color(0xFFFF8A80) else Muted, modifier = Modifier.padding(start = side, top = 16.dp)) }
+        else if (loaded.isEmpty()) item(key = "empty") { Text("Nothing played yet. Videos show up here once a party or Watch alone plays them.", color = Muted, modifier = Modifier.padding(start = side, top = 16.dp)) }
+        days.forEachIndexed { d, (day, list) ->
+            item(key = "day-$day") { Box(Modifier.padding(start = side, top = if (a.tv) 22.dp else 18.dp, bottom = 6.dp)) { Eyebrow(dayLabel(day), small = !a.tv) } }
+            items(list, key = { it.id }) { entry ->
+                HistoryRow(entry, lib, a, if (d == 0 && entry === list.first()) Modifier.focusRequester(first) else Modifier) { onOpen(entry) }
+            }
+        }
+    }
+    // A TV remote lands on the newest.
+    if (a.tv) LaunchedEffect(days.isNotEmpty()) { if (days.isNotEmpty()) runCatching { first.requestFocus() } }
+}
+
+/** "Today", "Yesterday", "Friday, Oct 16" (with the year when it isn't this year's). */
+private fun dayLabel(day: java.time.LocalDate): String {
+    val today = java.time.LocalDate.now()
+    return when (day) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> day.format(java.time.format.DateTimeFormatter.ofPattern(if (day.year == today.year) "EEEE, MMM d" else "EEEE, MMM d, yyyy"))
+    }
+}
+
+/** One play: still, "Show · S2 E2 · Title", who and when, then Watched or how far it got. White while the remote is on it. */
+@Composable
+private fun HistoryRow(entry: HistoryEntry, lib: Library, a: Actions, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val m = entry.media
+    val ep = m.episode
+    val title = if (ep != null) listOfNotNull(m.meta?.show ?: ep.show, episodeLabel(ep.season, ep.episode), m.meta?.title ?: ep.title).joinToString(" · ") else m.meta?.title ?: m.title
+    val time = java.time.Instant.ofEpochMilli(entry.lastAt).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a"))
+    val who = listOfNotNull(if (entry.solo) "Watched alone" else "Party", entry.names.joinToString(", ").takeIf { it.isNotEmpty() }, time).joinToString(" · ")
+    val duration = m.duration
+    val fg = if (focused) OnFocus else Color.White
+    val sub = if (focused) OnFocus.copy(alpha = 0.7f) else Muted
+    val progress: @Composable (Modifier) -> Unit = { mod ->
+        if (entry.watched) Text("Watched", color = if (focused) OnFocus else Accent, fontSize = if (a.tv) 14.sp else 12.sp, modifier = mod)
+        else Column(mod, horizontalAlignment = if (a.tv) Alignment.End else Alignment.Start) {
+            Text("Stopped at ${clock(entry.position)}" + (duration?.let { " of ${clock(it)}" } ?: ""), color = sub, fontSize = if (a.tv) 14.sp else 12.sp)
+            if (duration != null && duration > 0) {
+                Box(Modifier.padding(top = 4.dp).then(if (a.tv) Modifier.width(150.dp) else Modifier.fillMaxWidth()).height(3.dp).clip(CircleShape).background(fg.copy(alpha = 0.2f))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth((entry.position / duration).toFloat().coerceIn(0f, 1f)).background(Accent))
+                }
+            }
+        }
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(vertical = if (a.tv) 3.dp else 0.dp)
+            .clip(RoundedCornerShape(if (a.tv) 12.dp else 10.dp))
+            .background(if (focused) FocusFill else Color.Transparent)
+            .remembersFocus()
+            .clickable(interactionSource = interaction, indication = if (a.tv) null else androidx.compose.material3.ripple(), onClick = onClick)
+            .padding(horizontal = if (a.tv) 10.dp else 0.dp, vertical = if (a.tv) 7.dp else 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (a.tv) 16.dp else 12.dp),
+    ) {
+        Box(Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(if (a.tv) 6.dp else 8.dp)).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
+            val art = m.meta?.stillPath ?: m.meta?.backdropPath
+            if (lib.details && art != null) Art(a.api, art, "w300", Modifier.fillMaxSize())
+            else Text(ep?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, color = fg, fontSize = if (a.tv) 16.sp else 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(who, color = sub, fontSize = if (a.tv) 13.sp else 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!a.tv) progress(Modifier.padding(top = 2.dp))
+        }
+        if (a.tv) progress(Modifier)
+    }
+}
+
 // ---------- Movie and show pages ----------
 
 /** A movie's or show's page: backdrop, poster, title, facts, summary and buttons, then [below]. */
@@ -1377,6 +1609,8 @@ private fun DetailPage(
     buttons: @Composable (FocusRequester) -> Unit,
     /** Over the buttons: a show's saved spot. */
     above: (@Composable () -> Unit)? = null,
+    /** The ⋮ menu (Mark as watched…): after the buttons on a TV, top right over the backdrop on a phone. */
+    more: List<Pair<String, () -> Unit>> = emptyList(),
     below: LazyListScope.() -> Unit,
 ) {
     val primary = remember { FocusRequester() }
@@ -1410,7 +1644,11 @@ private fun DetailPage(
                         Text(facts, color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                         overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp)) }
                         above?.let { Box(Modifier.padding(top = 16.dp)) { it() } }
-                        Row(Modifier.padding(top = if (above != null) 14.dp else 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) { buttons(primary) }
+                        // Free to run past the header's width: Continue binge, Binge, Binge all and ⋮ don't fit in it.
+                        Row(Modifier.padding(top = if (above != null) 14.dp else 20.dp).wrapContentWidth(Alignment.Start, unbounded = true), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            buttons(primary)
+                            if (more.isNotEmpty()) MoreButton(more)
+                        }
                     }
                 } else {
                     PhoneHeader(lib, a, title, facts, overview, poster, backdrop) {
@@ -1429,11 +1667,22 @@ private fun DetailPage(
             }
             // While on Alone, the same quiet orange "Watching alone" as Home's top bar, on the Back button's dark glass so it
             // reads over any backdrop; tap to switch back to together.
+            var menu by remember { mutableStateOf(false) }
+            if (more.isNotEmpty()) {
+                Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0x730A070E)).clickable { menu = true }, contentAlignment = Alignment.Center) {
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Panel) {
+                        more.forEach { (label, action) -> MenuRow(label) { menu = false; action() } }
+                    }
+                }
+            }
             if (a.alone && !a.adding) {
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 12.dp)
+                        .padding(top = 12.dp, end = if (more.isNotEmpty()) 60.dp else 12.dp)
                         .height(36.dp)
                         .clip(CircleShape)
                         .background(Color(0x730A070E))
@@ -1477,7 +1726,11 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
     DetailPage(
         lib, a, state,
         title = m.meta?.title ?: m.title,
-        facts = lib.movieFacts(m),
+        // "Watched Oct 17" once every part is, or the time left in the one stopped partway.
+        facts = listOfNotNull(
+            lib.movieFacts(m).takeIf { it.isNotEmpty() },
+            if (lib.watched(m)) watchLine(lib.parts(m).last())?.first else lib.parts(m).firstNotNullOfOrNull(::timeLeft),
+        ).joinToString(" · "),
         overview = m.meta?.overview,
         poster = m.meta?.posterPath,
         backdrop = m.meta?.backdropPath,
@@ -1490,6 +1743,10 @@ private fun MoviePage(lib: Library, m: MediaItem, a: Actions, state: LazyListSta
                 }
             }
         },
+        more = a.mark?.let { mark ->
+            val watched = lib.watched(m)
+            listOf((if (watched) "Mark as not watched" else "Mark as watched") to { mark(lib.parts(m).map { it.id }, !watched) })
+        }.orEmpty(),
     ) {
         if (extras.isNotEmpty()) {
             item(key = "extras-title") { SectionTitle("Extras", a) }
@@ -1544,6 +1801,13 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
             }
         },
         above = spot?.let { sp -> @Composable { SpotLine(a.api, lib.details, sp, a.tv) } },
+        more = a.mark?.let { mark ->
+            listOf(
+                "Mark $bingeName as watched" to { mark(inSeason(binge).map { it.id }, true) },
+                "Mark $bingeName as not watched" to { mark(inSeason(binge).map { it.id }, false) },
+                "Mark whole show as watched" to { mark(show.episodes.map { it.id }, true) },
+            )
+        }.orEmpty(),
     ) {
         if (tabs.size > 1) {
             item(key = "seasons") {
@@ -1615,13 +1879,21 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean
                 .clickable(interactionSource = interaction, indication = null) { a.info(m) },
         ) {
             val still = m.meta?.stillPath
-            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
-            else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center))
-            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            // A watched episode's still is dimmed under its check.
+            val dim = if (m.watched) Modifier.alpha(0.55f) else Modifier
+            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize().then(dim))
+            else Text(m.episode?.let { "E${it.episode}" } ?: m.extra?.kind.orEmpty(), color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.align(Alignment.Center).then(dim))
+            val progress = progressOf(m)
+            // With a bar along the bottom, the length sits just above it.
+            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = if (progress != null) 14.dp else 6.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            WatchMarks(m.watched, progress)
         }
         // The card takes the same room focused or not (the title only drawn 4dp higher, the summary hidden), so the
         // page under it doesn't shift when the remote leaves the row, say for the menu.
         EpisodeTitle(m, special, 13, Modifier.padding(top = 12.dp).offset(y = if (focused) 0.dp else (-4).dp))
+        watchLine(m)?.let { (line, partway) ->
+            Text(line, color = if (partway) Accent else Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.offset(y = if (focused) 0.dp else (-4).dp))
+        }
         (m.meta?.overview ?: m.extra?.kind)?.let {
             Text(
                 it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -1641,9 +1913,12 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
     ) {
         Box(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
             val still = m.meta?.stillPath
-            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize())
-            else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
-            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            val dim = if (m.watched) Modifier.alpha(0.55f) else Modifier
+            if (lib.details && still != null) Art(a.api, still, "w300", Modifier.fillMaxSize().then(dim))
+            else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center).then(dim))
+            val progress = progressOf(m)
+            if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = if (progress != null) 12.dp else 5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
+            WatchMarks(m.watched, progress, small = true)
         }
         // Adding to a party: the length and whether it's already lined up, with an Add button (✓ once added).
         val playing = a.adding && PartyLink.playing == m.id
@@ -1657,8 +1932,24 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
                     status?.let { Text((if (m.duration != null) " · " else "") + it, color = Accent, fontSize = 12.sp) }
                 }
             } else {
+                val line = watchLine(m)
+                line?.let { (text, partway) -> Text(text, color = if (partway) Accent else Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1) }
                 val sub = m.meta?.overview?.takeIf { m.episode != null } ?: listOfNotNull(m.extra?.kind, "Subtitles".takeIf { m.subtitles.isNotEmpty() }).joinToString(" · ")
-                if (sub.isNotEmpty()) Text(sub, color = Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (sub.isNotEmpty()) Text(sub, color = Muted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = if (line != null) 1 else 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        // Round check: marks it watched (orange) or not.
+        if (!a.adding) a.mark?.let { mark ->
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .then(if (m.watched) Modifier.background(Accent) else Modifier.border(1.5.dp, Color.White.copy(alpha = 0.35f), CircleShape))
+                    .clickable { mark(listOf(m.id), !m.watched) }
+                    .semantics { stateDescription = if (m.watched) "Watched" else "Not watched" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_check), contentDescription = if (m.watched) "Mark as not watched" else "Mark as watched", tint = if (m.watched) OnFocus else Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
             }
         }
         if (a.adding && !playing) {
@@ -1751,11 +2042,22 @@ private fun MoreButton(actions: List<Pair<String, () -> Unit>>) {
             Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More", tint = if (focused) OnFocus else Color.White, modifier = Modifier.size(20.dp))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Panel) {
-            actions.forEach { (label, action) ->
-                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; action() })
-            }
+            actions.forEach { (label, action) -> MenuRow(label) { open = false; action() } }
         }
     }
+}
+
+/** A row in a ⋮ menu; the one a TV remote is on turns into a white pill with dark text. */
+@Composable
+private fun MenuRow(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    DropdownMenuItem(
+        text = { Text(label, color = if (focused) OnFocus else Color.White) },
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (focused) FocusFill else Color.Transparent),
+    )
 }
 
 /**
