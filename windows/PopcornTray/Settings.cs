@@ -30,18 +30,21 @@ sealed class Settings
         path.Length > 0 && File.Exists(Path.Combine(path, "package.json")) && Directory.Exists(Path.Combine(path, "server"));
 
     /** The port from the checkout's .env (PORT=…), else the server's default. */
-    public int Port()
+    public int Port() => int.TryParse(Env("PORT"), out var port) ? port : 8080;
+
+    /** A setting from the checkout's .env (NAME=…), or null. */
+    public string? Env(string name)
     {
         try
         {
             foreach (var line in File.ReadLines(Path.Combine(RepoPath, ".env")))
             {
                 var t = line.Trim();
-                if (t.StartsWith("PORT=") && int.TryParse(t[5..].Trim().Trim('"'), out var port)) return port;
+                if (t.StartsWith(name + "=")) return t[(name.Length + 1)..].Trim().Trim('"');
             }
         }
         catch { }
-        return 8080;
+        return null;
     }
 
     // "Start with Windows" is the usual per-user Run key, so it needs no admin rights.

@@ -12,6 +12,9 @@ sealed class TrayApp : ApplicationContext
     readonly Settings settings = Settings.Load();
     readonly Log log = new();
     readonly Server server;
+    readonly OutsideCheck outside;
+    /** How often friends' way in is checked while the server runs. */
+    readonly System.Windows.Forms.Timer outsideTimer = new() { Interval = 2 * 60_000 };
     readonly NotifyIcon tray;
     readonly Icon runningIcon = LoadIcon("icon.ico");
     readonly Icon stoppedIcon = LoadIcon("icon-stopped.ico");
@@ -27,6 +30,7 @@ sealed class TrayApp : ApplicationContext
     LogWindow? logWindow;
     bool updating;
     bool starting;
+    bool checkingOutside;
 
     public TrayApp(string[] args)
     {
@@ -35,6 +39,9 @@ sealed class TrayApp : ApplicationContext
         server = new Server(log);
         server.Ready += () => ui.Post(_ => Refresh(), null);
         server.Crashed += () => ui.Post(_ => OnCrash(), null);
+        outside = new OutsideCheck(log);
+        outsideTimer.Tick += async (_, _) => await CheckOutside();
+        outsideTimer.Start();
 
         openItem = new ToolStripMenuItem("Open Popcorn Club", null, (_, _) => OpenApp()).WithIcon(ModernMenu.Open);
         startItem = new ToolStripMenuItem("Start server", null, (_, _) => StartServer()).WithIcon(ModernMenu.Play);
@@ -144,6 +151,37 @@ sealed class TrayApp : ApplicationContext
         }
         Notify($"Port {port} is still in use, so the server can't start. See Show log.");
         return false;
+    }
+
+    /** Warns once when friends can no longer reach the server from outside, and once when they can again. */
+    async Task CheckOutside()
+    {
+        if (checkingOutside) return;
+        if (!server.Listening || updating)
+        {
+            outside.Reset();
+            return;
+        }
+        checkingOutside = true;
+        try
+        {
+            if (!await outside.Check(OutsideCheck.Address(settings))) return;
+            if (outside.Down == true)
+            {
+                log.Add("Friends can't reach the server from outside (Tailscale Funnel may have stopped).");
+                Notify("Friends can't reach your server from outside right now. Restarting Tailscale usually fixes it. See Show log.");
+            }
+            else if (outside.Down == false)
+            {
+                log.Add("Friends can reach the server from outside again.");
+                Notify("Friends can reach your server again.");
+            }
+            Refresh();
+        }
+        finally
+        {
+            checkingOutside = false;
+        }
     }
 
     void OnCrash()
@@ -321,13 +359,15 @@ sealed class TrayApp : ApplicationContext
     {
         var running = server.Running;
         var port = settings.Port();
+        var unreachable = server.Listening && !updating && outside.Down == true;
         statusItem.Text = updating ? "Updating…"
             : !Settings.IsRepo(settings.RepoPath) ? "Server folder not set"
+            : unreachable ? "Running, but friends can't reach it"
             : server.Listening ? $"Running on port {port}"
             : running ? "Starting…"
             : "Stopped";
         tray.Text = $"Popcorn Club: {statusItem.Text}";
-        var dot = updating || (running && !server.Listening) ? Color.FromArgb(0xFF, 0x8E, 0x44)
+        var dot = updating || unreachable || (running && !server.Listening) ? Color.FromArgb(0xFF, 0x8E, 0x44)
             : server.Listening ? Color.FromArgb(0x3F, 0xB9, 0x50)
             : Color.FromArgb(0x8A, 0x8A, 0x8A);
         var oldDot = statusItem.Image;
@@ -357,6 +397,7 @@ sealed class TrayApp : ApplicationContext
 
     void Quit()
     {
+        outsideTimer.Stop();
         server.Stop();
         tray.Visible = false;
         tray.Dispose();
