@@ -14,6 +14,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -704,6 +709,11 @@ internal fun DetailsDialog(
     /** Adding to a party's Up next: Add to Up next comes first, so a remote picks several with OK in a row. */
     onQueue: (() -> Unit)? = null,
     queued: Boolean = false,
+    /** "34 m left" after the length, in orange, for a video stopped partway. */
+    left: String? = null,
+    /** Mark as watched / Mark as not watched; null hides the button. */
+    onMark: (() -> Unit)? = null,
+    watched: Boolean = false,
 ) {
     val m = media.meta
     val ep = media.episode
@@ -737,7 +747,14 @@ internal fun DetailsDialog(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        Text(length, color = Muted, fontSize = 13.sp)
+                        Text(
+                            buildAnnotatedString {
+                                append(length)
+                                if (left != null) withStyle(SpanStyle(color = Accent)) { append((if (length.isNotEmpty()) " · " else "") + left) }
+                            },
+                            color = Muted,
+                            fontSize = 13.sp,
+                        )
                         m?.overview?.let { Text(it, color = Color.White.copy(alpha = 0.9f), fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp)) }
                     }
                 }
@@ -762,6 +779,12 @@ internal fun DetailsDialog(
                     } else {
                         Button(onClick = onStart, modifier = Modifier.focusRing().focusRequester(start)) { Text(startLabel) }
                         onBingeFrom?.let { OutlinedButton(onClick = it, modifier = Modifier.focusRing()) { Text("Binge from here") } }
+                        onMark?.let {
+                            OutlinedButton(onClick = it, modifier = Modifier.focusRing()) {
+                                if (!watched) Icon(painterResource(R.drawable.ic_check), contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                                Text(if (watched) "Mark as not watched" else "Mark as watched")
+                            }
+                        }
                         OutlinedButton(onClick = onClose, modifier = Modifier.focusRing()) { Text("Close") }
                     }
                 }

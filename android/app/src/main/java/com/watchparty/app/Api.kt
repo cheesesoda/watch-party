@@ -40,6 +40,8 @@ class Api(private val baseUrl: String, private val token: String) {
         val room: String? = null,
         val name: String? = null,
     )
+    @Serializable private data class HistoryResponse(val history: List<HistoryEntry>)
+    @Serializable private data class WatchedResponse(val watch: Map<String, WatchState?>)
     @Serializable private data class InfoResponse(val info: MediaInfo? = null)
     @Serializable private data class ErrorResponse(val error: String? = null)
 
@@ -127,13 +129,28 @@ class Api(private val baseUrl: String, private val token: String) {
         }.toString())).room
 
     /** queue: a binge, the videos to play one after another from the first. [solo]: watch alone, off the party list. */
-    suspend fun createRoom(mediaId: String?, queue: List<String>? = null, solo: Boolean = false): RoomSummary {
+    /** [position]: start this far in (seconds), for picking up from History. */
+    suspend fun createRoom(mediaId: String?, queue: List<String>? = null, solo: Boolean = false, position: Double? = null): RoomSummary {
         val body = buildJsonObject {
             if (solo) put("solo", true)
+            if (position != null && position > 0) put("position", position)
             if (mediaId != null) put("mediaId", mediaId)
             if (queue != null) put("queue", kotlinx.serialization.json.JsonArray(queue.map { kotlinx.serialization.json.JsonPrimitive(it) }))
         }.toString()
         return Protocol.json.decodeFromString<RoomResponse>(request("/api/rooms", body)).room
+    }
+
+    /** History: every video played on this server, newest first. */
+    suspend fun history(): List<HistoryEntry> =
+        Protocol.json.decodeFromString<HistoryResponse>(request("/api/history")).history
+
+    /** Marks videos watched or not watched; returns each one's new state (null when not watched). */
+    suspend fun markWatched(ids: List<String>, watched: Boolean): Map<String, WatchState?> {
+        val body = buildJsonObject {
+            put("ids", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            put("watched", watched)
+        }.toString()
+        return Protocol.json.decodeFromString<WatchedResponse>(request("/api/watched", body)).watch
     }
 
     /** Codecs and length of a file, or null when the server can't read them (no ffprobe). */

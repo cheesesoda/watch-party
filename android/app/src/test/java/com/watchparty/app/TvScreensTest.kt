@@ -52,6 +52,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
 import java.io.File
 
+private const val WATCHED_AT = 1_792_000_000_000L
+
 /**
  * The TV home, pages and side menu, driven with remote keys against a pretend server. Screenshots of each step land
  * in build/tv-screens (CI keeps them), so the TV layout can be checked without a TV.
@@ -81,12 +83,31 @@ class TvScreensTest {
         meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
-    private val items = listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
+    private val items = (listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
         listOf("Severance", "The Bear", "Letterkenny").flatMapIndexed { n, show -> (1..2).flatMap { s -> (1..4).map { e -> episode(show, n, s, e) } } } +
         // Alien (first A–Z) has extras, added long ago so they stay out of Recently added.
         listOf("Making Alien" to 720.0, "Deleted scenes" to 360.0).mapIndexed { i, (t, d) ->
             MediaItem(id = "x$i", title = t, relPath = "Movies/Alien/Extras/$t.mkv", folder = "Movies/Alien/Extras", size = 1, addedAt = 1, duration = d, extra = ExtraInfo("Behind the scenes", of = "m4"))
+        }).let { list ->
+            // Watched marks: Arrival and Letterkenny S1E1 watched, Letterkenny S1E2 and Alien partway.
+            val marks = mapOf(
+                "m0" to WatchState(watchedAt = WATCHED_AT, updatedAt = WATCHED_AT),
+                "e211" to WatchState(watchedAt = WATCHED_AT, updatedAt = WATCHED_AT),
+                "e212" to WatchState(position = 900.0, updatedAt = WATCHED_AT),
+                "m4" to WatchState(position = 2400.0, updatedAt = WATCHED_AT),
+            )
+            list.map { it.copy(watch = marks[it.id]) }
         }
+
+    /** History: Letterkenny S1E2 stopped partway today, S1E1 watched before it, and Arrival watched alone yesterday. */
+    private val history by lazy {
+        val now = System.currentTimeMillis()
+        listOf(
+            HistoryEntry("h1", "e212", now - 3_600_000, now - 60_000, 900.0, listOf("Jake", "Sam", "Alex"), solo = false, watched = false, media = items[25]),
+            HistoryEntry("h2", "e211", now - 7_200_000, now - 3_700_000, 2990.0, listOf("Jake", "Sam", "Alex"), solo = false, watched = true, media = items[24]),
+            HistoryEntry("h3", "m0", now - 90_000_000, now - 86_400_000 - 60_000, 6990.0, listOf("Jake"), solo = true, watched = true, media = items[0]),
+        )
+    }
 
     /**
      * Saved spots: movies, so removing one leaves a neighbor. The second and third have no TMDB art: the server grabs a
@@ -121,6 +142,8 @@ class TvScreensTest {
                 val path = request.path.orEmpty()
                 fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 return when {
+                    path.startsWith("/api/history") -> json("""{"history":${Protocol.json.encodeToString(history)}}""")
+                    path.startsWith("/api/watched") -> json("""{"watch":{}}""")
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                     // Starting a party (here, from a saved spot): the host watching alone, straight to the player.
                     // A party for a movie or show (not watching alone, not from a saved spot) is listed, with its code.
@@ -489,6 +512,41 @@ class TvScreensTest {
         val tops = intoTheMenuAndBack("Season 1")
         shot("42-episode-back-from-menu")
         check(tops.distinct().size == 1 && tops[0] != null, "The page moved going to the menu and back from an episode (Season 1 at ${tops.distinct()})")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /**
+     * Watched marks on a show's page and its ⋮ menu, then History from the side menu and a row's details
+     * (ui-redesign/watch-history/tv-*).
+     */
+    @Test
+    fun watchHistory() {
+        toFirstShowCard()
+        shot("50-shows-marks")
+        ok()
+        settle(2_000) { false }
+        shot("51-show-marks")
+        check(rule.onAllNodesWithText("Watched", substring = true).fetchSemanticsNodes().isNotEmpty(), "The watched episode has no Watched line")
+        check(rule.onAllNodesWithText("m left", substring = true).fetchSemanticsNodes().isNotEmpty(), "The episode stopped partway has no time left")
+        // Continue binge, Binge season 1, Binge all, then ⋮.
+        press(FocusDirection.Right, 3)
+        ok()
+        shot("52-show-menu")
+        check(rule.onAllNodesWithText("Mark season 1 as watched").fetchSemanticsNodes().isNotEmpty(), "⋮ has no Mark season 1 as watched")
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        settle(800) { false }
+        // The menu lands on TV Shows; History is two below it.
+        press(FocusDirection.Left)
+        press(FocusDirection.Down, 2)
+        shot("53-menu-on-history")
+        ok()
+        settle(3_000) { rule.onAllNodesWithText("Stopped at", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        shot("54-history")
+        check(rule.onAllNodesWithText("TODAY").fetchSemanticsNodes().isNotEmpty(), "History has no Today")
+        check(!menuOpen(), "History didn't put the remote on its first row")
+        ok()
+        shot("55-history-details")
+        check(rule.onAllNodesWithText("Mark as watched").fetchSemanticsNodes().isNotEmpty(), "The details have no Mark as watched")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 

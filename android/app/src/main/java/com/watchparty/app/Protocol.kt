@@ -41,6 +41,30 @@ data class MediaItem(
     val part: PartInfo? = null,
     /** Where its intro, recap and credits are, once the server has found them (see SkipMarks). */
     val marks: SkipMarks? = null,
+    /** Its watched mark, kept for everyone on the server; null if it never played or was marked not watched. */
+    val watch: WatchState? = null,
+)
+
+/** A video's watched mark: when it was watched (or marked watched), or how far in it stopped. */
+@Serializable
+data class WatchState(val watchedAt: Long? = null, val position: Double? = null, val updatedAt: Long = 0)
+
+/** One video played in one party (or Watch alone), as History lists it, newest first. */
+@Serializable
+data class HistoryEntry(
+    val id: String,
+    val mediaId: String,
+    val startedAt: Long,
+    val lastAt: Long,
+    /** Where it was the last time it played (seconds). */
+    val position: Double = 0.0,
+    /** Everyone who was there. */
+    val names: List<String> = emptyList(),
+    /** Watched alone the whole time. */
+    val solo: Boolean = false,
+    /** It reached the credits. */
+    val watched: Boolean = false,
+    val media: MediaItem,
 )
 
 /**
