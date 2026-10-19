@@ -20,6 +20,11 @@ const CREDITS_MIN = 15;
 const VERSION = 3;
 /** Skip chapters shorter than this get no button: gone before anyone could press it. */
 const SKIP_MIN = 10;
+/**
+ * Intros found shorter than this get no Skip intro button: a title card (Reacher's are 12-14 s) is over before it's
+ * worth skipping. Still known, so recaps aren't looked for in them; one set by hand always shows.
+ */
+const INTRO_SHOWN = 20;
 /** A keyframe counts as credits when this much of it (%) is black: white text on black. */
 const CREDITS_BLACK = 85;
 
@@ -696,7 +701,8 @@ export class Markers {
   found(item: MediaItem): SkipMarks | undefined {
     const entry = this.cache[item.id];
     if (!entry || entry.key !== Markers.key(item)) return undefined;
-    return entry.marks;
+    const { intro } = entry.marks;
+    return intro && intro.end - intro.start < INTRO_SHOWN ? { ...entry.marks, intro: null } : entry.marks;
   }
 
   /** What was set by hand for the video, if anything. */
