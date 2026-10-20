@@ -1151,6 +1151,24 @@ private fun Modifier.wholeInView(): Modifier {
     return onSizeChanged { size = it }.bringIntoViewResponder(whole)
 }
 
+/**
+ * Asks to be shown with [room] clear above whatever takes focus in it. On a TV, Compose scrolls focus to 30% down the
+ * screen (its pivot), which pulled a show's episodes up under its season chips and left too little room above them for
+ * the episode on top; asking for the room as well puts the episodes lower, as in the mockup.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.roomAbove(room: Dp): Modifier {
+    val px = with(LocalDensity.current) { room.toPx() }
+    val above = remember(px) {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect = localRect.copy(top = localRect.top - px)
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
+        }
+    }
+    return bringIntoViewResponder(above)
+}
+
 /** The page's backdrop across the top of the screen, fading into the page at the bottom and left. */
 @Composable
 private fun BackdropBehind(api: Api, path: String, modifier: Modifier = Modifier, height: Float = 0.78f) {
@@ -1790,9 +1808,9 @@ private fun DetailPage(
             // Over the list, not in it, so it stays put however far the page scrolled to reach the episodes.
             var pageTop by remember { mutableStateOf(0f) }
             // Down to 20dp above the chips; the page is scrolled to its end by then, so this is all the room there is.
-            val room = with(LocalDensity.current) { (episodesTop - pageTop).toDp() } - 40.dp - 20.dp
+            val room = with(LocalDensity.current) { (episodesTop - pageTop).toDp() } - 48.dp - 20.dp
             Box(Modifier.fillMaxWidth().onGloballyPositioned { pageTop = it.positionInRoot().y }) {
-                if (room > 80.dp) TvEpisodeHead(episode, lib, Modifier.padding(start = 128.dp, end = 48.dp, top = 40.dp).width(640.dp).height(room))
+                if (room > 80.dp) TvEpisodeHead(episode, lib, Modifier.padding(start = 128.dp, end = 48.dp, top = 48.dp).width(640.dp).height(room))
             }
         }
         if (!tv) {
@@ -1995,7 +2013,8 @@ private fun TvCards(
     onFocused: ((MediaItem?) -> Unit)? = null,
 ) {
     LazyRow(
-        modifier.onFocusChanged { if (!it.hasFocus) onFocused?.invoke(null) },
+        // With the episode on top, the room it needs comes with the episodes into view (a third of the screen, plus the chips).
+        modifier.onFocusChanged { if (!it.hasFocus) onFocused?.invoke(null) }.then(if (onFocused != null) Modifier.roomAbove(154.dp) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
     ) {

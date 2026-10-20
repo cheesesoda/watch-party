@@ -80,7 +80,7 @@ class TvScreensTest {
     private fun episode(show: String, n: Int, season: Int, ep: Int) = MediaItem(
         id = "e$n$season$ep", title = "$show S${season}E$ep", relPath = "TV/$show/S$season/E$ep.mkv", folder = "TV/$show", size = 1_000_000_000, addedAt = 900L - n, duration = 3000.0,
         episode = EpisodeInfo(show, season, ep),
-        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", airDate = "2016-0$season-1$ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
+        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", airDate = "2016-0$season-1$ep", overview = "Mark leads a team whose memories have been split between work and home. When a colleague turns up outside the office with questions he can't answer, he starts to wonder what his other self has been doing all day, and who decided he shouldn't remember it.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
     private val items = (listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
@@ -534,7 +534,8 @@ class TvScreensTest {
         check(rule.onAllNodesWithText("LETTERKENNY · SEASON 1 · EPISODE 1").fetchSemanticsNodes().isNotEmpty(), "The show, season and episode aren't over the name")
         check(rule.onAllNodesWithText("Aired", substring = true).fetchSemanticsNodes().isNotEmpty(), "The air date isn't shown")
         val summary = rule.onAllNodesWithText("Mark leads", substring = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
-        check(summary != null && summary.height > 0f && chip != null && summary.bottom < chip, "The episode's summary isn't shown above the season chips (at $summary, Season 1 at $chip)")
+        // Three lines at least: this one runs to three at a TV's width.
+        check(summary != null && summary.height > 60f * rule.density.density && chip != null && summary.bottom < chip, "The episode's summary isn't shown above the season chips (at $summary, Season 1 at $chip)")
         // Along to the next episode: the top follows the remote, and the season chips stay where they were.
         press(FocusDirection.Right)
         settle(1_000) { false }
