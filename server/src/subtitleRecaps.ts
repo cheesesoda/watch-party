@@ -24,10 +24,18 @@ const MAX_UNMATCHED = 12;
 const MAX_SILENCE = 20;
 /**
  * A line counts as said before when at least this share of its 4-word runs were: a recap trims lines, and puts two
- * speakers' lines in one subtitle that the earlier episode showed apart. Lines under 4 words must be found whole.
+ * speakers' lines in one subtitle that the earlier episode showed apart. Lines under 4 words ("No, you're not.") are
+ * said in every show, so they never stretch a recap.
  */
 const PHRASE = 4;
 const MIN_SHARE = 0.5;
+/**
+ * A 4-word run said in more than this many earlier episodes is everyday talk ("what do you think"), not a line a recap
+ * took from one of them. Each episode's own recap (its first BODY_FROM s) isn't counted, so a line every recap repeats
+ * still counts.
+ */
+const MAX_EPISODES = 2;
+const BODY_FROM = 180;
 /** At least this many of its lines were said before, so a "previously" in the dialogue isn't taken for a recap. */
 const MIN_MATCHED = 2;
 /** Recaps shorter than this (s) get no button (as SKIP_MIN for marks). */
@@ -92,17 +100,25 @@ export function findSubtitleRecap(cues: Cue[], earlier: Cue[][]): SubtitleRecap 
   const opener = cues.findIndex((c) => c.start < OPENER_WINDOW && OPENER.test(c.text));
   if (opener < 0) return null;
   // Every earlier line one after another, so a recap line split over two cues there (or two run into one here) is found.
-  const episodes = earlier.map((list) => list.map((c) => c.text).join(" "));
-  const before = ` ${episodes.join(" | ")} `;
+  const runs = (list: Cue[]) => {
+    const words = list.map((c) => c.text).join(" ").split(" ");
+    const found = new Set<string>();
+    for (let i = 0; i + PHRASE <= words.length; i++) found.add(words.slice(i, i + PHRASE).join(" "));
+    return found;
+  };
   const phrases = new Set<string>();
-  for (const words of episodes.map((e) => e.split(" "))) {
-    for (let i = 0; i + PHRASE <= words.length; i++) phrases.add(words.slice(i, i + PHRASE).join(" "));
+  const episodesWith = new Map<string, number>();
+  for (const list of earlier) {
+    for (const p of runs(list)) phrases.add(p);
+    for (const p of runs(list.filter((c) => c.start >= BODY_FROM))) episodesWith.set(p, (episodesWith.get(p) ?? 0) + 1);
   }
   const said = (text: string) => {
     const words = text.split(" ");
-    if (words.length < PHRASE) return before.includes(` ${text} `);
     let found = 0;
-    for (let i = 0; i + PHRASE <= words.length; i++) if (phrases.has(words.slice(i, i + PHRASE).join(" "))) found++;
+    for (let i = 0; i + PHRASE <= words.length; i++) {
+      const p = words.slice(i, i + PHRASE).join(" ");
+      if (phrases.has(p) && (episodesWith.get(p) ?? 0) <= MAX_EPISODES) found++;
+    }
     return found / (words.length - PHRASE + 1) >= MIN_SHARE;
   };
   let last: Cue | null = null;
@@ -114,7 +130,7 @@ export function findSubtitleRecap(cues: Cue[], earlier: Cue[][]): SubtitleRecap 
     if (c.start - prevEnd > MAX_SILENCE) break;
     prevEnd = c.end;
     // The opener's own words ("previously on reacher") run on into the next cue sometimes.
-    if (c.text.length < MIN_CHARS) continue;
+    if (c.text.length < MIN_CHARS || c.text.split(" ").length < PHRASE) continue;
     if (said(c.text)) {
       last = c;
       matched++;
