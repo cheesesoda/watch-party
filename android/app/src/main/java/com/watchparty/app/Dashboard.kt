@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -110,8 +111,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -1144,6 +1151,24 @@ private fun Modifier.wholeInView(): Modifier {
     return onSizeChanged { size = it }.bringIntoViewResponder(whole)
 }
 
+/**
+ * Asks to be shown with [room] clear above whatever takes focus in it. On a TV, Compose scrolls focus to 30% down the
+ * screen (its pivot), which pulled a show's episodes up under its season chips and left too little room above them for
+ * the episode on top; asking for the room as well puts the episodes lower, as in the mockup.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.roomAbove(room: Dp): Modifier {
+    val px = with(LocalDensity.current) { room.toPx() }
+    val above = remember(px) {
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect = localRect.copy(top = localRect.top - px)
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
+        }
+    }
+    return bringIntoViewResponder(above)
+}
+
 /** The page's backdrop across the top of the screen, fading into the page at the bottom and left. */
 @Composable
 private fun BackdropBehind(api: Api, path: String, modifier: Modifier = Modifier, height: Float = 0.78f) {
@@ -1722,6 +1747,12 @@ private fun DetailPage(
     above: (@Composable () -> Unit)? = null,
     /** The ⋮ menu (Mark as watched…): after the buttons on a TV, top right over the backdrop on a phone. */
     more: List<Pair<String, () -> Unit>> = emptyList(),
+    /**
+     * On a TV, the episode the remote is on: it takes the top of the screen, above [episodesTop] (where the season chips
+     * or the episodes start, in root pixels), in place of the show's header (ui-redesign/tv-episode-synopsis/A).
+     */
+    episode: MediaItem? = null,
+    episodesTop: Float = 0f,
     below: LazyListScope.() -> Unit,
 ) {
     val primary = remember { FocusRequester() }
@@ -1748,6 +1779,8 @@ private fun DetailPage(
                         Modifier
                             .onFocusChanged { headFocused = it.hasFocus }
                             .wholeInView()
+                            // Hidden, not removed, while an episode is on top: the page under it keeps its place.
+                            .alpha(if (episode != null) 0f else 1f)
                             .padding(start = 128.dp, end = 48.dp, top = 56.dp)
                             .width(560.dp),
                     ) {
@@ -1770,6 +1803,15 @@ private fun DetailPage(
             }
             below()
             if (lib.details) item(key = "credit") { Text(TMDB_CREDIT, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = if (tv) 128.dp else 16.dp, end = 16.dp, top = 20.dp)) }
+        }
+        if (tv && episode != null) {
+            // Over the list, not in it, so it stays put however far the page scrolled to reach the episodes.
+            var pageTop by remember { mutableStateOf(0f) }
+            // Down to 20dp above the chips; the page is scrolled to its end by then, so this is all the room there is.
+            val room = with(LocalDensity.current) { (episodesTop - pageTop).toDp() } - 48.dp - 20.dp
+            Box(Modifier.fillMaxWidth().onGloballyPositioned { pageTop = it.positionInRoot().y }) {
+                if (room > 80.dp) TvEpisodeHead(episode, lib, Modifier.padding(start = 128.dp, end = 48.dp, top = 48.dp).width(640.dp).height(room))
+            }
         }
         if (!tv) {
             // Back over the backdrop, like a collapsing app bar.
@@ -1880,6 +1922,12 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
     val bingeName = if (binge == -1) "extras" else if (binge == -2) "specials" else "season $binge"
     // A saved spot puts Continue binge first (ui-redesign/resume/*-show-continue).
     val spot = if (a.adding) null else a.spotOf(show)
+    // On a TV, the episode the remote is on, shown at the top of the screen, and where that room ends.
+    var onEpisode by remember(show.name) { mutableStateOf<MediaItem?>(null) }
+    var episodesTop by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    // Where the chips (or the cards) themselves start, past their row's padding.
+    fun markTop(pad: Dp) = Modifier.onGloballyPositioned { episodesTop = it.positionInRoot().y + with(density) { pad.toPx() } }
     DetailPage(
         lib, a, state,
         title = show.name,
@@ -1921,10 +1969,13 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
                 "Mark whole show as watched" to { mark(show.episodes.map { it.id }, true) },
             )
         }.orEmpty(),
+        episode = onEpisode.takeIf { a.tv },
+        episodesTop = episodesTop,
     ) {
         if (tabs.size > 1) {
             item(key = "seasons") {
                 LazyRow(
+                    modifier = markTop(28.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(start = if (a.tv) 128.dp else 16.dp, end = 16.dp, top = if (a.tv) 28.dp else 16.dp, bottom = 8.dp),
                 ) {
@@ -1935,18 +1986,88 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         val list = if (shown == -1) extras.orEmpty() else inSeason(shown)
         if (a.tv) {
             // On a TV the episodes are a sideways row of stills, like Google TV.
-            item(key = "episodes-$shown") { TvCards(list, lib, a, special = { shown != -2 && it.episode?.season == 0 }) }
+            item(key = "episodes-$shown") {
+                TvCards(
+                    list, lib, a, special = { shown != -2 && it.episode?.season == 0 },
+                    modifier = if (tabs.size > 1) Modifier else markTop(12.dp),
+                    onFocused = { m -> onEpisode = m?.takeIf { it.episode != null } },
+                )
+            }
         } else {
             items(list, key = { it.id }) { EpisodeRow(it, lib, a, special = shown != -2 && it.episode?.season == 0) }
         }
     }
 }
 
-/** A TV's episodes or extras: a sideways row of stills, like Google TV, starting clear of the side menu. */
+/**
+ * A TV's episodes or extras: a sideways row of stills, like Google TV, starting clear of the side menu. [onFocused]
+ * hears which card the remote is on (null once it leaves the row); without it, the focused card shows its summary.
+ */
 @Composable
-private fun TvCards(list: List<MediaItem>, lib: Library, a: Actions, special: (MediaItem) -> Boolean = { false }) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp)) {
-        items(list, key = { it.id }) { EpisodeCard(it, lib, a, special = special(it)) }
+private fun TvCards(
+    list: List<MediaItem>,
+    lib: Library,
+    a: Actions,
+    special: (MediaItem) -> Boolean = { false },
+    modifier: Modifier = Modifier,
+    onFocused: ((MediaItem?) -> Unit)? = null,
+) {
+    LazyRow(
+        // With the episode on top, the room it needs comes with the episodes into view (a third of the screen, plus the chips).
+        modifier.onFocusChanged { if (!it.hasFocus) onFocused?.invoke(null) }.then(if (onFocused != null) Modifier.roomAbove(170.dp) else Modifier),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
+    ) {
+        items(list, key = { it.id }) { m ->
+            EpisodeCard(
+                m, lib, a, special = special(m),
+                // An episode's summary goes at the top of the screen (TvEpisodeHead); an extra keeps its kind under it.
+                summary = onFocused == null || m.episode == null,
+                modifier = if (onFocused != null) Modifier.onFocusChanged { if (it.hasFocus) onFocused(m) } else Modifier,
+            )
+        }
+    }
+}
+
+/** "Jan 24, 2025" from TMDB's "2025-01-24"; null if it isn't a date. */
+private fun airedOn(day: String?): String? = runCatching {
+    java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault()).format(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day!!)!!)
+}.getOrNull()
+
+/**
+ * The episode the remote is on, at the top of a TV show's page: show, season and episode, its name, length, air date
+ * and how far you got, then as much of its summary as fits ([modifier] sets the room).
+ */
+@Composable
+private fun TvEpisodeHead(m: MediaItem, lib: Library, modifier: Modifier) {
+    val ep = m.episode ?: return
+    val show = m.meta?.show ?: ep.show
+    val where = if (ep.season == 0) "$show · Special" else "$show · Season ${ep.season} · Episode ${ep.episode}"
+    Column(modifier) {
+        Text(where.uppercase(), color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            m.meta?.title ?: ep.title ?: "Episode ${ep.episode}",
+            fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 42.sp, lineHeight = 44.sp, color = Color.White,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp),
+        )
+        val watch = watchLine(m)
+        Text(
+            buildAnnotatedString {
+                append(listOfNotNull(m.duration?.let(::runtime), airedOn(m.meta?.airDate)?.let { "Aired $it" }).joinToString(" · "))
+                watch?.let { (line, partway) ->
+                    if (length > 0) append(" · ")
+                    withStyle(SpanStyle(color = if (partway) Accent else Color.White.copy(alpha = 0.85f))) { append(line) }
+                }
+            },
+            color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp),
+        )
+        m.meta?.overview?.let {
+            // As many lines as the room above the episodes holds; the last one ends in an ellipsis if it runs over.
+            BoxWithConstraints(Modifier.padding(top = 10.dp).weight(1f, fill = false)) {
+                val lines = (maxHeight / 24.dp).toInt()
+                if (lines > 0) Text(it, color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, lineHeight = 24.sp, maxLines = lines, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
@@ -1973,13 +2094,13 @@ private fun EpisodeTitle(m: MediaItem, special: Boolean, size: Int, modifier: Mo
 }
 private fun episodeLength(m: MediaItem) = m.duration?.let(::runtime) ?: ""
 
-/** A TV episode: its still with the length, the title under it, and the summary while the remote is on it. */
+/** A TV episode: its still with the length, the title under it, and (with [summary]) the summary while the remote is on it. */
 @Composable
-private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean = false) {
+private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean = false, summary: Boolean = true, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(10.dp)
-    Column(Modifier.width(200.dp)) {
+    Column(modifier.width(200.dp)) {
         Box(
             Modifier
                 .fillMaxWidth()
@@ -2007,7 +2128,7 @@ private fun EpisodeCard(m: MediaItem, lib: Library, a: Actions, special: Boolean
         watchLine(m)?.let { (line, partway) ->
             Text(line, color = if (partway) Accent else Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.offset(y = if (focused) 0.dp else (-4).dp))
         }
-        (m.meta?.overview ?: m.extra?.kind)?.let {
+        (m.meta?.overview ?: m.extra?.kind)?.takeIf { summary }?.let {
             Text(
                 it, color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = if (focused) Modifier else Modifier.alpha(0f).clearAndSetSemantics {},
