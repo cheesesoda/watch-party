@@ -115,6 +115,12 @@ export interface EpisodeInfo {
   title: string | null;
 }
 
+/** An audio track inside a file; `index` counts audio tracks only (the converted copy's ?audio=). */
+export interface AudioTrack {
+  index: number;
+  label: string;
+}
+
 /** What ffprobe found in a file, so a browser can tell whether it can play it as-is. */
 export interface MediaInfo {
   /** ffprobe's format name, e.g. "matroska,webm" or "mov,mp4,m4a,3gp,3g2,mj2". */
@@ -128,6 +134,9 @@ export interface MediaInfo {
    * and can't switch, so they need the converted copy, which carries the right one.
    */
   audioNotFirst?: boolean;
+  /** Every audio track in the file, in order, and which of them plays (`audioTrack`, an index into it). */
+  audios?: AudioTrack[];
+  audioTrack?: number;
   /** The server can convert this file for browsers (ffmpeg is installed). */
   convert: boolean;
   /** Text subtitles inside the file, which the server serves as WebVTT (picture-based ones are left out). */
@@ -157,6 +166,8 @@ export interface Member {
   muted: boolean;
   /** What they joined from, so a phone can act as the chat screen for its owner's TV. */
   device: Device;
+  /** Signed in with the server password (not a guest with the party code): picks what plays. */
+  host?: boolean;
 }
 
 export type Device = "web" | "phone" | "tv";

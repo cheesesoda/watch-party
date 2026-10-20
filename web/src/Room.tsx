@@ -14,6 +14,18 @@ import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
 
+/** How far Left and Right jump, as the TV remote and a double-tap on the phone do. */
+const SKIP_SECONDS = 10;
+
+/** 13:33, or 1:02:03 past an hour. */
+function clock(seconds: number): string {
+  const t = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = String(t % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
 /** Whether chat messages pop up over the video; remembered per browser. */
 const POPUPS_KEY = "chat-popups";
 
@@ -66,6 +78,10 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   /** Auto quality found this device kept waiting for video: the rest of the party plays the lighter copy. */
   const [slow, setSlow] = useState(false);
   const slowWatch = useRef(new SlowConnection());
+  /** Settings > Audio: another audio track than the file's usual one (counting audio tracks only), this video only. */
+  const [audio, setAudio] = useState<number | undefined>(undefined);
+  /** "Paused at 13:33" or "Playing" for a moment when someone pauses or plays, as on the TV and phone. */
+  const [played, setPlayed] = useState<string | null>(null);
   /** Skip intro is showing (chat pop-ups move up out of its corner). */
   const [skipping, setSkipping] = useState(false);
 
@@ -163,6 +179,24 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     };
   }, [mediaId]);
 
+  useEffect(() => setAudio(undefined), [mediaId]);
+  // Another audio track: browsers play only a file's first one, so it comes from the converted copy.
+  const altAudio = audio !== undefined && audio !== mediaInfo?.audioTrack ? audio : undefined;
+
+  // Paused or playing by someone's press. A jump's wait (hold) counts as playing, so it shows nothing.
+  const lastPlayback = useRef<{ mediaId: string | null; paused: boolean } | null>(null);
+  useEffect(() => {
+    const s = view.state;
+    if (!s) return;
+    const paused = s.paused && !s.hold;
+    const before = lastPlayback.current;
+    lastPlayback.current = { mediaId: s.mediaId, paused };
+    if (!before || before.mediaId !== s.mediaId || before.paused === paused) return;
+    setPlayed(paused ? `Paused at ${clock(s.position)}` : "Playing");
+    const t = window.setTimeout(() => setPlayed(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [view.state]);
+
   // The lighter copy, by Settings > Video quality (and on Auto, whether this device kept waiting).
   const light = Boolean(mediaInfo?.convert) && (quality === "light" || (quality === "auto" && slow));
   const stateRef = useRef(view.state);
@@ -225,7 +259,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       video.removeEventListener("canplay", onReady);
       video.removeEventListener("playing", onReady);
     };
-  }, [mediaId, mediaInfo, quality, light, converted]);
+  }, [mediaId, mediaInfo, quality, light, converted, altAudio]);
 
   // Which subtitles show: "" for none, else a <track>'s id ("s0" for a sidecar file, "e0" for one inside the video).
   const [subtitle, setSubtitle] = useState("");
@@ -248,16 +282,16 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     const video = videoRef.current!;
     if (!mediaId || mediaInfo === undefined) return;
     if (syncRef.current) {
-      syncRef.current.converted = converted || light;
+      syncRef.current.converted = converted || light || altAudio !== undefined;
       syncRef.current.light = light;
     }
     let destroy = () => {};
     let cancelled = false;
-    if (!converted && !light) {
+    if (!converted && !light && altAudio === undefined) {
       video.src = streamUrl(mediaId);
     } else if (!hasMse()) {
       // iPhones have no MediaSource for hls.js but play HLS themselves.
-      video.src = hlsUrl(mediaId, light);
+      video.src = hlsUrl(mediaId, light, altAudio);
     } else {
       // hls.js even where the browser says it plays HLS itself. Newer Chrome-based browsers say so,
       // and leaving the stream to them is the likely reason Brave showed a dead player.
@@ -273,7 +307,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         hls.on(Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) setInfo(`The converted stream failed: ${data.details}. Check the server's console.`);
         });
-        hls.loadSource(hlsUrl(mediaId, light));
+        hls.loadSource(hlsUrl(mediaId, light, altAudio));
         hls.attachMedia(video);
         destroy = () => hls.destroy();
       });
@@ -284,12 +318,12 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       video.removeAttribute("src");
       video.load();
     };
-  }, [mediaId, mediaInfo, converted, light]);
+  }, [mediaId, mediaInfo, converted, light, altAudio]);
 
   // If the original won't play after all (an error, or sound with no picture), switch to converting.
   useEffect(() => {
     const video = videoRef.current!;
-    if (converted || light || !mediaInfo) return;
+    if (converted || light || altAudio !== undefined || !mediaInfo) return;
     const fallBack = () => {
       if (mediaInfo.convert) {
         setConverted(true);
@@ -310,12 +344,36 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       video.removeEventListener("error", onError);
       video.removeEventListener("loadeddata", onLoaded);
     };
-  }, [mediaInfo, converted, light]);
+  }, [mediaInfo, converted, light, altAudio]);
 
   // Re-apply the room state once the new source has loaded.
   useEffect(() => {
     if (view.state) syncRef.current?.setState(view.state);
   }, [view.media?.id]);
+
+  // Keys, as on the TV remote: Left and Right jump 10 s, Space or K plays and pauses. Not while typing or in a dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || settingsOpen || picking || saving) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+      const video = videoRef.current;
+      if (!video || !view.media) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
+        video.currentTime = Math.min(Math.max(0, video.currentTime + (e.key === "ArrowLeft" ? -SKIP_SECONDS : SKIP_SECONDS)), duration);
+      } else if (e.key === " " || e.key === "k" || e.key === "K") {
+        if (target?.closest("button")) return;
+        if (video.paused) void video.play().catch(() => {});
+        else video.pause();
+      } else return;
+      // The browser's own player also seeks on arrows (by 5 s or so) when it has focus; this one wins.
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [settingsOpen, picking, saving, view.media]);
 
   // Hide the top bar after a few seconds without mouse movement.
   useEffect(() => {
@@ -571,6 +629,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
 
       {view.error && <div className="toast">{view.error}</div>}
       {info && !view.error && <div className="toast info">{info}</div>}
+      {played && !info && !view.error && <div className="toast played">{played}</div>}
 
       {view.members.some((m) => m.voice) && (
         <div className="voice-strip" aria-label="Voice chat">
@@ -656,6 +715,21 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
                 </select>
               </label>
             )}
+            {mediaInfo?.convert && (mediaInfo.audios?.length ?? 0) > 1 && (
+              <label className="switch-row">
+                <span>
+                  Audio
+                  <small>Only this video, on this device. Another track than the usual one plays from the server's converted copy.</small>
+                </span>
+                <select value={audio ?? mediaInfo.audioTrack ?? 0} onChange={(e) => setAudio(Number(e.target.value))}>
+                  {mediaInfo.audios!.map((a) => (
+                    <option key={a.index} value={a.index}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {mediaInfo?.convert && (
               <label className="switch-row">
                 <span>
@@ -671,7 +745,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
                 </select>
               </label>
             )}
-            {mediaInfo?.convert && !light && (
+            {mediaInfo?.convert && !light && altAudio === undefined && (
               <label className="switch-row">
                 <span>
                   Play the server's converted copy
@@ -687,6 +761,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       {picking && (props.host || next) && (
         <Picker
           queue={queue}
+          hostName={view.members.find((m) => m.host)?.name}
           media={media}
           edit={props.host ? send : undefined}
           solo={solo}

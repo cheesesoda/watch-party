@@ -684,6 +684,14 @@ select:focus-visible {
   color: var(--text, #eceef3);
 }
 
+/* "Paused at 13:33" / "Playing" for a moment, a pill as on the TV and phone. */
+.toast.played {
+  color: var(--text, #eceef3);
+  border-radius: 999px;
+  padding: 6px 16px;
+  pointer-events: none;
+}
+
 /* Voice chat: who is in it, who is talking. Stays visible when the top bar hides. */
 .voice-strip {
   position: absolute;

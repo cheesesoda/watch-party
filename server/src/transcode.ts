@@ -32,6 +32,8 @@ export interface TranscodeConfig {
 export interface ProbeResult extends MediaInfo {
   videoIndex: number | null;
   audioIndex: number | null;
+  /** The stream index of each entry in `audios`. */
+  audioIndexes: number[];
   /** The stream index of each entry in `subtitles`. */
   subtitleIndexes: number[];
 }
@@ -85,6 +87,14 @@ export function parseProbe(json: any): ProbeResult {
     const title = typeof s.tags?.title === "string" ? s.tags.title.trim() : "";
     return { index, label: subtitleLabel(lang, title, Boolean(s.disposition?.forced)), lang };
   });
+  const audioTracks = audios.map((s, index) => {
+    const lang = typeof s.tags?.language === "string" && s.tags.language !== "und" ? s.tags.language : null;
+    const title = typeof s.tags?.title === "string" ? s.tags.title.trim() : "";
+    const channels = Number(s.channels) || 0;
+    const layout = channels === 1 ? "mono" : channels === 2 ? "stereo" : channels === 6 ? "5.1" : channels === 8 ? "7.1" : channels ? `${channels} channels` : "";
+    const label = subtitleLabel(lang, title, false);
+    return { index, label: layout ? `${label} · ${layout}` : label };
+  });
   return {
     container: String(json?.format?.format_name ?? ""),
     duration: Number.isFinite(duration) ? duration : 0,
@@ -94,6 +104,9 @@ export function parseProbe(json: any): ProbeResult {
     audioIndex: audio ? Number(audio.index) : null,
     // Browsers play a file's first audio track and can't switch, so another one needs the converted copy.
     audioNotFirst: !!audio && audio !== audios[0],
+    audios: audioTracks,
+    audioTrack: audio ? audios.indexOf(audio) : undefined,
+    audioIndexes: audios.map((s) => Number(s.index)),
     convert: false,
     subtitles,
     subtitleIndexes: texts.map((s) => Number(s.index)),
@@ -247,11 +260,14 @@ interface Job {
 }
 
 interface Session {
+  id: string;
   dir: string;
   input: string;
   probe: ProbeResult;
   /** The lighter copy (LIGHT), kept apart from the usual one. */
   light: boolean;
+  /** The audio track's stream index, when one other than the file's usual pick was asked for. */
+  audioIndex: number | null;
   job: Job | null;
   lastUsed: number;
 }
@@ -392,42 +408,48 @@ export class Transcoder {
     return result;
   }
 
-  private async session(item: string, input: string, light: boolean): Promise<Session | null> {
-    const id = light ? `${item}-light` : item;
+  /**
+   * The conversion of one file: the usual copy, or the lighter one ([light]), with the audio track the file plays or
+   * audio track [audio] (counting audio tracks only). Each is kept apart, since they're different videos.
+   */
+  private async session(item: string, input: string, light: boolean, audio?: number): Promise<Session | null> {
+    const probe = await this.probe(input);
+    if (!probe?.convert) return null;
+    const stream = audio !== undefined && audio !== probe.audioTrack ? probe.audioIndexes[audio] : undefined;
+    if (audio !== undefined && audio !== probe.audioTrack && stream === undefined) return null;
+    const id = `${item}${light ? "-light" : ""}${stream !== undefined ? `-a${audio}` : ""}`;
     let s = this.sessions.get(id);
     if (s && s.input === input) {
       s.lastUsed = Date.now();
       return s;
     }
-    const probe = await this.probe(input);
-    if (!probe?.convert) return null;
+    if (s) await this.drop(id);
     s = this.sessions.get(id); // another request may have created it meanwhile
     if (s && s.input === input) return s;
-    if (s) await this.drop(id);
     const dir = path.join(this.config.dir, id);
     await fsp.rm(dir, { recursive: true, force: true });
     await fsp.mkdir(dir, { recursive: true });
-    s = { dir, input, probe, light, job: null, lastUsed: Date.now() };
+    s = { id, dir, input, probe, light, audioIndex: stream ?? null, job: null, lastUsed: Date.now() };
     this.sessions.set(id, s);
     return s;
   }
 
-  /** [light]: the lighter copy for slow connections (LIGHT) instead of the usual one. */
-  async playlist(id: string, input: string, light = false): Promise<string | null> {
-    const s = await this.session(id, input, light);
+  /** [light]: the lighter copy for slow connections (LIGHT) instead of the usual one; [audio]: another audio track. */
+  async playlist(id: string, input: string, light = false, audio?: number): Promise<string | null> {
+    const s = await this.session(id, input, light, audio);
     return s && playlist(s.probe.duration);
   }
 
   /** Path of segment n once it exists, converting from there if no running job will reach it soon. */
-  async segment(id: string, input: string, n: number, light = false): Promise<string | null> {
-    const s = await this.session(id, input, light);
+  async segment(id: string, input: string, n: number, light = false, audio?: number): Promise<string | null> {
+    const s = await this.session(id, input, light, audio);
     if (!s || n < 0 || n >= segmentCount(s.probe.duration)) return null;
     const file = path.join(s.dir, `${n}.ts`);
     const deadline = Date.now() + SEGMENT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       s.lastUsed = Date.now();
       if (fs.existsSync(file)) return file;
-      if (this.sessions.get(light ? `${id}-light` : id) !== s) return null;
+      if (this.sessions.get(s.id) !== s) return null;
       const job = s.job;
       if (job) this.advance(s, job);
       const coming = job && !job.exited && n >= job.start && n <= job.done + AHEAD_WINDOW;
@@ -452,7 +474,8 @@ export class Transcoder {
   private startJob(s: Session, start: number): void {
     // SIGKILL: on a gentle stop ffmpeg finishes the segment it is on, leaving a short one behind.
     s.job?.proc.kill("SIGKILL");
-    const args = ffmpegArgs({ input: s.input, probe: s.probe, start, outDir: s.dir, encoder: this.encoderUsed ?? "libx264", light: s.light });
+    const probe = s.audioIndex !== null ? { ...s.probe, audioIndex: s.audioIndex } : s.probe;
+    const args = ffmpegArgs({ input: s.input, probe, start, outDir: s.dir, encoder: this.encoderUsed ?? "libx264", light: s.light });
     const proc = spawn(this.config.ffmpeg, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     const job: Job = { proc, start, done: start - 1, exited: false, error: "" };
     // Not "Failed setup for format dxva2_vld: hwaccel initialisation returned error": the GPU couldn't decode this file,

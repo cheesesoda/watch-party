@@ -196,3 +196,22 @@ test("lengths are kept on disk, so a restart shows them before probing again", {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("parseProbe lists every audio track with a label, and which one plays", () => {
+  const info = parseProbe({
+    format: { format_name: "matroska", duration: "60" },
+    streams: [
+      { index: 0, codec_type: "video", codec_name: "h264" },
+      { index: 1, codec_type: "audio", codec_name: "ac3", channels: 6, tags: { language: "jpn" }, disposition: { default: 1 } },
+      { index: 2, codec_type: "audio", codec_name: "aac", channels: 2, tags: { language: "eng" } },
+      { index: 3, codec_type: "audio", codec_name: "aac", channels: 2, tags: { language: "eng", title: "Commentary" } },
+    ],
+  });
+  assert.deepEqual(info.audios, [
+    { index: 0, label: "Japanese · 5.1" },
+    { index: 1, label: "English · stereo" },
+    { index: 2, label: "English (Commentary) · stereo" },
+  ]);
+  assert.equal(info.audioTrack, 1);
+  assert.deepEqual(info.audioIndexes, [1, 2, 3]);
+});

@@ -375,19 +375,22 @@ export function createApp(config: Config): App {
     if (!entry) return void res.status(404).json({ error: "Not found." });
     const probe = await transcoder.probe(entry.absPath);
     if (!probe) return void res.json({ info: null });
-    const { videoIndex: _v, audioIndex: _a, subtitleIndexes: _s, ...info } = probe;
+    const { videoIndex: _v, audioIndex: _a, audioIndexes: _ai, subtitleIndexes: _s, ...info } = probe;
     res.json({ info });
   });
 
   // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS. Under light/, the
-  // lighter copy for slow connections.
+  // lighter copy for slow connections. ?audio=N picks another audio track (N counts audio tracks only).
+  const audioOf = (req: express.Request) => (typeof req.query.audio === "string" && /^\d{1,2}$/.test(req.query.audio) ? Number(req.query.audio) : undefined);
   const hlsPlaylist = (light: boolean) => async (req: express.Request, res: express.Response) => {
     const entry = await library.get(String(req.params.id));
-    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath, light));
+    const audio = audioOf(req);
+    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath, light, audio));
     if (!text) return void res.status(404).json({ error: "This file can't be converted." });
-    // A playlist opened with ?token= passes it on to its segments, which players fetch by relative link.
+    // A playlist opened with ?token= (or ?audio=) passes it on to its segments, which players fetch by relative link.
     const token = typeof req.query.token === "string" ? req.query.token : "";
-    if (token) text = text.replace(/^(\d+\.ts)$/gm, `$1?token=${encodeURIComponent(token)}`);
+    const query = [audio !== undefined ? `audio=${audio}` : "", token ? `token=${encodeURIComponent(token)}` : ""].filter(Boolean).join("&");
+    if (query) text = text.replace(/^(\d+\.ts)$/gm, `$1?${query}`);
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     res.setHeader("Cache-Control", "no-cache");
     res.send(text);
@@ -398,7 +401,7 @@ export function createApp(config: Config): App {
     if (!entry) return void res.status(404).json({ error: "Not found." });
     let file: string | null;
     try {
-      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]), light);
+      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]), light, audioOf(req));
     } catch (err) {
       return void res.status(500).json({ error: `Converting failed: ${(err as Error).message}` });
     }
