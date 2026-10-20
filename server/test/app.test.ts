@@ -324,3 +324,50 @@ test("Library health lists files that won't play, for the host only", async () =
   assert.equal(report.checked, report.total);
   assert.equal((await fetch(`${base}/api/library/health`)).status, 401);
 });
+
+test("a scheduled party keeps its code, tells friends when it starts, and opens 30 minutes before", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const post = (path: string, body: unknown, headers: Record<string, string> = auth()) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  assert.equal((await post("/api/scheduled", { mediaId: items[0].id, at: Date.now() - 1000 })).status, 400);
+  assert.equal((await post("/api/scheduled", { mediaId: items[0].id, at: Date.now() + 3600_000 }, {})).status, 401);
+
+  // Two days out: listed under Coming up, not a party yet.
+  const at = Date.now() + 2 * 24 * 3600_000;
+  const made = await post("/api/scheduled", { mediaId: items[0].id, at, name: "Jake" });
+  assert.equal(made.status, 201);
+  const { scheduled, invite } = await made.json();
+  assert.equal(scheduled.at, at);
+  assert.equal(scheduled.media.id, items[0].id);
+  assert.deepEqual(invite, { id: scheduled.id, at, opensAt: at - 30 * 60_000, title: "Ep One", host: "Jake", duration: null });
+  const listed = await (await fetch(`${base}/api/scheduled`, { headers: auth() })).json();
+  assert.deepEqual(listed.scheduled.map((s: { id: string }) => s.id), [scheduled.id]);
+  const parties = await (await fetch(`${base}/api/rooms`, { headers: auth() })).json();
+  assert.ok(!parties.rooms.some((r: { id: string }) => r.id === scheduled.id));
+
+  // A friend with the code: told when it starts, no pass yet. The invite page asks the same without joining.
+  const early = await post("/api/join", { code: scheduled.id.toUpperCase() }, {});
+  assert.equal(early.status, 409);
+  assert.equal((await early.json()).invite.title, "Ep One");
+  assert.equal((await (await fetch(`${base}/api/invite/${scheduled.id}`)).json()).invite.at, at);
+
+  // Start now: the party opens with the same code and friends get in.
+  const started = await post(`/api/scheduled/${scheduled.id}/start`, {});
+  assert.equal(started.status, 201);
+  assert.equal((await started.json()).room.id, scheduled.id);
+  assert.equal((await fetch(`${base}/api/scheduled`, { headers: auth() }).then((r) => r.json())).scheduled.length, 0);
+  assert.equal((await post("/api/join", { code: scheduled.id }, {})).status, 200);
+  assert.equal((await (await fetch(`${base}/api/invite/${scheduled.id}`)).json()).invite, null);
+  await post(`/api/rooms/${scheduled.id}/end`, {});
+
+  // Within 30 minutes of the start time it opens straight away.
+  const soon = await (await post("/api/scheduled", { queue: [items[0].id, "gone"], at: Date.now() + 10 * 60_000 })).json();
+  const rooms = await (await fetch(`${base}/api/rooms`, { headers: auth() })).json();
+  assert.ok(rooms.rooms.some((r: { id: string }) => r.id === soon.scheduled.id));
+  await post(`/api/rooms/${soon.scheduled.id}/end`, {});
+
+  // Cancel.
+  const later = await (await post("/api/scheduled", { mediaId: items[0].id, at })).json();
+  assert.equal((await fetch(`${base}/api/scheduled/${later.scheduled.id}`, { method: "DELETE", headers: auth() })).status, 204);
+  assert.equal((await post("/api/join", { code: later.scheduled.id }, {})).status, 404);
+});

@@ -5,7 +5,8 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, HistoryEntry, MediaItem, RoomSummary, ServerMessage, Spot } from "../../shared/protocol.ts";
+import type { ClientMessage, HistoryEntry, MediaItem, PartyInvite, RoomSummary, ScheduledParty, ServerMessage, Spot } from "../../shared/protocol.ts";
+import { episodeLabel } from "../../shared/specials.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -17,6 +18,7 @@ import { parseRange } from "./range.ts";
 import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
 import { History } from "./history.ts";
+import { opens, Schedule, type Planned } from "./schedule.ts";
 import { Spots } from "./spots.ts";
 import { srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
@@ -42,12 +44,36 @@ export function createApp(config: Config): App {
   // known, so a video without a credits mark still counts as watched near its end.
   const history = new History(config.historyFile);
   const health = new Health(config.healthFile, (file) => transcoder.probe(file));
-  const rooms = new RoomManager((id) => {
+  const lookupMedia = (id: string) => {
     const entry = library.peek(id);
     if (!entry) return undefined;
     const duration = transcoder.knownDuration(entry.absPath);
     return markers.attach(metadata.enrich(duration ? { ...entry.item, duration } : entry.item));
-  }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
+  };
+  const rooms = new RoomManager(lookupMedia, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
+  // Parties scheduled for later keep their code from the start, so no new party may take it.
+  const schedule = new Schedule(config.scheduleFile);
+  rooms.reserved = (code) => schedule.has(code);
+  // A scheduled party becomes an ordinary one 30 minutes before it starts, so friends can join and wait for the host.
+  // Left empty, it's kept until 30 minutes after the start time, like any party nobody is in.
+  const openParty = (p: Planned): Room => {
+    const room = rooms.create(undefined, p.queue, 0, false, p.id);
+    room.emptySince = Math.max(room.emptySince, p.at);
+    console.log(`schedule: party ${p.id.toUpperCase()} is open (${room.media?.title ?? "nothing picked"}, starts ${new Date(p.at).toLocaleString()})`);
+    return room;
+  };
+  const openDue = async () => {
+    if (!schedule.list().some((p) => opens(p) <= Date.now())) return;
+    await library.list();
+    for (const p of schedule.takeDue()) openParty(p);
+  };
+  const titleOf = (m: MediaItem | undefined) =>
+    !m ? "A watch party" : m.episode ? `${m.meta?.show ?? m.episode.show} · ${episodeLabel(m.episode.season, m.episode.episode)}` : (m.meta?.title ?? m.title);
+  const inviteOf = async (p: Planned): Promise<PartyInvite> => {
+    await library.list();
+    const media = lookupMedia(p.queue[0]);
+    return { id: p.id, at: p.at, opensAt: opens(p), title: titleOf(media), host: p.host, duration: media?.duration ?? null };
+  };
   const findMarks = async () => {
     const items = await library.list();
     const entries = items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath);
@@ -122,15 +148,19 @@ export function createApp(config: Config): App {
 
   // Viewers join one party with its code, no password. The pass stops working when the party ends.
   const joinLimiter = new FailureLimiter();
-  app.post("/api/join", (req, res) => {
+  app.post("/api/join", async (req, res) => {
     const client = clientOf(req);
     const wait = joinLimiter.blockedFor(client);
     if (wait > 0) {
       res.setHeader("Retry-After", String(wait));
       return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
     }
+    await openDue();
     const code = req.body?.code;
     const room = typeof code === "string" && code.trim() ? rooms.joinable(code.trim()) : undefined;
+    // A scheduled party that hasn't opened yet: when it starts, so the app can say so.
+    const planned = !room && typeof code === "string" && code.trim() ? schedule.get(code.trim()) : undefined;
+    if (planned) return void res.status(409).json({ error: "This party hasn't started yet.", invite: await inviteOf(planned) });
     if (!room) {
       joinLimiter.fail(client);
       return void res.status(404).json({ error: "No party with that code. It may have ended." });
@@ -140,6 +170,18 @@ export function createApp(config: Config): App {
     const token = guestToken(room.id, room.guestKey);
     res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: 7 * 24 * 3600 * 1000 });
     res.json({ token, room: room.summary() });
+  });
+
+  // What an invite link shows before its party opens. Answers null for a party that's already on (or no party), so
+  // this says nothing a join wouldn't; unknown codes count toward the same limit.
+  app.get("/api/invite/:code", async (req, res) => {
+    const client = clientOf(req);
+    if (joinLimiter.blockedFor(client) > 0) return void res.json({ invite: null });
+    await openDue();
+    const code = req.params.code.trim();
+    const planned = schedule.get(code);
+    if (!planned && !rooms.joinable(code)) joinLimiter.fail(client);
+    res.json({ invite: planned ? await inviteOf(planned) : null });
   });
 
   // Signing in a TV from a phone: the TV asks for a pairing and shows it as a QR code; the phone opens
@@ -173,7 +215,7 @@ export function createApp(config: Config): App {
     res.json({ status: "done", ...p.result });
   });
 
-  app.post("/api/pair/:id", (req, res) => {
+  app.post("/api/pair/:id", async (req, res) => {
     const p = pending(req.params.id);
     if (!p || p.result) return void res.status(404).json({ error: "This sign-in code expired. Show a new one on the TV." });
     const client = clientOf(req);
@@ -183,7 +225,10 @@ export function createApp(config: Config): App {
     if (typeof code === "string" && code.trim()) {
       const wait = joinLimiter.blockedFor(client);
       if (wait > 0) return void res.status(429).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} min.` });
+      await openDue();
       const room = rooms.joinable(code.trim());
+      const planned = !room ? schedule.get(code.trim()) : undefined;
+      if (planned) return void res.status(409).json({ error: "This party hasn't started yet. Use the code again when it does.", invite: await inviteOf(planned) });
       if (!room) {
         joinLimiter.fail(client);
         return void res.status(404).json({ error: "No party with that code. It may have ended." });
@@ -454,6 +499,7 @@ export function createApp(config: Config): App {
   };
 
   app.get("/api/rooms", async (_req, res) => {
+    await openDue();
     res.json({ rooms: await Promise.all(rooms.parties().map(withPlayback)) });
   });
 
@@ -518,6 +564,58 @@ export function createApp(config: Config): App {
   app.delete("/api/spots/:id", (req, res) => {
     if (!rooms.spots.remove(req.params.id)) return void res.status(404).json({ error: "No such spot." });
     res.status(204).end();
+  });
+
+  // Parties scheduled for later, soonest first.
+  const scheduledOf = (p: Planned): ScheduledParty => ({
+    id: p.id,
+    at: p.at,
+    media: lookupMedia(p.queue[0]) ?? null,
+    count: p.queue.filter((id) => library.peek(id)).length,
+  });
+  app.get("/api/scheduled", async (_req, res) => {
+    await openDue();
+    await library.list();
+    res.json({ scheduled: schedule.list().map(scheduledOf) });
+  });
+
+  // Schedule: a party for later. Its code works from now on; friends who use it early are told when it starts.
+  app.post("/api/scheduled", async (req, res) => {
+    const at: unknown = req.body?.at;
+    const now = Date.now();
+    if (typeof at !== "number" || !Number.isFinite(at) || at <= now || at > now + 366 * 24 * 3600_000) {
+      return void res.status(400).json({ error: "Pick a time in the future." });
+    }
+    if (schedule.list().length >= 50) return void res.status(400).json({ error: "That's a lot of parties. Cancel one first." });
+    const mediaId: unknown = req.body?.mediaId;
+    const queue: unknown = req.body?.queue ?? (typeof mediaId === "string" ? [mediaId] : undefined);
+    if (!Array.isArray(queue) || queue.length === 0 || queue.length > MAX_QUEUE || queue.some((id) => typeof id !== "string")) {
+      return void res.status(400).json({ error: "Send mediaId, or queue (a list of video ids)." });
+    }
+    await library.list();
+    const known = (queue as string[]).filter((id) => library.peek(id));
+    if (known.length === 0) return void res.status(400).json({ error: "That file is not in the library." });
+    const name: unknown = req.body?.name;
+    const planned = schedule.add(rooms.newCode(), known, at, typeof name === "string" && name.trim() ? cleanName(name) : null);
+    console.log(`schedule: party ${planned.id.toUpperCase()} scheduled for ${new Date(at).toLocaleString()} (${titleOf(lookupMedia(known[0]))})`);
+    const item = scheduledOf(planned);
+    await openDue();
+    res.status(201).json({ scheduled: item, invite: await inviteOf(planned) });
+  });
+
+  app.delete("/api/scheduled/:id", (req, res) => {
+    if (!schedule.remove(req.params.id)) return void res.status(404).json({ error: "No such scheduled party." });
+    console.log(`schedule: party ${req.params.id.toUpperCase()} cancelled`);
+    res.status(204).end();
+  });
+
+  // Start now: everyone's early. The party opens with the same code.
+  app.post("/api/scheduled/:id/start", async (req, res) => {
+    const planned = schedule.get(req.params.id);
+    if (!planned) return void res.status(404).json({ error: "No such scheduled party." });
+    await library.list();
+    schedule.remove(planned.id);
+    res.status(201).json({ room: openParty(planned).summary() });
   });
 
   app.post("/api/rooms", async (req, res) => {
@@ -674,7 +772,10 @@ export function createApp(config: Config): App {
     for (const id of pairings.keys()) pending(id);
   }, 60_000);
   sweeper.unref();
-  const keeper = setInterval(() => rooms.keepSpots(), 15_000);
+  const keeper = setInterval(() => {
+    rooms.keepSpots();
+    void openDue();
+  }, 15_000);
   keeper.unref();
 
   return {

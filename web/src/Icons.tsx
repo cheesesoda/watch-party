@@ -276,3 +276,29 @@ export const FileSearchIcon = (p: Props) => (
     <circle cx="5" cy="14" r="3" />
   </Svg>
 );
+
+/** Schedule. */
+export const CalendarIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M8 2v4M16 2v4" />
+    <rect width="18" height="18" x="3" y="4" rx="2" />
+    <path d="M3 10h18" />
+  </Svg>
+);
+
+/** Add to calendar. */
+export const CalendarPlusIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M8 2v4M16 2v4" />
+    <path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8" />
+    <path d="M3 10h18M16 19h6M19 16v6" />
+  </Svg>
+);
+
+/** A scheduled party's start time. */
+export const ClockIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 6v6l4 2" />
+  </Svg>
+);

@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { MediaItem, Spot } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { byName, fmtRuntime, partsLength, plural, type Catalog, type Show } from "./catalog.ts";
-import { CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
+import { CalendarIcon, CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
 import { BROWSER_SAFE, MoreMenu, Poster, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { SpotLine } from "./Spots.tsx";
+import type { ScheduleWhat } from "./Schedule.tsx";
+import { episodeLabel } from "../../shared/specials.ts";
 
 /** What every page needs: the grouped library, and how to start a party or open the Details window. */
 export interface Browse {
@@ -31,6 +33,8 @@ export interface Browse {
   spot?: { of: (show: Show) => Spot | undefined; start: (s: Spot) => void };
   /** On the dashboard: Mark as watched / not watched. */
   watch?: { mark: (ids: string[], watched: boolean) => void };
+  /** On the dashboard, for parties: opens Schedule for these videos. */
+  schedule?: (what: ScheduleWhat) => void;
 }
 
 const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
@@ -421,6 +425,11 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
             <button className="pill primary" onClick={() => b.start(playIds(item))}>
               <PlayIcon size={18} /> {startLabel(b)}
             </button>
+            {b.schedule && (
+              <ScheduleButton
+                onClick={() => b.schedule!({ ids: playIds(item), title: m?.title ?? item.title, sub: movieFacts(item, b.cat).slice(0, 2).join(" · "), poster: m?.posterPath ?? null })}
+              />
+            )}
             {b.queue && <QueueButton b={b} ids={playIds(item)} label={m?.title ?? item.title} />}
             <MoreMenu
               label={`More for ${item.title}`}
@@ -443,6 +452,15 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
       )}
       {b.details && <Credit />}
     </div>
+  );
+}
+
+/** Schedule: a party for later, next to Start party. */
+function ScheduleButton(props: { onClick: () => void }) {
+  return (
+    <button className="pill tonal" onClick={props.onClick}>
+      <CalendarIcon size={18} /> Schedule
+    </button>
   );
 }
 
@@ -483,6 +501,21 @@ export function ShowPage(props: { b: Browse; show: Show }) {
             <button className={spot ? "pill tonal" : "pill primary"} onClick={() => b.start(inSeason(binge).map((e) => e.id))}>
               <PlayIcon size={18} /> Binge {bingeName}
             </button>
+            {b.schedule && (
+              // Schedules what the first button plays: the binge from the saved spot's episode, or the season.
+              <ScheduleButton
+                onClick={() =>
+                  b.schedule!({
+                    ids: spot ? [spot.media.id, ...spot.next.map((e) => e.id)] : inSeason(binge).map((e) => e.id),
+                    title: show.name,
+                    sub: spot?.media.episode
+                      ? `Continue binge from ${episodeLabel(spot.media.episode.season, spot.media.episode.episode)}`
+                      : `Binge ${bingeName}, ${plural(inSeason(binge).length, binge === EXTRAS ? "video" : binge === SPECIALS ? "special" : "episode")}`,
+                    poster: m?.showPosterPath ?? null,
+                  })
+                }
+              />
+            )}
             {b.queue && (
               <button className="pill tonal" onClick={() => b.queue!.add(inSeason(binge).map((e) => e.id), `${show.name} ${bingeName}`)}>
                 <ListPlusIcon size={18} /> Add {bingeName} to Up next

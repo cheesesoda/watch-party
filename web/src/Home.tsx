@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { episodeLabel } from "../../shared/specials.ts";
-import { worthSaving, type HealthReport, type MediaItem, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
+import { worthSaving, type HealthReport, type MediaItem, type PartyInvite, type RoomPlayback, type RoomSummary, type ScheduledParty, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
-import { ActivityIcon, CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
+import { ActivityIcon, CalendarPlusIcon, CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
 import { HealthPage, needsFixing } from "./Health.tsx";
 import { HistoryPage } from "./History.tsx";
 import { Details } from "./Library.tsx";
@@ -12,11 +12,17 @@ import { navigate, usePageTitle } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 import { useArtTone } from "./artTone.ts";
 import { SaveSpotDialog, spotPreview, SpotRow } from "./Spots.tsx";
+import { addToCalendar, partyTitle, ScheduledCard, ScheduleDialog, whenLong, type ScheduleWhat } from "./Schedule.tsx";
 
 /** The link friends open to join; it lands on the join screen with the code filled in. */
 // A real path rather than #/join/, so Android can open it in the app; the server redirects browsers to #/join/.
 export const inviteLink = (code: string) =>
   `${getInviteBase()}/join/${code.toUpperCase()}`;
+/**
+ * A scheduled party's invite carries its title and start time, so the always-on invite page can still show them (and
+ * make the calendar event) while the host's PC is off.
+ */
+const scheduledLink = (p: { id: string; at: number; title: string }) => `${inviteLink(p.id)}?${new URLSearchParams({ t: p.title, at: String(p.at) })}`;
 
 const NAV: [string, string, (p: { size?: number }) => ReactNode][] = [
   ["/", "Home", HomeIcon],
@@ -40,6 +46,10 @@ export function Home(props: {
 }) {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [started, setStarted] = useState<RoomSummary | null>(null);
+  // Parties scheduled for later (Coming up), the Schedule dialog while it's open, and the one just scheduled.
+  const [scheduled, setScheduled] = useState<ScheduledParty[]>([]);
+  const [scheduling, setScheduling] = useState<ScheduleWhat | null>(null);
+  const [planned, setPlanned] = useState<PartyInvite | null>(null);
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
   // The party whose code was just clicked, to say its invite link was copied.
@@ -92,6 +102,7 @@ export function Home(props: {
         },
         () => {},
       );
+      api.scheduled().then(setScheduled, () => {});
       // Parties that closed by themselves, or ended elsewhere, may have saved a spot.
       void loadSpots();
     load();
@@ -122,22 +133,56 @@ export function Home(props: {
     }
   };
 
-  const copy = async (id: string) => {
+  const copy = async (id: string, link = inviteLink(id)) => {
     try {
-      await navigator.clipboard.writeText(inviteLink(id));
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      prompt("Copy this invite link", inviteLink(id));
+      prompt("Copy this invite link", link);
     }
   };
-  const copyCode = async (id: string) => {
+  const copyCode = async (id: string, link = inviteLink(id)) => {
     try {
-      await navigator.clipboard.writeText(inviteLink(id));
+      await navigator.clipboard.writeText(link);
       setCopiedCode(id);
       setTimeout(() => setCopiedCode((c) => (c === id ? null : c)), 2000);
     } catch {
-      prompt("Copy this invite link", inviteLink(id));
+      prompt("Copy this invite link", link);
+    }
+  };
+
+  const schedule = async (what: ScheduleWhat, at: number) => {
+    const made = await api.schedule(what.ids, at, props.name);
+    setScheduling(null);
+    setStarted(null);
+    setPlanned(made.invite);
+    setScheduled((ss) => [...ss.filter((x) => x.id !== made.scheduled.id), made.scheduled].sort((a, b) => a.at - b.at));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Within 30 minutes of the start it's a party already.
+    api.rooms().then(setRooms, () => {});
+  };
+  const cancelScheduled = async (p: ScheduledParty) => {
+    if (!confirm(`Cancel the ${partyTitle(p.media)} party on ${whenLong(p.at)}? Its code stops working.`)) return;
+    try {
+      await api.cancelScheduled(p.id);
+      setScheduled((ss) => ss.filter((x) => x.id !== p.id));
+      setPlanned((x) => (x?.id === p.id ? null : x));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const startScheduled = async (p: ScheduledParty) => {
+    setError(null);
+    try {
+      const room = await api.startScheduled(p.id);
+      setScheduled((ss) => ss.filter((x) => x.id !== p.id));
+      setPlanned((x) => (x?.id === p.id ? null : x));
+      setStarted(room);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setRooms((rs) => [...rs.filter((r) => r.id !== room.id), room]);
+    } catch (err) {
+      setError((err as Error).message);
     }
   };
 
@@ -204,6 +249,8 @@ export function Home(props: {
       convert: library?.convert ?? true,
       start: (ids) => void start(ids),
       startLabel,
+      // Watching alone there's nobody to schedule for.
+      schedule: alone ? undefined : setScheduling,
       openInfo: (id, fix = false) => setInfo({ id, fix }),
       spot: {
         of: (show) => spots.find((sp) => show.episodes.some((e) => e.id === sp.media.id)),
@@ -287,6 +334,25 @@ export function Home(props: {
       ))}
     </div>
   );
+  const comingUp = scheduled.length > 0 && (
+    <>
+      <h2 className="coming-up">Coming up</h2>
+      <div className="party-grid">
+        {scheduled.map((p) => (
+          <ScheduledCard
+            key={p.id}
+            party={p}
+            details={browse.details}
+            copied={copiedCode === p.id}
+            onCopy={() => copyCode(p.id, scheduledLink({ id: p.id, at: p.at, title: partyTitle(p.media) }))}
+            onCancel={() => void cancelScheduled(p)}
+            onStart={() => void startScheduled(p)}
+          />
+        ))}
+      </div>
+    </>
+  );
+  const partyCount = rooms.length + scheduled.length;
 
   return (
     <div className="dash">
@@ -299,7 +365,7 @@ export function Home(props: {
             <button key={path} className={section === path && !query.trim() ? "on" : ""} aria-current={section === path && !query.trim() ? "page" : undefined} onClick={() => go(path)}>
               <Icon size={20} />
               <span>{label}</span>
-              {path === "/parties" && rooms.length > 0 && <b className="nav-count">{rooms.length}</b>}
+              {path === "/parties" && partyCount > 0 && <b className="nav-count">{partyCount}</b>}
             </button>
           ))}
         </nav>
@@ -356,9 +422,31 @@ export function Home(props: {
           </form>
         </header>
 
-        {(error || started) && (
+        {(error || started || planned) && (
           <div className="dash-notices">
             {error && <p className="error">{error}</p>}
+            {planned && (
+              <div className="started">
+                <div>
+                  <p>
+                    Party scheduled for <strong>{planned.title}</strong> on <strong>{whenLong(planned.at)}</strong>. Share the code or the invite link now;
+                    friends who open it early see when it starts.
+                  </p>
+                  <p className="party-code">{planned.id.toUpperCase()}</p>
+                </div>
+                <div className="started-actions">
+                  <button className="pill primary" onClick={() => copy(planned.id, scheduledLink(planned))}>
+                    {copied ? "Link copied" : "Copy invite link"}
+                  </button>
+                  <button className="pill tonal" onClick={() => addToCalendar(planned, scheduledLink(planned))}>
+                    <CalendarPlusIcon size={18} /> Add to calendar
+                  </button>
+                  <button className="pill text" onClick={() => setPlanned(null)}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
             {started && (
               <div className="started">
                 <div>
@@ -394,12 +482,13 @@ export function Home(props: {
           <SpotRow spots={spots} details={browse.details} startLabel={startLabel} onStart={(sp) => void start([], sp)} onRemove={removeSpot} onOpen={openSpot} />
         )}
 
-        {route === "/" && !query.trim() && rooms.length > 0 && (
+        {route === "/" && !query.trim() && partyCount > 0 && (
           <section className="dash-section">
             <div className="dash-section-head">
               <h2>Watch Parties</h2>
             </div>
-            {partyCards}
+            {rooms.length > 0 && partyCards}
+            {comingUp}
           </section>
         )}
 
@@ -407,14 +496,19 @@ export function Home(props: {
           <>
             <div className="page-head">
               <h1>Watch Parties</h1>
-              <span className="count">{rooms.length}</span>
+              <span className="count">{partyCount}</span>
             </div>
-            {rooms.length === 0 ? <p className="muted">No parties right now. Start one from any movie or episode.</p> : partyCards}
+            {partyCount === 0 ? <p className="muted">No parties right now. Start or schedule one from any movie or show.</p> : rooms.length > 0 && partyCards}
+            {comingUp}
           </>
         ) : (
           page
         )}
       </main>
+
+      {scheduling && (
+        <ScheduleDialog what={scheduling} details={browse.details} onCancel={() => setScheduling(null)} onSchedule={(at) => schedule(scheduling, at)} />
+      )}
 
       {ending?.media &&
         (() => {

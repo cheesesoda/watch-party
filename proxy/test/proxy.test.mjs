@@ -50,6 +50,8 @@ test("invite links forward to the app", async () => {
   assert.equal(res.status, 302);
   assert.equal(res.headers.location, "https://app.tv.chzsda.com/join/ABC123");
   assert.equal(inviteRoute("/", "app.x"), "https://app.x/");
+  // A scheduled party's title and time go along, nothing else.
+  assert.equal(inviteRoute("/join/ABC123?t=Charade%20%26%20co&at=123&x=1", "app.x"), "https://app.x/join/ABC123?t=Charade+%26+co&at=123");
 });
 
 test("tv.chzsda.com/apk downloads the Fire TV app", async () => {

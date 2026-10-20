@@ -1,4 +1,4 @@
-import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
+import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, PartyInvite, RoomSummary, ScheduledParty, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
 
 /** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
 export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
@@ -11,6 +11,15 @@ export type LibraryResponse = { items: MediaItem[]; convert: boolean; details?: 
 
 export class Unauthorized extends Error {}
 
+/** A scheduled party's code, used before the party opens: [invite] says when it starts. */
+export class NotStarted extends Error {
+  readonly invite: PartyInvite;
+  constructor(message: string, invite: PartyInvite) {
+    super(message);
+    this.invite = invite;
+  }
+}
+
 /** The host signed in with the password; a guest joined one party with its code. */
 export type Me = { role: "host" } | { role: "guest"; room: string };
 
@@ -22,6 +31,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 401) throw new Unauthorized("Not signed in.");
   const body = await res.json().catch(() => ({}));
+  if (res.status === 409 && body.invite) throw new NotStarted(body.error, body.invite);
   if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body as T;
 }
@@ -101,6 +111,16 @@ export const api = {
   spots: () => call<{ spots: Spot[] }>("/api/spots").then((r) => r.spots),
   removeSpot: (id: string) => call(`/api/spots/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** A new party at a saved spot, with the rest lined up in Up next. The spot is used up. */
+  /** Parties scheduled for later, soonest first. */
+  scheduled: () => call<{ scheduled: ScheduledParty[] }>("/api/scheduled").then((r) => r.scheduled),
+  /** Schedules a party for [at] (ms since epoch); its code works from now on. name: who's hosting, for the invite. */
+  schedule: (ids: string[], at: number, name: string) =>
+    call<{ scheduled: ScheduledParty; invite: PartyInvite }>("/api/scheduled", { method: "POST", body: JSON.stringify({ queue: ids, at, name }) }),
+  cancelScheduled: (id: string) => call(`/api/scheduled/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** Opens a scheduled party now, with the same code. */
+  startScheduled: (id: string) => call<{ room: RoomSummary }>(`/api/scheduled/${encodeURIComponent(id)}/start`, { method: "POST" }).then((r) => r.room),
+  /** What an invite link shows before its party opens; null once it's on (or for no party). No sign-in needed. */
+  invite: (code: string) => call<{ invite: PartyInvite | null }>(`/api/invite/${encodeURIComponent(code)}`).then((r) => r.invite),
   startSpot: (id: string, solo = false) =>
     call<{ room: RoomSummary }>("/api/rooms", { method: "POST", body: JSON.stringify({ spot: id, solo }) }).then((r) => r.room),
 };

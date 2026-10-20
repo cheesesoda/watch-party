@@ -198,6 +198,32 @@ data class RoomSummary(
 @Serializable
 data class UpNextInfo(val item: MediaItem, val count: Int)
 
+/** A party set up for later (Schedule, on the web). Its code works from the start; it opens 30 minutes before [at]. */
+@Serializable
+data class ScheduledParty(
+    val id: String,
+    /** When it starts (ms since epoch). */
+    val at: Long,
+    /** The first video, and how many are lined up in all (1 for a movie). */
+    val media: MediaItem? = null,
+    val count: Int = 1,
+)
+
+/** What a friend with a scheduled party's code is told before it opens. */
+@Serializable
+data class PartyInvite(
+    val id: String,
+    val at: Long,
+    /** When the code starts joining the party (ms since epoch). */
+    val opensAt: Long,
+    /** "Charade", or "Reacher · S2 E1" for an episode. */
+    val title: String,
+    /** Who scheduled it, for "Jake's party". */
+    val host: String? = null,
+    /** The first video's length in seconds, for the calendar event. */
+    val duration: Double? = null,
+)
+
 /** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
 @Serializable
 data class Spot(

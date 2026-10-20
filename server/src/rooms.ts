@@ -638,11 +638,8 @@ export class RoomManager {
    * queue: a binge, played in order from its first video (mediaId is then ignored). position: where in the first
    * video to start (picking up a saved spot).
    */
-  create(mediaId?: string, queue?: string[], position = 0, solo = false): Room {
-    let id: string;
-    do {
-      id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
-    } while (this.rooms.has(id));
+  create(mediaId?: string, queue?: string[], position = 0, solo = false, code?: string): Room {
+    const id = code ?? this.newCode();
     const room = new Room(id, this.lookup, this.now, this.iceServers);
     room.solo = solo;
     room.autoplay = solo;
@@ -661,6 +658,18 @@ export class RoomManager {
     if (room.media && position > 0) room.state = { ...room.state, position };
     this.rooms.set(id, room);
     return room;
+  }
+
+  /** Codes already given out for later (scheduled parties), so a new party never takes one. */
+  reserved: (code: string) => boolean = () => false;
+
+  /** A fresh 6-character party code. */
+  newCode(): string {
+    let id: string;
+    do {
+      id = crypto.randomBytes(4).toString("base64url").replace(/[-_]/g, "x").slice(0, 6).toLowerCase();
+    } while (this.rooms.has(id) || this.reserved(id));
+    return id;
   }
 
   get(id: string): Room | undefined {

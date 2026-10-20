@@ -374,6 +374,11 @@ private fun JoinForm(prefs: Prefs, invite: String = "", onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // A scheduled party's code used before it opens: when it starts, and its invite link for the calendar.
+    var notYet by remember { mutableStateOf<Pair<PartyInvite, String>?>(null) }
+    val isTv = remember {
+        context.getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
 
     val submit: () -> Unit = submit@{
         val isLink = code.contains("://") || code.contains("/#/")
@@ -396,20 +401,28 @@ private fun JoinForm(prefs: Prefs, invite: String = "", onBack: () -> Unit) {
         busy = true
         error = null
         scope.launch {
+            var resolved = url
             try {
-                val resolved = Api.resolveServer(url)
+                resolved = Api.resolveServer(url)
                 val joined = Api(resolved, "").join(id)
                 prefs.serverUrl = resolved
                 prefs.token = joined.token.orEmpty()
                 prefs.name = name.trim().take(32)
                 prefs.lastRoom = joined.room.id
                 RoomActivity.start(context, joined.room.id, host = false)
+            } catch (e: NotStartedException) {
+                val link = inviteLink(resolved, e.invite.id) + "?t=" + Uri.encode(e.invite.title) + "&at=" + e.invite.at
+                notYet = e.invite to link
             } catch (e: Exception) {
                 error = e.message ?: "Couldn't reach the server."
             } finally {
                 busy = false
             }
         }
+    }
+
+    notYet?.let { (inv, link) ->
+        NotStartedDialog(inv, isTv, onCalendar = { addToCalendar(context, inv, link) }, onDismiss = { notYet = null })
     }
 
     FormCard {

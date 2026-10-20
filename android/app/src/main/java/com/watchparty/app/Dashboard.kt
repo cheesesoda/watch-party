@@ -250,6 +250,10 @@ private class Actions(
     val startAt: (MediaItem, Double) -> Unit = { m, _ -> start(m, null) },
     /** A party's invite link, to share or scan. */
     val inviteLink: (RoomSummary) -> String = { "" },
+    /** Parties scheduled for later (Coming up), and what picking one does: Start now or Cancel party. */
+    val scheduled: List<ScheduledParty> = emptyList(),
+    val askScheduled: (ScheduledParty) -> Unit = {},
+    val scheduledLink: (ScheduledParty) -> String = { "" },
 ) {
     val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else if (alone) "Play" else "Start party"
 }
@@ -269,6 +273,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
     val scope = rememberCoroutineScope()
     var rooms by remember { mutableStateOf<List<RoomSummary>>(emptyList()) }
     var started by remember { mutableStateOf<RoomSummary?>(null) }
+    // Scheduled on the web for later, and the one the host just picked (Start now / Cancel party).
+    var scheduled by remember { mutableStateOf<List<ScheduledParty>>(emptyList()) }
+    var askingScheduled by remember { mutableStateOf<ScheduledParty?>(null) }
     /** A Start party press is waiting on the server. */
     var starting by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<MediaItem>?>(null) }
@@ -361,6 +368,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
                 fetchedAt = System.currentTimeMillis()
                 now = fetchedAt
             }
+            runCatching { api.scheduled() }.onSuccess { scheduled = it }
             // Parties ended in the player, or that closed by themselves, may have saved a spot.
             guard { api.spots() }?.let { spots = it }
             delay(5000)
@@ -461,6 +469,9 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         info = { shownInfo = it.id; resumeAt = null },
         join = { RoomActivity.start(context, it.id) },
         inviteLink = { inviteLink(prefs.serverUrl, it.id) },
+        scheduled = scheduled,
+        askScheduled = { askingScheduled = it },
+        scheduledLink = { scheduledLink(prefs.serverUrl, it) },
         end = { ending = it },
         spotOf = { show -> spots.firstOrNull { sp -> show.episodes.any { it.id == sp.media.id } } },
         startSpot = { spotActions.start(it) },
@@ -488,7 +499,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         val show = route.removePrefix("show/").takeIf { route.startsWith("show/") }?.let { lib?.show(it) }
         when {
             route == "settings" -> SettingsPage(prefs, tv, onSignOut = { onSignedOut(null) })
-            route == "parties" -> PartiesPage(rooms, sinceFetch, lib?.details == true, actions, gridState)
+            route == "parties" -> PartiesPage(rooms, scheduled, sinceFetch, lib?.details == true, actions, gridState)
             lib == null -> Message(error ?: "Loading library…", error != null)
             lib.items.isEmpty() -> Message("No videos found. Put files in the server's media folder.", false)
             movie != null -> MoviePage(lib, movie, actions, listState)
@@ -534,7 +545,10 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             val id = Prefs.roomCode(code)
             if (id.isNotEmpty()) {
                 askCode = false
-                scope.launch { guard { api.room(id) }?.let { RoomActivity.start(context, it.id) } }
+                // A scheduled party's code: offer to start it now rather than say there's no such party.
+                val planned = scheduled.firstOrNull { it.id == id }
+                if (planned != null) askingScheduled = planned
+                else scope.launch { guard { api.room(id) }?.let { RoomActivity.start(context, it.id) } }
             }
         }
     }
@@ -569,6 +583,25 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             confirmButton = { DialogButton("End party", danger = true) { endIt(false) } },
             dismissButton = { DialogButton("Cancel") { ending = null } },
             containerColor = DialogSurface,
+        )
+    }
+    askingScheduled?.let { p ->
+        StartScheduledDialog(
+            p,
+            onStart = {
+                askingScheduled = null
+                scope.launch {
+                    guard { api.startScheduled(p.id) }?.let { room ->
+                        scheduled = scheduled.filter { it.id != p.id }
+                        showStarted(room)
+                    }
+                }
+            },
+            onCancelParty = {
+                askingScheduled = null
+                scope.launch { guard { api.cancelScheduled(p.id) }?.let { scheduled = scheduled.filter { it.id != p.id } } }
+            },
+            onDismiss = { askingScheduled = null },
         )
     }
     spotOptions?.let { s ->
@@ -1048,7 +1081,7 @@ private fun HomePage(
                     }
                 }
             }
-            if (rooms.isNotEmpty()) {
+            if (rooms.isNotEmpty() || a.scheduled.isNotEmpty()) {
                 item(key = "parties") {
                     ShelfRow("Watch Parties", null, a) {
                         // End under each card, as on the Watch Parties page and the web's Home.
@@ -1057,6 +1090,10 @@ private fun HomePage(
                                 PartyCard(room, sinceFetch, lib.details, a, width = null)
                                 Pill("End party", null, small = true, text = true) { a.end(room) }
                             }
+                        }
+                        // Then the ones scheduled for later, soonest first.
+                        items(a.scheduled, key = { "scheduled-" + it.id }) { p ->
+                            Box(Modifier.width(if (tv) 300.dp else 290.dp)) { ScheduledCard(p, lib.details, a) }
                         }
                     }
                 }
@@ -1456,7 +1493,7 @@ private fun PageTitle(title: String, count: String?) {
 }
 
 @Composable
-private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boolean, a: Actions, state: LazyGridState) {
+private fun PartiesPage(rooms: List<RoomSummary>, scheduled: List<ScheduledParty>, sinceFetch: Long, details: Boolean, a: Actions, state: LazyGridState) {
     val context = LocalContext.current
     val side = if (a.tv) 96.dp else 16.dp
     LazyVerticalGrid(
@@ -1466,8 +1503,8 @@ private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boo
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch Parties", rooms.size.toString()) }
-        if (rooms.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No parties right now. Start one from any movie or episode.", color = Muted) }
+        item(span = { GridItemSpan(maxLineSpan) }) { PageTitle("Watch Parties", (rooms.size + scheduled.size).toString()) }
+        if (rooms.isEmpty() && scheduled.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Text("No parties right now. Start one from any movie or episode.", color = Muted) }
         items(rooms, key = { it.id }) { room ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PartyCard(room, sinceFetch, details, a, width = null)
@@ -1476,6 +1513,65 @@ private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boo
                     Pill("End party", null, small = true, text = true) { a.end(room) }
                 }
             }
+        }
+        if (scheduled.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("Coming up", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = if (a.tv) 22.sp else 18.sp, modifier = Modifier.padding(top = if (rooms.isEmpty()) 0.dp else 10.dp))
+            }
+            items(scheduled, key = { "scheduled-" + it.id }) { p ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScheduledCard(p, details, a)
+                    if (!a.tv) Pill("Share invite", null, small = true, text = true) { shareInvite(context, p.id, a.scheduledLink(p)) }
+                }
+            }
+        }
+    }
+}
+
+/** A party scheduled for later: its art with the day and time, then "Coming up in 4 days". Picking it asks Start now? */
+@Composable
+private fun ScheduledCard(party: ScheduledParty, details: Boolean, a: Actions) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val m = party.media?.meta
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .scale(if (focused) 1.04f else 1f)
+            .border(if (focused) 3.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+            .clip(shape)
+            .background(Panel)
+            .remembersFocus()
+            .clickable(interactionSource = interaction, indication = if (a.tv) null else androidx.compose.material3.ripple()) { a.askScheduled(party) },
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2.6f).background(Brush.linearGradient(listOf(Color(0xFF3A3550), Color(0xFF1F1A29))))) {
+            val art = if (details) m?.backdropPath ?: m?.stillPath else null
+            if (art != null) Art(a.api, art, "w780", Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Panel)))
+            Row(
+                Modifier.padding(8.dp).clip(CircleShape).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Icon(painterResource(R.drawable.ic_clock), null, tint = Accent, modifier = Modifier.size(12.dp))
+                Text(whenShort(party.at), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp, color = Color.White)
+            }
+            Text(
+                party.id.uppercase(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd).padding(7.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xCC0A070E)).padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(partyTitle(party.media) + if (party.count > 1) " · ${party.count} videos" else "", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text("Start now", color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(comingUp(party.at), color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
