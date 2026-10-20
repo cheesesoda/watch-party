@@ -170,6 +170,8 @@ class RoomActivity : ComponentActivity() {
     /** The host watching alone (Watch alone): no chat or voice until they invite friends. */
     private var solo = false
     private val chatButtons = mutableListOf<View>()
+    /** The TV's Invite friends, only while watching alone: friends get the code from a phone or the web. */
+    private var tvInvite: View? = null
 
     /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
     private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
@@ -1067,7 +1069,7 @@ class RoomActivity : ComponentActivity() {
             subtitles,
             tvButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             tvButton("Settings", R.drawable.ic_settings) { showSettings() },
-            tvButton("Invite friends", R.drawable.ic_user_plus) { if (solo) askInvite() else showInvite() },
+            tvButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { tvInvite = it },
             tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
             playerSettings,
         ).forEach { right.addView(it) }
@@ -1771,6 +1773,7 @@ class RoomActivity : ComponentActivity() {
         val party = if (solo) View.GONE else View.VISIBLE
         chatButtons.forEach { it.visibility = party }
         if (voice == null) voiceButton.visibility = party
+        tvInvite?.visibility = if (solo) View.VISIBLE else View.GONE
         renderPlayerInfo()
         if (lastMedia == null) titleText.text = nothingPlaying()
         renderChatOverlay()
@@ -1793,7 +1796,7 @@ class RoomActivity : ComponentActivity() {
         showInvite("It's a party")
     }
 
-    /** The code and a QR of the invite link to scan; phones can also share or copy the link. */
+    /** The code and a QR of the invite link to scan; phones can also share or copy the link (a TV shows this only after Make it a party). */
     private fun showInvite(title: String = "Invite friends") {
         val link = inviteLink(prefs.serverUrl, roomCode)
         val content = LinearLayout(this).apply {

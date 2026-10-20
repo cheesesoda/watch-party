@@ -1184,14 +1184,12 @@ private fun Dots(count: Int, current: Int, small: Boolean = false) {
     }
 }
 
-/** "Party ready" after Start party: the code, Join party and End party. Phones share the invite link; TVs show its QR. */
+/** "Party ready" after Start party: the code, Join party and End party. Phones can share the invite link. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StartedCard(room: RoomSummary, a: Actions, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val link = a.inviteLink(room)
-    val qr = remember(link) { if (a.tv) qrBitmap(link) else null }
-    Row(
+    Column(
         Modifier
             .padding(top = if (a.tv) 40.dp else 0.dp)
             .fillMaxWidth()
@@ -1199,31 +1197,20 @@ private fun StartedCard(room: RoomSummary, a: Actions, onDismiss: () -> Unit) {
             .background(Panel)
             .border(1.dp, Accent.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
             .padding(18.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "Party ready for ${room.media?.title ?: "your movie"}" +
-                    (room.binge?.let { ", the first of ${it.length} in this binge" } ?: "") +
-                    (if (a.tv) ". Friends join with the code or by scanning it with their phone, then join when you're ready to watch."
-                    else ". Share the code, then join when you're ready to watch."),
-                color = Muted,
-            )
-            Text(room.id.uppercase(), fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Join party", null, primary = true, small = true) { a.join(room) }
-                if (!a.tv) Pill("Share invite", null, small = true) { shareInvite(context, room.id, link) }
-                Pill("End party", null, small = true) { a.end(room) }
-                Pill("Dismiss", null, small = true, text = true, onClick = onDismiss)
-            }
-        }
-        qr?.let {
-            Image(
-                it,
-                contentDescription = "Invite QR code",
-                modifier = Modifier.size(132.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp),
-            )
+        Text(
+            "Party ready for ${room.media?.title ?: "your movie"}" +
+                (room.binge?.let { ", the first of ${it.length} in this binge" } ?: "") +
+                ". Share the code, then join when you're ready to watch.",
+            color = Muted,
+        )
+        Text(room.id.uppercase(), fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill("Join party", null, primary = true, small = true) { a.join(room) }
+            if (!a.tv) Pill("Share invite", null, small = true) { shareInvite(context, room.id, a.inviteLink(room)) }
+            Pill("End party", null, small = true) { a.end(room) }
+            Pill("Dismiss", null, small = true, text = true, onClick = onDismiss)
         }
     }
 }

@@ -28,7 +28,6 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.serialization.encodeToString
@@ -436,7 +435,6 @@ class TvScreensTest {
         check(rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't show the party's code")
         // Only Home has the party-ready card (its rows may be scrolled off below it, so onHome() can't tell).
         check(rule.onAllNodesWithText("Party ready for", substring = true).fetchSemanticsNodes().isNotEmpty(), "Start party on a movie page didn't go Home, where the code shows")
-        check(rule.onAllNodesWithContentDescription("Invite QR code").fetchSemanticsNodes().isNotEmpty(), "Party ready on the TV shows no QR code to scan")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
