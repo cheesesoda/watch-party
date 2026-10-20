@@ -38,6 +38,8 @@ export interface Config {
   historyFile?: string;
   /** Where found intros and credits are kept (data/markers.json). */
   markersFile?: string;
+  /** Library health: files that won't play well (data/health.json). */
+  healthFile?: string;
   /** Where skip times set by hand are kept (data/skip-times.json). */
   skipTimesFile?: string;
   /**
@@ -107,6 +109,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     spotsFile: path.resolve(env.SPOTS_FILE?.trim() || fileURLToPath(new URL("../../data/spots.json", import.meta.url))),
     historyFile: path.resolve(env.HISTORY_FILE?.trim() || fileURLToPath(new URL("../../data/history.json", import.meta.url))),
     markersFile: path.resolve(env.MARKERS_FILE?.trim() || fileURLToPath(new URL("../../data/markers.json", import.meta.url))),
+    healthFile: path.resolve(env.HEALTH_FILE?.trim() || fileURLToPath(new URL("../../data/health.json", import.meta.url))),
     skipTimesFile: path.resolve(env.SKIP_TIMES_FILE?.trim() || fileURLToPath(new URL("../../data/skip-times.json", import.meta.url))),
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,

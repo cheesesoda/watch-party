@@ -1,4 +1,4 @@
-import type { HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
+import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
 
 /** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
 export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
@@ -93,6 +93,8 @@ export const api = {
   /** Mark as watched / not watched; answers each video's new mark (null when it has none). */
   markWatched: (ids: string[], watched: boolean) =>
     call<{ watch: Record<string, WatchState | null> }>("/api/watched", { method: "POST", body: JSON.stringify({ ids, watched }) }).then((r) => r.watch),
+  /** Library health: files that won't play well. */
+  health: () => call<HealthReport>("/api/library/health"),
   /** Every video played, newest first. */
   history: () => call<{ history: HistoryEntry[] }>("/api/history").then((r) => r.history),
   /** "Pick up where you left off": where parties stopped, newest first. */

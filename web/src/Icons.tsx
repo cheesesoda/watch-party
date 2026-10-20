@@ -251,3 +251,28 @@ export const HistoryIcon = (p: Props) => (
     <path d="M12 7v5l4 2" />
   </Svg>
 );
+
+/** Library health: a pulse line. */
+export const ActivityIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+  </Svg>
+);
+
+/** Won't play: a crossed circle. */
+export const CircleXIcon = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m15 9-6 6M9 9l6 6" />
+  </Svg>
+);
+
+/** Damaged copies: a file with a search glass. */
+export const FileSearchIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    <path d="M4.268 21a2 2 0 0 0 1.727 1H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v3" />
+    <path d="m9 18-1.5-1.5" />
+    <circle cx="5" cy="14" r="3" />
+  </Svg>
+);

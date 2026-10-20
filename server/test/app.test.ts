@@ -316,3 +316,11 @@ test("Mark as watched shows in the library; History lists plays with their video
   const start = await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ mediaId: id, position: 95 }) });
   assert.equal(app.rooms.get((await start.json()).room.id)!.state.position, 95, "Pick up starts where it stopped");
 });
+
+test("Library health lists files that won't play, for the host only", async () => {
+  await app.findMarks();
+  const report = await (await fetch(`${base}/api/library/health`, { headers: auth() })).json();
+  assert.deepEqual(report.issues.map((i: { relPath: string; kind: string }) => [i.relPath, i.kind]), [["Shows/Ep.One.mp4", "broken"]]);
+  assert.equal(report.checked, report.total);
+  assert.equal((await fetch(`${base}/api/library/health`)).status, 401);
+});
