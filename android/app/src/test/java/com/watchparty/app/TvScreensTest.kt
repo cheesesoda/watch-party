@@ -80,7 +80,7 @@ class TvScreensTest {
     private fun episode(show: String, n: Int, season: Int, ep: Int) = MediaItem(
         id = "e$n$season$ep", title = "$show S${season}E$ep", relPath = "TV/$show/S$season/E$ep.mkv", folder = "TV/$show", size = 1_000_000_000, addedAt = 900L - n, duration = 3000.0,
         episode = EpisodeInfo(show, season, ep),
-        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
+        meta = MediaMeta(tmdbId = 100L + n, title = "Episode $ep", airDate = "2016-0$season-1$ep", overview = "Mark leads a team whose memories have been split between work and home.", stillPath = "/s$n$ep.jpg", show = show, showPosterPath = "/sp$n.jpg", showOverview = "A sample show for the screen tests, with a summary long enough to wrap onto three lines like a real one does, so the page is taller than the screen and has to scroll down to the episodes and back up again to the buttons.", backdropPath = "/sb$n.jpg", rating = 8.4, genres = listOf("Drama", "Mystery")),
     )
 
     private val items = (listOf("Arrival", "Dune: Part Two", "Inception", "Heat", "Alien", "Grindhouse", "Up", "Moon").mapIndexed { i, t -> movie(i, t) } +
@@ -125,7 +125,7 @@ class TvScreensTest {
      * Tests that run as on a real Google TV, which reports leanback: there Compose scrolls whatever takes focus to 30%
      * down the screen (its pivot) instead of just enough to show it.
      */
-    private val onALeanbackTv = setOf("homeBannerShowsWholeOnItsButtons", "showPageWithASpotOpensWithoutBouncing", "bingeStaysPutGoingToTheMenuAndBack", "episodeStaysPutGoingToTheMenuAndBack")
+    private val onALeanbackTv = setOf("homeBannerShowsWholeOnItsButtons", "showPageWithASpotOpensWithoutBouncing", "bingeStaysPutGoingToTheMenuAndBack", "episodeStaysPutGoingToTheMenuAndBack", "theEpisodeTakesTheTopOfTheShowPage")
 
     private fun png(seed: Int): Buffer {
         val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
@@ -512,6 +512,38 @@ class TvScreensTest {
         val tops = intoTheMenuAndBack("Season 1")
         shot("42-episode-back-from-menu")
         check(tops.distinct().size == 1 && tops[0] != null, "The page moved going to the menu and back from an episode (Season 1 at ${tops.distinct()})")
+        assertTrue(problems.joinToString("; "), problems.isEmpty())
+    }
+
+    /**
+     * The remote on an episode: the episode's name, facts and whole summary take the top of the page in place of the
+     * show's (ui-redesign/android/tv-episode-on-top.png), and Up to the buttons brings the show back.
+     */
+    @Test
+    fun theEpisodeTakesTheTopOfTheShowPage() {
+        toFirstShowCard()
+        ok()
+        settle(1_000) { false }
+        check(topOf("Episode 1") == null, "An episode's name was on top before the remote reached the episodes")
+        press(FocusDirection.Down, 2)
+        settle(1_000) { false }
+        shot("12e-show-episode-on-top")
+        val chip = topOf("Season 1")
+        val name = topOf("Episode 1")
+        check(chip != null && name != null && name < chip, "The episode's name isn't above the season chips (name at $name, Season 1 at $chip)")
+        check(rule.onAllNodesWithText("LETTERKENNY · SEASON 1 · EPISODE 1").fetchSemanticsNodes().isNotEmpty(), "The show, season and episode aren't over the name")
+        check(rule.onAllNodesWithText("Aired", substring = true).fetchSemanticsNodes().isNotEmpty(), "The air date isn't shown")
+        // Along to the next episode: the top follows the remote, and the season chips stay where they were.
+        press(FocusDirection.Right)
+        settle(1_000) { false }
+        shot("12f-show-next-episode-on-top")
+        check(topOf("Episode 2") != null && topOf("Episode 1") == null, "The top didn't follow the remote to episode 2")
+        check(topOf("Season 1") == chip, "The season chips moved along the episodes (at ${topOf("Season 1")}, not $chip)")
+        // Back up to the buttons: the show's own header returns.
+        press(FocusDirection.Up, 2)
+        settle(1_000) { false }
+        shot("12g-show-back-up-from-episode")
+        check(topOf("Episode 2") == null, "The episode stayed on top after going up to the buttons")
         assertTrue(problems.joinToString("; "), problems.isEmpty())
     }
 
