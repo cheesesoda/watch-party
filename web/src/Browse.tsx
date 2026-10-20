@@ -547,12 +547,14 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
   ].filter(Boolean);
   const watched = isWatched(item);
   const progress = progressOf(item);
+  // The round check button shows it's watched; the check on the still is only for rows without one.
+  const toggle = !!b.watch && !props.playing;
   return (
     <li className={watched ? "ep-row watched" : "ep-row"}>
       <button className="ep-open" onClick={() => b.openInfo(item.id)}>
         <span className="ep-still-wrap">
           {b.details && ep ? <Poster path={item.meta?.stillPath} size="w300" className="ep-still" /> : <span className="ep-still empty">{ep ? `E${ep.episode}` : ""}</span>}
-          {watched && (
+          {watched && !toggle && (
             <span className="watched-mark">
               <CheckIcon size={14} />
             </span>
@@ -573,7 +575,7 @@ export function EpisodeRow(props: { item: MediaItem; b: Browse; context?: string
         </span>
       </button>
       {b.queue && !props.playing && <QueueButton b={b} ids={[item.id]} label={item.title} small />}
-      {b.watch && !props.playing && (
+      {toggle && (
         <button
           className={watched ? "round-icon watch-toggle on" : "round-icon watch-toggle"}
           onClick={() => b.watch!.mark([item.id], !watched)}
