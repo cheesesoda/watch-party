@@ -106,7 +106,9 @@ export const api = {
 };
 
 export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
-export const hlsUrl = (id: string) => media(`/api/media/${id}/hls/index.m3u8`);
+/** The server's converted copy; `light`: its lighter one for slow connections (720p); `audio`: another audio track. */
+export const hlsUrl = (id: string, light = false, audio?: number) =>
+  media(`/api/media/${id}/hls/${light ? "light/" : ""}index.m3u8${audio !== undefined ? `?audio=${audio}` : ""}`);
 /** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
 export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300" | "w780" | "w1280") => media(`/api/images/${size}${path}`);
 /** A still from the video where a saved spot stopped, for videos without TMDB art (host only). */

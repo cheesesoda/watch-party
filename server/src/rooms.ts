@@ -223,7 +223,7 @@ export class Room {
 
   /** `guest` members joined with the party code: they can watch, chat and talk, but not change the video or end the party. */
   join(name: string, send: Send, device: Device = "web", close: Close = () => {}, guest = false): Member {
-    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
+    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device, ...(guest ? {} : { host: true }) };
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
     this.emptyAt = null;
