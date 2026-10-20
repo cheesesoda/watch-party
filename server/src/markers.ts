@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MediaItem, SkipMarks, TimeRange } from "../../shared/protocol.ts";
+import { findSubtitleRecap, parseCues, type Cue } from "./subtitleRecaps.ts";
 
 /** Seconds of sound per chromaprint point: 4096-sample frames at 11025 Hz, each a third of a frame after the last. */
 export const POINT_SECONDS = 4096 / 3 / 11025;
@@ -138,6 +139,8 @@ const CHAPTER_CHECK = 1;
  * are compared in full (Reacher S2E07 recaps the middle of E05).
  */
 const RECAPS = 2;
+/** Bumped when finding recaps by subtitles changes, so episodes still without one are read again. */
+const SUBTITLE_RECAPS = 1;
 /** Earlier episodes compared in full for a recap; older ones only by their openings and endings. */
 const RECAP_WHOLE = 3;
 /**
@@ -585,6 +588,8 @@ export interface MarkersConfig {
   file: string;
   /** Skip times set by hand (data/skip-times.json); "" or left out keeps them in memory only. */
   handFile?: string;
+  /** A video's English subtitles (WebVTT or SubRip text), for recaps found by their "Previously on…"; null if none. */
+  subtitles?: (e: MarkersEntry) => Promise<string | null>;
 }
 
 /**
@@ -631,6 +636,8 @@ interface Entry {
   recapLooked?: boolean | number;
   /** Whether a season's first episode has been checked against the season before for a recap. */
   openerChecked?: boolean;
+  /** Whether the episode's subtitles have been read for a recap sound didn't find (SUBTITLE_RECAPS). */
+  subtitlesRead?: number;
   /**
    * Which second credits search an episode without them has had (true: the first, which also took the end logos
    * alone for the start of the credits).
@@ -879,6 +886,7 @@ export class Markers {
       await this.season(list, opener);
       await this.save();
     }
+    await this.subtitleRecaps(seasons);
     // Movies only have chapter names to go on.
     let moviesChanged = false;
     for (const e of singles) {
@@ -1091,6 +1099,57 @@ export class Markers {
     const missing = this.missingCredits(list);
     this.listed.add(`${ep.show}|${ep.season}`);
     this.log(`${name}: intros in ${intros} of ${list.length}, recaps in ${recaps}, credits in ${credits} (${Math.round((Date.now() - started) / 1000)} s)${missing ? ` ${missing.text}` : ""}`);
+  }
+
+  /**
+   * Recaps sound and chapters didn't find, from subtitles: an episode whose English subtitles open with "Previously
+   * on…", up to the last line after it that the episodes before it (the season before, for a first episode) said.
+   */
+  private async subtitleRecaps(seasons: Map<string, MarkersEntry[]>): Promise<void> {
+    const get = this.config.subtitles;
+    if (!get) return;
+    const read = new Map<string, Promise<Cue[] | null>>();
+    const cuesOf = (e: MarkersEntry) => {
+      if (!read.has(e.item.id)) read.set(e.item.id, get(e).then((t) => (t ? parseCues(t) : null), () => null));
+      return read.get(e.item.id)!;
+    };
+    for (const list of seasons.values()) {
+      if (this.closed) return;
+      const ep = list[0].item.episode!;
+      if (ep.season === 0) continue;
+      const due = list.filter((e, i) => {
+        const entry = this.cache[e.item.id];
+        const hand = this.hand[e.item.id];
+        if (!entry || entry.key !== Markers.key(e.item) || entry.v !== VERSION || entry.subtitlesRead === SUBTITLE_RECAPS) return false;
+        return !entry.marks.recap && !(hand && "recap" in hand) && (i > 0 || ep.season > 1);
+      });
+      if (!due.length) continue;
+      const name = Markers.seasonName(list);
+      const previous = seasons.get(`${ep.show.toLowerCase()}|${ep.season - 1}`) ?? [];
+      this.log(`${name}: reading subtitles for recaps in ${due.length} episodes`);
+      const found: string[] = [];
+      const none: string[] = [];
+      for (const e of due) {
+        if (this.closed) return;
+        const i = list.indexOf(e);
+        const cues = await cuesOf(e);
+        let recap: TimeRange | null = null;
+        if (cues) {
+          const sources = i > 0 ? list.slice(0, i) : previous;
+          const earlier: Cue[][] = [];
+          for (const s of sources) {
+            const c = await cuesOf(s);
+            if (c) earlier.push(c);
+          }
+          recap = findSubtitleRecap(cues, earlier)?.range ?? null;
+        } else none.push(`E${String(e.item.episode!.episode).padStart(2, "0")}`);
+        const entry = this.cache[e.item.id];
+        this.cache[e.item.id] = { ...entry, marks: recap ? { ...entry.marks, recap } : entry.marks, subtitlesRead: SUBTITLE_RECAPS };
+        if (recap) found.push(`E${String(e.item.episode!.episode).padStart(2, "0")} ${clock(recap.start)}-${clock(recap.end)}`);
+      }
+      this.log(`${name}: recaps from subtitles in ${found.length} of ${due.length}${found.length ? ` (${found.join(", ")})` : ""}${none.length ? `, no English text subtitles in ${none.join(", ")}` : ""}`);
+      await this.save();
+    }
   }
 
   /**
