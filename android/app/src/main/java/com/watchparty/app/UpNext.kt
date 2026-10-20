@@ -147,7 +147,9 @@ private fun TvUpNext(screen: UpNextScreen, upcoming: List<MediaItem>, playing: M
                     }
                 }
                 if (screen.edit != null) {
-                    TvAddVideos(if (upcoming.isEmpty()) Modifier.focusRequester(first) else Modifier, screen.onAddVideos)
+                    TvAction("Add videos", R.drawable.ic_plus, if (upcoming.isEmpty()) Modifier.focusRequester(first) else Modifier, screen.onAddVideos)
+                    // Clears it in one go, as Clear does on the phone and the web.
+                    if (upcoming.isNotEmpty()) TvAction("Clear Up next", R.drawable.ic_trash, Modifier) { screen.edit?.invoke(Protocol.queueClear()) }
                 } else if (upcoming.isEmpty()) {
                     Text("Nothing in Up next yet.", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp))
                 }
@@ -231,8 +233,9 @@ private fun TvRow(api: Api, item: MediaItem, modifier: Modifier, onClick: (() ->
     }
 }
 
+/** A text row at the end of the TV list, like Add videos and Clear Up next. */
 @Composable
-private fun TvAddVideos(modifier: Modifier, onClick: () -> Unit) {
+private fun TvAction(label: String, icon: Int, modifier: Modifier, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
@@ -246,10 +249,10 @@ private fun TvAddVideos(modifier: Modifier, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = if (focused) OnFocus else Muted, modifier = Modifier.size(18.dp))
+            Icon(painterResource(icon), contentDescription = null, tint = if (focused) OnFocus else Muted, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text("Add videos", color = if (focused) OnFocus else Color.White.copy(alpha = 0.85f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = if (focused) OnFocus else Color.White.copy(alpha = 0.85f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -1051,7 +1051,13 @@ private fun HomePage(
             if (rooms.isNotEmpty()) {
                 item(key = "parties") {
                     ShelfRow("Watch Parties", null, a) {
-                        items(rooms, key = { it.id }) { PartyCard(it, sinceFetch, lib.details, a, width = if (tv) 300.dp else 290.dp) }
+                        // End under each card, as on the Watch Parties page and the web's Home.
+                        items(rooms, key = { it.id }) { room ->
+                            Column(Modifier.width(if (tv) 300.dp else 290.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                PartyCard(room, sinceFetch, lib.details, a, width = null)
+                                Pill("End party", null, small = true, text = true) { a.end(room) }
+                            }
+                        }
                     }
                 }
             }
@@ -1794,6 +1800,8 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
                     Pill("Binge $bingeName", R.drawable.ic_play_filled, primary = true, modifier = Modifier.weight(1f), onClick = bingeSeason)
                     Pill("Add $bingeName", R.drawable.ic_list_plus, modifier = Modifier.weight(1f), onClick = addSeason)
                 }
+                // As in the web's picker and the TV's ⋮: a text button, under the two.
+                if (show.seasons.size > 1) Pill("Binge all ${show.seasons.size} seasons", R.drawable.ic_list_video, wide = true, text = true) { a.start(show.episodes.first(), show.episodes.map { it.id }) }
             } else if (a.adding) {
                 Pill("Binge $bingeName", R.drawable.ic_play_filled, primary = true, modifier = Modifier.focusRequester(primary), onClick = bingeSeason)
                 Pill("Add $bingeName to Up next", R.drawable.ic_list_plus, onClick = addSeason)
