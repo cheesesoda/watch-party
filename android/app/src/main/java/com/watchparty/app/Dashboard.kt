@@ -1918,7 +1918,8 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
             else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center).then(dim))
             val progress = progressOf(m)
             if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = if (progress != null) 12.dp else 5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
-            WatchMarks(m.watched, progress, small = true)
+            // The round check beside it shows it's watched; the check on the still is only for rows without one.
+            WatchMarks(m.watched && (a.adding || a.mark == null), progress, small = true)
         }
         // Adding to a party: the length and whether it's already lined up, with an Add button (✓ once added).
         val playing = a.adding && PartyLink.playing == m.id
