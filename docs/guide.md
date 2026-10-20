@@ -103,6 +103,7 @@ Instead of a PowerShell window, the server can run from an icon by the clock, li
 Click the icon to open Popcorn Club in your browser. Right-click it for the menu:
 
 - **Start server**, **Stop server**, **Restart server**, and **Show log** for the server's output. Its first line names the update the server is running ("Popcorn Club server: #121 (abc1234, 2026-10-15)": the last merged change, its commit and date), so you can tell whether **Update now** took. The icon is gray while the server is stopped.
+- **Rescan library** looks for new or removed videos, like Rescan library on the web dashboard, and says how many it found.
 - **Update now** stops the server, gets the latest code (`git pull`), runs `npm ci` and `npm run build`, rebuilds the tray app if it changed, and starts everything again. A notification lists what's new, and the log has the full list.
 - **Settings**: **Start with Windows**, **Edit server settings (.env)**, **Open server folder** and **Choose server folder**.
 - **Quit** stops the server too.

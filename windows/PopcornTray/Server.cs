@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace PopcornTray;
 
@@ -9,6 +10,11 @@ sealed class Server(Log log)
     ServerJob? job;
 
     public bool Running => process != null;
+    /**
+     * A fresh random key each start (TRAY_KEY), so the server takes Rescan library from this app and nobody else:
+     * friends' connections through Tailscale Funnel also arrive from this PC.
+     */
+    public string Key { get; private set; } = "";
     /** True once the server has printed its "listening on" line. */
     public bool Listening { get; private set; }
 
@@ -21,7 +27,10 @@ sealed class Server(Log log)
         if (process != null) return true;
         Listening = false;
         log.Add("--- Starting the server ---");
-        var p = new Process { StartInfo = Commands.Npm("start", repo), EnableRaisingEvents = true };
+        Key = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var info = Commands.Npm("start", repo);
+        info.Environment["TRAY_KEY"] = Key;
+        var p = new Process { StartInfo = info, EnableRaisingEvents = true };
         p.OutputDataReceived += (_, e) => OnLine(e.Data);
         p.ErrorDataReceived += (_, e) => OnLine(e.Data);
         // Hooked up before Start, so even an instant failure (npm not found) is noticed.
