@@ -19,9 +19,15 @@ const OPENER = /^(previously\b|last (time|week|season) on\b)|\bpreviously on\b/;
 export const OPENER_WINDOW = 300;
 /** Lines shorter than this ("Yeah.", "Go.") prove nothing either way: they'd match anywhere. */
 const MIN_CHARS = 12;
-/** A recap ends at the second line in a row that wasn't said before, or a silence this long (s). */
-const MAX_MISSES = 2;
+/** A recap ends after this long (s) of lines that weren't said before, or a silence this long (s). */
+const MAX_UNMATCHED = 12;
 const MAX_SILENCE = 20;
+/**
+ * A line counts as said before when at least this share of its 4-word runs were: a recap trims lines, and puts two
+ * speakers' lines in one subtitle that the earlier episode showed apart. Lines under 4 words must be found whole.
+ */
+const PHRASE = 4;
+const MIN_SHARE = 0.5;
 /** At least this many of its lines were said before, so a "previously" in the dialogue isn't taken for a recap. */
 const MIN_MATCHED = 2;
 /** Recaps shorter than this (s) get no button (as SKIP_MIN for marks). */
@@ -57,8 +63,16 @@ export function parseCues(text: string): Cue[] {
     if (at < 0) continue;
     const m = lines[at].match(/([\d:.,]+)\s*-->\s*([\d:.,]+)/);
     if (!m) continue;
-    const said = normalize(lines.slice(at + 1).join("\n"));
-    if (said) cues.push({ start: seconds(m[1]), end: seconds(m[2]), text: said });
+    // Two speakers in one subtitle ("- Who's he? / - Beats me.") are two lines, each said on its own before.
+    const speakers: string[][] = [];
+    for (const line of lines.slice(at + 1)) {
+      if (speakers.length === 0 || /^(<[^>]*>|\{[^}]*\}|\s)*-/.test(line)) speakers.push([]);
+      speakers[speakers.length - 1].push(line);
+    }
+    for (const part of speakers) {
+      const said = normalize(part.join("\n"));
+      if (said) cues.push({ start: seconds(m[1]), end: seconds(m[2]), text: said });
+    }
   }
   return cues.sort((a, b) => a.start - b.start);
 }
@@ -71,19 +85,30 @@ export interface SubtitleRecap {
 
 /**
  * The recap in an episode's subtitles, or null: from its "Previously on…" line through the last line after it that
- * [earlier] episodes (their cues, as parseCues gives them) already said. Lines are compared by what's said, so a line
- * a recap cuts short still counts when the earlier episode has it whole.
+ * [earlier] episodes (their cues, as parseCues gives them) already said. Lines are compared by what's said, in 4-word
+ * runs, so a line a recap cuts short or runs into another still counts.
  */
 export function findSubtitleRecap(cues: Cue[], earlier: Cue[][]): SubtitleRecap | null {
   const opener = cues.findIndex((c) => c.start < OPENER_WINDOW && OPENER.test(c.text));
   if (opener < 0) return null;
   // Every earlier line one after another, so a recap line split over two cues there (or two run into one here) is found.
-  const before = ` ${earlier.map((list) => list.map((c) => c.text).join(" ")).join(" | ")} `;
-  const said = (text: string) => before.includes(` ${text} `);
+  const episodes = earlier.map((list) => list.map((c) => c.text).join(" "));
+  const before = ` ${episodes.join(" | ")} `;
+  const phrases = new Set<string>();
+  for (const words of episodes.map((e) => e.split(" "))) {
+    for (let i = 0; i + PHRASE <= words.length; i++) phrases.add(words.slice(i, i + PHRASE).join(" "));
+  }
+  const said = (text: string) => {
+    const words = text.split(" ");
+    if (words.length < PHRASE) return before.includes(` ${text} `);
+    let found = 0;
+    for (let i = 0; i + PHRASE <= words.length; i++) if (phrases.has(words.slice(i, i + PHRASE).join(" "))) found++;
+    return found / (words.length - PHRASE + 1) >= MIN_SHARE;
+  };
   let last: Cue | null = null;
   let matched = 0;
-  let misses = 0;
   let prevEnd = cues[opener].end;
+  let lastSaid = cues[opener].end;
   for (let i = opener + 1; i < cues.length; i++) {
     const c = cues[i];
     if (c.start - prevEnd > MAX_SILENCE) break;
@@ -93,8 +118,8 @@ export function findSubtitleRecap(cues: Cue[], earlier: Cue[][]): SubtitleRecap 
     if (said(c.text)) {
       last = c;
       matched++;
-      misses = 0;
-    } else if (++misses >= MAX_MISSES) break;
+      lastSaid = c.end;
+    } else if (c.start - lastSaid > MAX_UNMATCHED) break;
   }
   if (!last || matched < MIN_MATCHED) return null;
   const range = { start: round(cues[opener].start), end: round(last.end) };

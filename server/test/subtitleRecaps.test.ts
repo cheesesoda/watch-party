@@ -53,6 +53,32 @@ test("a recap runs from its Previously on line to the last line said in earlier 
   assert.deepEqual(recap, { range: { start: 6, end: 25 }, matched: 4 });
 });
 
+test("a recap line that runs two speakers together, or trims a line, still counts", () => {
+  const before = parseCues(
+    srt([
+      [100, 102, "Azhari Mahmoud."],
+      [103, 106, "Yeah, we've been calling him A.M."],
+      [400, 404, "We call that a win-win, someone in engineering told me."],
+      [800, 803, "Hands up, all of you, right now."],
+    ]),
+  );
+  const cues = parseCues(
+    srt([
+      [0, 2, "Previously on Reacher"],
+      [3, 6, "Azhari Mahmoud.\nYeah, we've been calling him A.M."],
+      [8, 11, "- We call that a win-win.\n- Someone in engineering told me."],
+      [13, 15, "Something nobody said before here."],
+      [16, 19, "Hands up, all of you."],
+      // The episode: 12 s of new lines ends it.
+      [22, 25, "Where were you all night long?"],
+      [27, 30, "Nobody in this town talks to me."],
+      [32, 35, "I don't know what you're talking about."],
+      [36, 39, "Hands up, all of you, right now."],
+    ]),
+  );
+  assert.deepEqual(findSubtitleRecap(cues, [before])?.range, { start: 0, end: 19 });
+});
+
 test("no Previously on line, or one with nothing said before after it, is no recap", () => {
   const cold = parseCues(srt([[5, 8, "Somebody killed my brother,"], [9, 12, "and I'm going to find out who."], [14, 17, "You can't arrest him."]]));
   assert.equal(findSubtitleRecap(cold, [episode1]), null);
@@ -64,7 +90,7 @@ test("no Previously on line, or one with nothing said before after it, is no rec
   assert.equal(findSubtitleRecap(late, [episode1]), null);
 });
 
-test("a recap ends at two new lines in a row or a long silence, not at one new line between clips", () => {
+test("a recap ends after 12 s of new lines or a long silence, not at one new line between clips", () => {
   const cues = parseCues(
     srt([
       [0, 2, "Previously on Reacher"],
