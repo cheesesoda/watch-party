@@ -46,6 +46,11 @@ export function createApp(config: Config): App {
     const duration = transcoder.knownDuration(entry.absPath);
     return markers.attach(metadata.enrich(duration ? { ...entry.item, duration } : entry.item));
   }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
+  const rescan = async () => {
+    await library.scan();
+    void metadata.warm(await library.list());
+    void findMarks();
+  };
   const findMarks = async () => {
     const items = await library.list();
     await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
@@ -82,6 +87,21 @@ export function createApp(config: Config): App {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, authRequired: Boolean(config.password), inviteUrl: config.inviteUrl ?? null, mediaUrl: config.mediaUrl ?? null });
+  });
+
+  // The tray app's Rescan library. The tray starts the server with a fresh TRAY_KEY each time, so only it knows the key:
+  // friends' connections through Tailscale Funnel also come from this computer, so being local proves nothing.
+  app.post("/api/tray/rescan", async (req, res) => {
+    const key = req.get("x-tray-key");
+    if (!config.trayKey || typeof key !== "string" || !safeEqual(key, config.trayKey)) return void res.status(403).json({ error: "Only the tray app can do that." });
+    const before = new Set((await library.list()).map((i) => i.id));
+    await rescan();
+    const items = await library.list();
+    const added = items.filter((i) => !before.has(i.id)).length;
+    const now = new Set(items.map((i) => i.id));
+    const removed = [...before].filter((id) => !now.has(id)).length;
+    console.log(`library: rescanned from the tray: ${items.length} video(s), ${added} new, ${removed} gone`);
+    res.json({ count: items.length, added, removed });
   });
 
   const hostToken = config.password ? tokenFor(config.password) : "";
@@ -273,9 +293,7 @@ export function createApp(config: Config): App {
   });
 
   app.post("/api/library/rescan", async (_req, res) => {
-    await library.scan();
-    void metadata.warm(await library.list());
-    void findMarks();
+    await rescan();
     res.json(await libraryResponse());
   });
 

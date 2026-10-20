@@ -25,6 +25,7 @@ sealed class TrayApp : ApplicationContext
     readonly ToolStripMenuItem stopItem;
     readonly ToolStripMenuItem restartItem;
     readonly ToolStripMenuItem updateItem;
+    readonly ToolStripMenuItem rescanItem;
     readonly ToolStripMenuItem startupItem;
 
     LogWindow? logWindow;
@@ -48,6 +49,7 @@ sealed class TrayApp : ApplicationContext
         stopItem = new ToolStripMenuItem("Stop server", null, (_, _) => { server.Stop(); Refresh(); }).WithIcon(ModernMenu.Stop);
         restartItem = new ToolStripMenuItem("Restart server", null, (_, _) => { server.Stop(); StartServer(); }).WithIcon(ModernMenu.Restart);
         updateItem = new ToolStripMenuItem("Update now…", null, async (_, _) => await Update()).WithIcon(ModernMenu.Update);
+        rescanItem = new ToolStripMenuItem("Rescan library", null, async (_, _) => await Rescan()).WithIcon(ModernMenu.Sync);
         // No icon: its check mark shows in the icon column.
         startupItem = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleStartup());
 
@@ -69,6 +71,7 @@ sealed class TrayApp : ApplicationContext
             startItem,
             stopItem,
             restartItem,
+            rescanItem,
             new ToolStripMenuItem("Show log", null, (_, _) => ShowLog()).WithIcon(ModernMenu.Log),
             new ToolStripSeparator(),
             updateItem,
@@ -197,6 +200,47 @@ sealed class TrayApp : ApplicationContext
     }
 
     // --- update (only when chosen from the menu) ---
+
+    static readonly HttpClient http = new() { Timeout = TimeSpan.FromMinutes(5) };
+    bool rescanning;
+
+    /** Rescan library, as on the web dashboard: looks for new or removed videos, then their details and skip times. */
+    async Task Rescan()
+    {
+        if (rescanning || !server.Listening) return;
+        rescanning = true;
+        Refresh();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{settings.Port()}/api/tray/rescan");
+            request.Headers.Add("X-Tray-Key", server.Key);
+            using var response = await http.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                log.Add($"Rescan library failed ({(int)response.StatusCode}): {body}");
+                Notify("Couldn't rescan the library. See Show log.");
+                return;
+            }
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            int Count(string name) => json.RootElement.GetProperty(name).GetInt32();
+            var (count, added, removed) = (Count("count"), Count("added"), Count("removed"));
+            var changes = new List<string>();
+            if (added > 0) changes.Add($"{added} new");
+            if (removed > 0) changes.Add($"{removed} gone");
+            Notify($"Library rescanned: {count:N0} videos, {(changes.Count > 0 ? string.Join(", ", changes) : "nothing new")}.");
+        }
+        catch (Exception e)
+        {
+            log.Add($"Rescan library failed: {e.Message}");
+            Notify("Couldn't rescan the library. See Show log.");
+        }
+        finally
+        {
+            rescanning = false;
+            Refresh();
+        }
+    }
 
     async Task Update()
     {
@@ -378,6 +422,7 @@ sealed class TrayApp : ApplicationContext
         stopItem.Enabled = running && !updating;
         restartItem.Enabled = running && !updating;
         updateItem.Enabled = !updating;
+        rescanItem.Enabled = server.Listening && !updating && !rescanning;
         startupItem.Checked = Settings.StartsWithWindows;
     }
 

@@ -316,3 +316,22 @@ test("Mark as watched shows in the library; History lists plays with their video
   const start = await fetch(`${base}/api/rooms`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ mediaId: id, position: 95 }) });
   assert.equal(app.rooms.get((await start.json()).room.id)!.state.position, 95, "Pick up starts where it stopped");
 });
+
+test("the tray app rescans with the key it started the server with, and nobody else can", async () => {
+  const key = "k".repeat(40);
+  const tray = createApp({ port: 0, host: "127.0.0.1", mediaDirs: [dir], password: "secret", allowNoPassword: false, webDir: dir, iceServers: [], trustProxy: "loopback", trayKey: key });
+  await new Promise<void>((r) => tray.server.listen(0, "127.0.0.1", r));
+  const url = `http://127.0.0.1:${(tray.server.address() as AddressInfo).port}/api/tray/rescan`;
+  try {
+    await tray.library.scan();
+    await fs.writeFile(path.join(dir, "Shows", "Ep.Two.mp4"), Buffer.from("x"));
+    assert.equal((await fetch(url, { method: "POST" })).status, 403);
+    assert.equal((await fetch(url, { method: "POST", headers: { "x-tray-key": "wrong" } })).status, 403);
+    assert.equal((await fetch(`${base}/api/tray/rescan`, { method: "POST", headers: { "x-tray-key": key } })).status, 403, "a server started without a key takes none");
+    const res = await fetch(url, { method: "POST", headers: { "x-tray-key": key } });
+    assert.deepEqual(await res.json(), { count: 2, added: 1, removed: 0 });
+  } finally {
+    await fs.rm(path.join(dir, "Shows", "Ep.Two.mp4"), { force: true });
+    await tray.close();
+  }
+});
