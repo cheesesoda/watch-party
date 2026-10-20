@@ -533,6 +533,8 @@ class TvScreensTest {
         check(chip != null && name != null && name < chip, "The episode's name isn't above the season chips (name at $name, Season 1 at $chip)")
         check(rule.onAllNodesWithText("LETTERKENNY · SEASON 1 · EPISODE 1").fetchSemanticsNodes().isNotEmpty(), "The show, season and episode aren't over the name")
         check(rule.onAllNodesWithText("Aired", substring = true).fetchSemanticsNodes().isNotEmpty(), "The air date isn't shown")
+        val summary = rule.onAllNodesWithText("Mark leads", substring = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+        check(summary != null && summary.height > 0f && chip != null && summary.bottom < chip, "The episode's summary isn't shown above the season chips (at $summary, Season 1 at $chip)")
         // Along to the next episode: the top follows the remote, and the season chips stay where they were.
         press(FocusDirection.Right)
         settle(1_000) { false }

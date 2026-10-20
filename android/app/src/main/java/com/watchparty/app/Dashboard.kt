@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -1788,9 +1789,10 @@ private fun DetailPage(
         if (tv && episode != null) {
             // Over the list, not in it, so it stays put however far the page scrolled to reach the episodes.
             var pageTop by remember { mutableStateOf(0f) }
-            val room = with(LocalDensity.current) { (episodesTop - pageTop).toDp() } - 56.dp - 16.dp
+            // Down to 20dp above the chips; the page is scrolled to its end by then, so this is all the room there is.
+            val room = with(LocalDensity.current) { (episodesTop - pageTop).toDp() } - 40.dp - 20.dp
             Box(Modifier.fillMaxWidth().onGloballyPositioned { pageTop = it.positionInRoot().y }) {
-                if (room > 80.dp) TvEpisodeHead(episode, lib, Modifier.padding(start = 128.dp, end = 48.dp, top = 56.dp).width(640.dp).height(room))
+                if (room > 80.dp) TvEpisodeHead(episode, lib, Modifier.padding(start = 128.dp, end = 48.dp, top = 40.dp).width(640.dp).height(room))
             }
         }
         if (!tv) {
@@ -1905,7 +1907,9 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
     // On a TV, the episode the remote is on, shown at the top of the screen, and where that room ends.
     var onEpisode by remember(show.name) { mutableStateOf<MediaItem?>(null) }
     var episodesTop by remember { mutableStateOf(0f) }
-    val markTop = Modifier.onGloballyPositioned { episodesTop = it.positionInRoot().y }
+    val density = LocalDensity.current
+    // Where the chips (or the cards) themselves start, past their row's padding.
+    fun markTop(pad: Dp) = Modifier.onGloballyPositioned { episodesTop = it.positionInRoot().y + with(density) { pad.toPx() } }
     DetailPage(
         lib, a, state,
         title = show.name,
@@ -1953,7 +1957,7 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
         if (tabs.size > 1) {
             item(key = "seasons") {
                 LazyRow(
-                    modifier = markTop,
+                    modifier = markTop(28.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(start = if (a.tv) 128.dp else 16.dp, end = 16.dp, top = if (a.tv) 28.dp else 16.dp, bottom = 8.dp),
                 ) {
@@ -1967,7 +1971,7 @@ private fun ShowPage(lib: Library, show: Show, a: Actions, state: LazyListState)
             item(key = "episodes-$shown") {
                 TvCards(
                     list, lib, a, special = { shown != -2 && it.episode?.season == 0 },
-                    modifier = if (tabs.size > 1) Modifier else markTop,
+                    modifier = if (tabs.size > 1) Modifier else markTop(12.dp),
                     onFocused = { m -> onEpisode = m?.takeIf { it.episode != null } },
                 )
             }
@@ -2039,8 +2043,11 @@ private fun TvEpisodeHead(m: MediaItem, lib: Library, modifier: Modifier) {
             color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp),
         )
         m.meta?.overview?.let {
-            // As many lines as the room above the episodes holds; the rest ends in an ellipsis.
-            Text(it, color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, lineHeight = 24.sp, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp).weight(1f, fill = false))
+            // As many lines as the room above the episodes holds; the last one ends in an ellipsis if it runs over.
+            BoxWithConstraints(Modifier.padding(top = 10.dp).weight(1f, fill = false)) {
+                val lines = (maxHeight / 24.dp).toInt()
+                if (lines > 0) Text(it, color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, lineHeight = 24.sp, maxLines = lines, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
