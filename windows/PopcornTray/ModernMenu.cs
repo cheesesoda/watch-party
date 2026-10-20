@@ -22,6 +22,7 @@ static class ModernMenu
     public const char Edit = '';
     public const char Folder = '';
     public const char Quit = '';
+    public const char Sync = '';
     const char Check = '';
 
     static readonly bool Windows11 = Environment.OSVersion.Version.Build >= 22000;
