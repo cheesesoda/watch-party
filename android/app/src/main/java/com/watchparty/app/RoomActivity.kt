@@ -73,6 +73,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
@@ -302,7 +303,11 @@ class RoomActivity : ComponentActivity() {
             caughtUp = { position -> connection.send(Protocol.caughtUp(position)) },
         )
         buildLayout()
-        playerView.player = player
+        // The controls see the player without playback speed: a party keeps everyone at 1x, so a speed never stuck.
+        playerView.player = object : ForwardingPlayer(player) {
+            override fun isCommandAvailable(command: Int) = command != Player.COMMAND_SET_SPEED_AND_PITCH && super.isCommandAvailable(command)
+            override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon().remove(Player.COMMAND_SET_SPEED_AND_PITCH).build()
+        }
 
         connection = RoomConnection(
             api.socketUrl(roomId, prefs.name, if (isTv) "tv" else "phone"),
@@ -1362,8 +1367,8 @@ class RoomActivity : ComponentActivity() {
             },
         )
         action("Video quality", QUALITY_LABELS[prefs.videoQuality] ?: "Auto", opens = true) { showQuality() }
-        // The player's controls have one gear, so Media3's own menu (audio track, playback speed) opens from here.
-        action("Audio track and playback speed", null, opens = true) { openPlayerSettings() }
+        // The player's controls have one gear, so Media3's own audio track menu opens from here, when there's a choice.
+        if (player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO } > 1) action("Audio track", null, opens = true) { openPlayerSettings() }
         // The phone's top row keeps to the essentials, so switching to chat only lives here.
         if (!isTv && !solo) action("Chat only", "Just chat on this phone, for when you're watching on a TV.") { enterCompanion(auto = false) }
         row.requestFocus()
