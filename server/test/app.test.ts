@@ -344,6 +344,15 @@ test("Library health lists files that won't play, for the host only", async () =
   assert.equal((await fetch(`${base}/api/library/health`)).status, 401);
 });
 
+test("Find subtitles says when OpenSubtitles isn't set up, and is for the host only", async () => {
+  const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
+  const found = await (await fetch(`${base}/api/find-subtitles/${items[0].id}`, { headers: auth() })).json();
+  assert.deepEqual(found, { configured: false, inside: false, results: [], remaining: null });
+  assert.equal((await fetch(`${base}/api/find-subtitles/${items[0].id}`)).status, 401);
+  const bad = await fetch(`${base}/api/find-subtitles/${items[0].id}`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: '{"fileId":"x"}' });
+  assert.equal(bad.status, 400);
+});
+
 test("a scheduled party keeps its code, tells friends when it starts, and opens 30 minutes before", async () => {
   const { items } = await (await fetch(`${base}/api/library`, { headers: auth() })).json();
   const post = (path: string, body: unknown, headers: Record<string, string> = auth()) =>

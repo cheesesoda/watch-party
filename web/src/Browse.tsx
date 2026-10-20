@@ -3,6 +3,7 @@ import type { MediaItem, Spot } from "../../shared/protocol.ts";
 import { imageUrl } from "./api.ts";
 import { byName, fmtRuntime, partsLength, plural, type Catalog, type Show } from "./catalog.ts";
 import { CalendarIcon, CheckIcon, InfoIcon, ListPlusIcon, ListVideoIcon, PlayIcon } from "./Icons.tsx";
+import { hasEnglish } from "./FindSubtitles.tsx";
 import { BROWSER_SAFE, MoreMenu, Poster, Shelf } from "./Library.tsx";
 import { navigate } from "./nav.ts";
 import { SpotLine } from "./Spots.tsx";
@@ -35,6 +36,8 @@ export interface Browse {
   watch?: { mark: (ids: string[], watched: boolean) => void };
   /** On the dashboard, for parties: opens Schedule for these videos. */
   schedule?: (what: ScheduleWhat) => void;
+  /** On the dashboard: Find subtitles, for a video without English ones. */
+  findSubtitles?: (item: MediaItem) => void;
 }
 
 const go = (b: Browse, path: string) => (b.open ?? navigate)(path);
@@ -439,6 +442,7 @@ export function MoviePage(props: { b: Browse; item: MediaItem }) {
                   : []),
                 ...(b.details ? [[m ? "Fix match" : "Find movie details", () => b.openInfo(item.id, true)] as [string, () => void]] : []),
                 ["Set skip times", () => b.openInfo(item.id, "times")],
+                ...(b.findSubtitles && !hasEnglish(item) ? [["Find subtitles", () => b.findSubtitles!(item)] as [string, () => void]] : []),
               ]}
             />
           </div>

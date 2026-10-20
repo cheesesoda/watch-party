@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, HistoryEntry, MediaItem, PartyInvite, RoomSummary, ScheduledParty, ServerMessage, Spot } from "../../shared/protocol.ts";
+import type { ClientMessage, HistoryEntry, MediaItem, PartyInvite, RoomSummary, ScheduledParty, ServerMessage, Spot, SubtitleSearch } from "../../shared/protocol.ts";
 import { episodeLabel } from "../../shared/specials.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
@@ -20,7 +20,8 @@ import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
 import { History } from "./history.ts";
 import { opens, Schedule, type Planned } from "./schedule.ts";
 import { Spots } from "./spots.ts";
-import { englishSubtitles, srtToVtt } from "./subtitles.ts";
+import { OpenSubtitles } from "./openSubtitles.ts";
+import { englishSubtitles, englishTrack, srtToVtt } from "./subtitles.ts";
 import { Transcoder } from "./transcode.ts";
 
 export interface App {
@@ -36,7 +37,7 @@ export interface App {
 }
 
 export function createApp(config: Config): App {
-  const library = new Library(config.mediaDirs);
+  const library = new Library(config.mediaDirs, undefined, config.openSubtitles?.dir);
   const metadata = new Metadata(config.metadata ?? { language: "en-US", file: "" });
   const transcoder = new Transcoder(config.transcode ?? { ffmpeg: "ffmpeg", ffprobe: "ffprobe", dir: "", encoder: "off" });
   const markers = new Markers({
@@ -50,6 +51,7 @@ export function createApp(config: Config): App {
   // What parties play carries its intro and credits times, for Skip intro and the Up next card, and its length once
   // known, so a video without a credits mark still counts as watched near its end.
   const history = new History(config.historyFile);
+  const openSubtitles = new OpenSubtitles(config.openSubtitles ?? { dir: "" });
   const health = new Health(config.healthFile, (file) => transcoder.probe(file));
   const lookupMedia = (id: string) => {
     const entry = library.peek(id);
@@ -389,6 +391,35 @@ export function createApp(config: Config): App {
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Find subtitles: English ones from OpenSubtitles for a video without any, saved in data/subtitles.
+  app.get("/api/find-subtitles/:id", async (req, res) => {
+    const entry = await library.get(req.params.id);
+    if (!entry) return void res.status(404).json({ error: "Not found." });
+    const probe = await transcoder.probe(entry.absPath);
+    const answer: SubtitleSearch = { configured: openSubtitles.enabled, inside: !!probe && englishTrack(probe.subtitles) >= 0, results: [], remaining: openSubtitles.remaining };
+    if (!openSubtitles.enabled) return void res.json(answer);
+    try {
+      answer.results = await openSubtitles.search(metadata.enrich(entry.item), entry.absPath);
+    } catch (err) {
+      answer.error = `OpenSubtitles search failed: ${err instanceof Error ? err.message : err}`;
+    }
+    res.json({ ...answer, remaining: openSubtitles.remaining });
+  });
+  app.post("/api/find-subtitles/:id", async (req, res) => {
+    const entry = await library.get(req.params.id);
+    if (!entry) return void res.status(404).json({ error: "Not found." });
+    const fileId = req.body?.fileId;
+    if (!Number.isInteger(fileId) || fileId <= 0) return void res.status(400).json({ error: "fileId must be one of the search's results." });
+    try {
+      await openSubtitles.download(entry.item.id, fileId);
+    } catch (err) {
+      return void res.status(502).json({ error: `Couldn't download them: ${err instanceof Error ? err.message : err}`, remaining: openSubtitles.remaining });
+    }
+    await library.scan();
+    console.log(`subtitles: downloaded English subtitles for ${entry.item.relPath}`);
+    res.json({ ...(await libraryResponse()), remaining: openSubtitles.remaining });
   });
 
   // Skip times: what was found, and what the host set by hand over it (a kind left out is still found).

@@ -277,6 +277,8 @@ export class Library {
   constructor(
     private roots: string[],
     private maxAgeMs = 60_000,
+    /** Subtitles Find subtitles downloaded ("<id>.en.srt"), kept apart from the videos. */
+    private downloads?: string,
   ) {}
 
   async scan(): Promise<void> {
@@ -291,6 +293,7 @@ export class Library {
     const next = new Map<string, LibraryEntry>();
     const extraOwners = new Map<string, { kind: string; ownerFolder: string }>();
     const partNumbers = new Map<string, { part: number; fullTitle: string }>();
+    const downloaded = new Set(this.downloads ? await fs.readdir(this.downloads).catch(() => []) : []);
     for (const [rootIndex, root] of this.roots.entries()) {
       const files: string[] = [];
       await walk(root, files);
@@ -325,6 +328,10 @@ export class Library {
         }
 
         const id = mediaId(rootIndex, relPath);
+        if (downloaded.has(`${id}.en.srt`)) {
+          subtitles.push({ index: subtitlePaths.length, label: "English", lang: "en" });
+          subtitlePaths.push(path.join(this.downloads!, `${id}.en.srt`));
+        }
         const { title, year, episode, extra, part, fullTitle } = parseName(relPath);
         if (extra) extraOwners.set(id, extra);
         if (part) partNumbers.set(id, { part, fullTitle: fullTitle ?? title });

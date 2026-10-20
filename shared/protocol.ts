@@ -243,6 +243,31 @@ export interface PartyInvite {
   duration: number | null;
 }
 
+/** One of Find subtitles' results from OpenSubtitles. */
+export interface SubtitleResult {
+  fileId: number;
+  /** The release it was made for, "Casablanca.1942.1080p.BluRay.x264". */
+  release: string;
+  downloads: number;
+  /** Made for this very file (its OpenSubtitles hash matched), so the timing lines up. */
+  hashMatch: boolean;
+  /** Has sound descriptions ("[door slams]"). */
+  hearingImpaired: boolean;
+}
+
+/** What Find subtitles shows for a video. */
+export interface SubtitleSearch {
+  /** OpenSubtitles is set up (an API key in .env). */
+  configured: boolean;
+  /** The video already has English subtitles inside the file. */
+  inside: boolean;
+  results: SubtitleResult[];
+  /** Downloads left today, when OpenSubtitles has said. */
+  remaining: number | null;
+  /** Why the search failed, when it did. */
+  error?: string;
+}
+
 /** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
 export interface Spot {
   id: string;

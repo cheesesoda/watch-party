@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MediaItem, SkipMarks, TimeRange } from "../../shared/protocol.ts";
 import { api, imageUrl, type LibraryResponse, type MatchCandidate, type SkipTimes } from "./api.ts";
 import { buildCatalog, byName, isLaterPart, isOwnedExtra, plural, type Show } from "./catalog.ts";
+import { hasEnglish } from "./FindSubtitles.tsx";
 import { ChevronLeftIcon, ChevronRightIcon, ListVideoIcon, MoreIcon } from "./Icons.tsx";
 
 /** 7260 -> "2:01:00", 3000 -> "50:00" */
@@ -463,6 +464,8 @@ export function Details(props: {
   onQueue?: () => void;
   queued?: boolean;
   onMatched: (r: LibraryResponse) => void;
+  /** On the dashboard: Find subtitles, for a video without English ones. */
+  onFindSubtitles?: () => void;
   onClose: () => void;
 }) {
   const { item } = props;
@@ -533,6 +536,7 @@ export function Details(props: {
             items={[
               ...(props.canMatch ? [[m ? "Fix match" : "Find details", () => setFixing(true)] as [string, () => void]] : []),
               ["Set skip times", () => setTiming(true)],
+              ...(props.onFindSubtitles && !hasEnglish(item) ? [["Find subtitles", props.onFindSubtitles] as [string, () => void]] : []),
             ]}
           />
         )}
