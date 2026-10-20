@@ -1,4 +1,4 @@
-import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, PartyInvite, RoomSummary, ScheduledParty, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
+import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, PartyInvite, RoomSummary, ScheduledParty, SkipMarks, Spot, SubtitleSearch, WatchState } from "../../shared/protocol.ts";
 
 /** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
 export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
@@ -89,6 +89,10 @@ export const api = {
   setSkipTimes: (id: string, marks: SkipMarks) => call<SkipTimes>(`/api/media/${id}/skip-times`, { method: "PUT", body: JSON.stringify(marks) }),
   /** Back to the times the server found. */
   clearSkipTimes: (id: string) => call<SkipTimes>(`/api/media/${id}/skip-times`, { method: "DELETE" }),
+  /** Find subtitles: English ones on OpenSubtitles for a video without any. */
+  findSubtitles: (id: string) => call<SubtitleSearch>(`/api/find-subtitles/${id}`),
+  /** Downloads one of findSubtitles' results; the library comes back with it on the video. */
+  downloadSubtitles: (id: string, fileId: number) => call<LibraryResponse>(`/api/find-subtitles/${id}`, { method: "POST", body: JSON.stringify({ fileId }) }),
   rooms: () => call<{ rooms: RoomSummary[] }>("/api/rooms").then((r) => r.rooms),
   room: (id: string) => call<{ room: RoomSummary }>(`/api/rooms/${encodeURIComponent(id)}`).then((r) => r.room),
   info: (id: string) => call<{ info: MediaInfo | null }>(`/api/media/${id}/info`).then((r) => r.info),

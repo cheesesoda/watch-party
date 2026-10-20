@@ -4,6 +4,7 @@ import { worthSaving, type HealthReport, type MediaItem, type PartyInvite, type 
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
+import { FindSubtitlesDialog } from "./FindSubtitles.tsx";
 import { ActivityIcon, CalendarPlusIcon, CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
 import { HealthPage, needsFixing } from "./Health.tsx";
 import { HistoryPage } from "./History.tsx";
@@ -50,6 +51,14 @@ export function Home(props: {
   const [scheduled, setScheduled] = useState<ScheduledParty[]>([]);
   const [scheduling, setScheduling] = useState<ScheduleWhat | null>(null);
   const [planned, setPlanned] = useState<PartyInvite | null>(null);
+  // Find subtitles: the video it's open for, then "English subtitles added" for a moment.
+  const [findingSubs, setFindingSubs] = useState<MediaItem | null>(null);
+  const [subsAdded, setSubsAdded] = useState<string | null>(null);
+  useEffect(() => {
+    if (!subsAdded) return;
+    const t = setTimeout(() => setSubsAdded(null), 6000);
+    return () => clearTimeout(t);
+  }, [subsAdded]);
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
   // The party whose code was just clicked, to say its invite link was copied.
@@ -252,6 +261,7 @@ export function Home(props: {
       // Watching alone there's nobody to schedule for.
       schedule: alone ? undefined : setScheduling,
       openInfo: (id, fix = false) => setInfo({ id, fix }),
+      findSubtitles: setFindingSubs,
       spot: {
         of: (show) => spots.find((sp) => show.episodes.some((e) => e.id === sp.media.id)),
         start: (sp) => void start([], sp),
@@ -551,11 +561,42 @@ export function Home(props: {
             };
           })()}
           onMatched={setLibrary}
+          onFindSubtitles={() => {
+            setFindingSubs(cat.byId.get(info.id)!);
+            setInfo(null);
+          }}
           onClose={() => setInfo(null)}
         />
       )}
+
+      {findingSubs && (
+        <FindSubtitlesDialog
+          item={findingSubs}
+          {...subtitlesHeading(findingSubs)}
+          poster={browse.details ? (findingSubs.meta?.posterPath ?? null) : null}
+          onCancel={() => setFindingSubs(null)}
+          onAdded={(r) => {
+            setLibrary(r);
+            setSubsAdded(subtitlesHeading(findingSubs).title);
+            setFindingSubs(null);
+          }}
+        />
+      )}
+      {subsAdded && (
+        <div className="toast info dash-toast" role="status">
+          English subtitles added for {subsAdded}. Pick them in the player, on any TV, phone or browser.
+        </div>
+      )}
     </div>
   );
+}
+
+/** Find subtitles' heading: "Casablanca" over "1942", or "Reacher · S2 E1" over the episode's name. */
+function subtitlesHeading(item: MediaItem): { title: string; sub: string } {
+  const m = item.meta;
+  if (item.episode) return { title: `${m?.show ?? item.episode.show} · ${episodeLabel(item.episode.season, item.episode.episode)}`, sub: m?.title ?? "" };
+  const year = m?.year ?? item.year;
+  return { title: m?.title ?? item.title, sub: year ? String(year) : "" };
 }
 
 function detailsLine(item: { duration?: number | null; size: number; subtitles: unknown[]; extra?: { kind: string } | null }) {

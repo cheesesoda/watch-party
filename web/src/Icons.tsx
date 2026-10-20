@@ -302,3 +302,11 @@ export const ClockIcon = (p: Props) => (
     <path d="M12 6v6l4 2" />
   </Svg>
 );
+
+export const DownloadIcon = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 15V3" />
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="m7 10 5 5 5-5" />
+  </Svg>
+);

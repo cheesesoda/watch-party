@@ -3364,3 +3364,101 @@ h2.coming-up {
   margin: 14px 0 0;
   text-align: center;
 }
+
+/* Find subtitles: OpenSubtitles' results, one picked. */
+.save-spot.find-subs {
+  width: min(640px, 100%);
+}
+.save-spot p.find-subs-help {
+  margin: 18px 0 8px;
+}
+.find-subs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.find-subs-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.find-subs-row:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.07);
+}
+.find-subs-row.on {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+.find-subs-row:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.find-subs-radio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  display: grid;
+  place-items: center;
+}
+.find-subs-row.on .find-subs-radio {
+  border-color: var(--accent);
+}
+.find-subs-row.on .find-subs-radio::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.find-subs-text {
+  flex: 1;
+  min-width: 0;
+}
+.find-subs-release {
+  display: block;
+  font: 600 14px ui-monospace, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.find-subs-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.find-subs-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.find-subs-meta .find-subs-match {
+  color: var(--accent);
+  font-weight: 600;
+}
+.find-subs-left {
+  color: var(--muted);
+  font-size: 13px;
+}
+.toast.dash-toast {
+  position: fixed;
+  top: auto;
+  bottom: 90px;
+  z-index: 70;
+}

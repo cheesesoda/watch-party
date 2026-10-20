@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { IceServer } from "../../shared/protocol.ts";
 import { DEFAULT_ICE_SERVERS } from "./rooms.ts";
 import type { MetadataConfig } from "./metadata.ts";
+import type { OpenSubtitlesConfig } from "./openSubtitles.ts";
 import type { TranscodeConfig } from "./transcode.ts";
 
 export interface Config {
@@ -49,6 +50,8 @@ export interface Config {
   skipTimesFile?: string;
   /** Parties scheduled for later (data/schedule.json). */
   scheduleFile?: string;
+  /** Find subtitles: OpenSubtitles' API key and account, and where downloads go (data/subtitles). */
+  openSubtitles?: OpenSubtitlesConfig;
   /**
    * Where invite links point, e.g. https://tv.chzsda.com, when that address forwards /join/CODE to this server.
    * Empty: invite links use the address the page was opened on.
@@ -120,6 +123,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     healthFile: path.resolve(env.HEALTH_FILE?.trim() || fileURLToPath(new URL("../../data/health.json", import.meta.url))),
     skipTimesFile: path.resolve(env.SKIP_TIMES_FILE?.trim() || fileURLToPath(new URL("../../data/skip-times.json", import.meta.url))),
     scheduleFile: path.resolve(env.SCHEDULE_FILE?.trim() || fileURLToPath(new URL("../../data/schedule.json", import.meta.url))),
+    openSubtitles: {
+      apiKey: env.OPENSUBTITLES_API_KEY?.trim() || undefined,
+      username: env.OPENSUBTITLES_USERNAME?.trim() || undefined,
+      password: env.OPENSUBTITLES_PASSWORD || undefined,
+      dir: path.resolve(env.SUBTITLES_DIR?.trim() || fileURLToPath(new URL("../../data/subtitles", import.meta.url))),
+    },
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,
     proxyKey: env.PROXY_KEY?.trim() || undefined,
