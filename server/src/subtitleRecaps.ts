@@ -23,8 +23,10 @@ const MIN_CHARS = 12;
 const MAX_UNMATCHED = 12;
 const MAX_SILENCE = 20;
 /**
- * A line counts as said before when at least this share of its 4-word runs were: a recap trims lines, and puts two
- * speakers' lines in one subtitle that the earlier episode showed apart. Lines under 4 words ("No, you're not.") are
+ * A line counts as said before when at least this share of its 4-word runs were said in one earlier episode: a recap
+ * trims lines, and puts two speakers' lines in one subtitle that the earlier episode showed apart, but takes each line
+ * whole from one episode. (New dialogue gets there only with bits of several: "what do you think" from one, "do you
+ * think they" from another.) Lines under 4 words ("No, you're not.") are
  * said in every show, so they never stretch a recap.
  */
 const PHRASE = 4;
@@ -106,20 +108,20 @@ export function findSubtitleRecap(cues: Cue[], earlier: Cue[][]): SubtitleRecap 
     for (let i = 0; i + PHRASE <= words.length; i++) found.add(words.slice(i, i + PHRASE).join(" "));
     return found;
   };
-  const phrases = new Set<string>();
+  const episodes = earlier.map(runs);
   const episodesWith = new Map<string, number>();
   for (const list of earlier) {
-    for (const p of runs(list)) phrases.add(p);
     for (const p of runs(list.filter((c) => c.start >= BODY_FROM))) episodesWith.set(p, (episodesWith.get(p) ?? 0) + 1);
   }
   const said = (text: string) => {
     const words = text.split(" ");
-    let found = 0;
+    const mine: string[] = [];
     for (let i = 0; i + PHRASE <= words.length; i++) {
       const p = words.slice(i, i + PHRASE).join(" ");
-      if (phrases.has(p) && (episodesWith.get(p) ?? 0) <= MAX_EPISODES) found++;
+      if ((episodesWith.get(p) ?? 0) <= MAX_EPISODES) mine.push(p);
     }
-    return found / (words.length - PHRASE + 1) >= MIN_SHARE;
+    const total = words.length - PHRASE + 1;
+    return episodes.some((phrases) => mine.filter((p) => phrases.has(p)).length / total >= MIN_SHARE);
   };
   let last: Cue | null = null;
   let matched = 0;

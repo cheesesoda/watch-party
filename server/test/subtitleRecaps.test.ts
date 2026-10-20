@@ -79,10 +79,12 @@ test("a recap line that runs two speakers together, or trims a line, still count
   assert.deepEqual(findSubtitleRecap(cues, [before])?.range, { start: 0, end: 19 });
 });
 
-test("short lines and everyday phrases from earlier episodes don't stretch a recap into the episode", () => {
+test("short lines, everyday phrases, and bits of lines from different episodes don't stretch a recap into the episode", () => {
   // Everyday talk said in the body of three earlier episodes, a recap line from one, and a short line from another.
   const talk = (extra: [number, number, string][]) => parseCues(srt([[600, 603, "So what do you think they want?"], [900, 902, "No, you're not."], ...extra]));
   const earlier = [talk([[700, 703, "Quinn's gonna step out of that car."]]), talk([]), talk([])];
+  // Bits of one new line, each said in a different earlier episode (and only there).
+  const bits = [parseCues(srt([[500, 503, "Tell me, what do you think?"]])), parseCues(srt([[500, 503, "Why do you think they did it?"]]))];
   const cues = parseCues(
     srt([
       [0, 2, "Previously on Reacher"],
@@ -96,6 +98,7 @@ test("short lines and everyday phrases from earlier episodes don't stretch a rec
     ]),
   );
   assert.deepEqual(findSubtitleRecap(cues, earlier)?.range, { start: 0, end: 16 });
+  assert.deepEqual(findSubtitleRecap(cues, [parseCues(srt([[700, 703, "Quinn's gonna step out of that car."]])), ...bits])?.range, { start: 0, end: 16 });
 });
 
 test("no Previously on line, or one with nothing said before after it, is no recap", () => {
