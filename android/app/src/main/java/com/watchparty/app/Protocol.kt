@@ -374,6 +374,13 @@ object Protocol {
         put("late", true)
     }.toString()
 
+    /** This device changed its video quality (for the server's log). [auto]: by itself, after waiting for video too often. */
+    fun quality(light: Boolean, auto: Boolean): String = buildJsonObject {
+        put("type", "quality")
+        put("light", light)
+        if (auto) put("auto", true)
+    }.toString()
+
     /** Whether this device plays the video (false while it's only for chat), so jumps wait for it to load. */
     fun player(on: Boolean): String = buildJsonObject {
         put("type", "player")

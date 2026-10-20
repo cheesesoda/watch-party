@@ -26,6 +26,8 @@ export class VideoSync {
   /** The hold this page last said it was ready for, so it says so once. */
   /** Playing the server's converted copy (said in "ready", for the server's log). */
   converted = false;
+  /** Playing the server's lighter copy for slow connections (also said in "ready"). */
+  light = false;
   /** The last hold seen, so a screen it gave up on can say when it caught up. */
   private lastHold = "";
   private readyFor = "";
@@ -161,7 +163,7 @@ export class VideoSync {
         const key = `${state.updatedAt}:${state.position}`;
         if (this.readyFor !== key) {
           this.readyFor = key;
-          this.send({ type: "ready", position: video.currentTime, converted: this.converted || undefined });
+          this.send({ type: "ready", position: video.currentTime, converted: this.converted || undefined, light: this.light || undefined });
         }
       }
       return;
@@ -170,7 +172,7 @@ export class VideoSync {
     // The hold gave up on this screen before it loaded: now it plays in step, say so once (for the server's log).
     if (this.lastHold && this.readyFor !== this.lastHold && !video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && Math.abs(drift) <= HARD_DRIFT) {
       this.readyFor = this.lastHold;
-      this.send({ type: "ready", position: video.currentTime, late: true, converted: this.converted || undefined });
+      this.send({ type: "ready", position: video.currentTime, late: true, converted: this.converted || undefined, light: this.light || undefined });
     }
     if (Math.abs(drift) > HARD_DRIFT) {
       video.playbackRate = 1;

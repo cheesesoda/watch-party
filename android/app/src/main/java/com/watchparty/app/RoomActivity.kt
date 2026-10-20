@@ -73,6 +73,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
@@ -104,6 +105,8 @@ class RoomActivity : ComponentActivity() {
     /** "Paused at 13:33" / "Playing" for a moment once the server confirms a press, so one that didn't land shows. */
     private lateinit var playedText: TextView
     private val hidePlayed = Runnable { playedText.visibility = View.GONE }
+    private lateinit var noticeText: TextView
+    private val hideNotice = Runnable { noticeText.visibility = View.GONE }
     private lateinit var chatOverlay: LinearLayout
     private lateinit var voiceButton: Button
     private lateinit var muteButton: Button
@@ -145,6 +148,18 @@ class RoomActivity : ComponentActivity() {
     private var mediaInfo: MediaInfo? = null
     /** Playing the server's converted copy instead of the original file. */
     private var converted = false
+    /** Playing the server's lighter copy for slow connections (Settings > Video quality). */
+    private var light = false
+    /** Auto quality found this device kept waiting for video: the rest of the party plays the lighter copy. */
+    private var slowConnection = false
+    private val slowWatch = SlowConnection()
+    /** When the player started waiting for video while the party plays (or waits for screens); null when it isn't. */
+    private var waitingSince: Long? = null
+    private var waitingAfterJump = false
+    private var lastJumpAt = 0L
+    /** The player hasn't shown the video it just loaded yet: that first wait doesn't count. */
+    private var firstLoad = true
+    private val longWait = Runnable { if (waitingSince != null) slowDown() }
 
     /** Phone showing only chat, because its owner is watching on a TV. */
     private var companion = false
@@ -156,7 +171,8 @@ class RoomActivity : ComponentActivity() {
     /** The host watching alone (Watch alone): no chat or voice until they invite friends. */
     private var solo = false
     private val chatButtons = mutableListOf<View>()
-    private val inviteButtons = mutableListOf<View>()
+    /** The TV's Invite friends, only while watching alone: friends get the code from a phone or the web. */
+    private var tvInvite: View? = null
 
     /** Back outside the chat asks first, so one press too many doesn't drop you out of the party. */
     private val confirmLeaveOnBack = object : OnBackPressedCallback(true) {
@@ -264,6 +280,11 @@ class RoomActivity : ComponentActivity() {
             // In a binge, the server moves everyone on to the next video once a screen reports the end.
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) loadedMediaId?.let { connection.send(Protocol.ended(it)) }
+                watchWaits(playbackState)
+            }
+
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) lastJumpAt = SystemClock.elapsedRealtime()
             }
 
             // A sound or picture track this device can't decode is skipped silently, so check for that too.
@@ -282,7 +303,11 @@ class RoomActivity : ComponentActivity() {
             caughtUp = { position -> connection.send(Protocol.caughtUp(position)) },
         )
         buildLayout()
-        playerView.player = player
+        // The controls see the player without playback speed: a party keeps everyone at 1x, so a speed never stuck.
+        playerView.player = object : ForwardingPlayer(player) {
+            override fun isCommandAvailable(command: Int) = command != Player.COMMAND_SET_SPEED_AND_PITCH && super.isCommandAvailable(command)
+            override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon().remove(Player.COMMAND_SET_SPEED_AND_PITCH).build()
+        }
 
         connection = RoomConnection(
             api.socketUrl(roomId, prefs.name, if (isTv) "tv" else "phone"),
@@ -544,17 +569,30 @@ class RoomActivity : ComponentActivity() {
                 val info = runCatching { api.info(media.id) }.getOrNull()
                 if (loadedMediaId != media.id) return@launch
                 mediaInfo = info
-                val metered = getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
-                val direct = info == null || Playable.direct(info, media.size, isTv, metered, DeviceDecoders(this@RoomActivity))
-                load(media, converted = !direct)
+                val direct = info == null || Playable.direct(info, media.size, isTv, metered(), DeviceDecoders(this@RoomActivity))
+                load(media, converted = !direct, light = wantsLight(info))
             }
         }
         sync.setState(state, mine)
     }
 
-    /** Plays [media], either the original file or the server's converted copy. */
-    private fun load(media: MediaItem, converted: Boolean) {
-        this.converted = converted
+    private fun metered() = getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+
+    /** Whether to play the lighter copy, by Settings > Video quality (and on Auto, whether this device kept waiting). */
+    private fun wantsLight(info: MediaInfo?): Boolean = info?.convert == true &&
+        (prefs.videoQuality == VideoQuality.LIGHT || (prefs.videoQuality == VideoQuality.AUTO && slowConnection))
+
+    /**
+     * Plays [media], either the original file or the server's converted copy ([light]: its lighter one), from
+     * [startMs] when switching copies mid-video, so it doesn't load the start first.
+     */
+    private fun load(media: MediaItem, converted: Boolean, light: Boolean = false, startMs: Long? = null) {
+        this.converted = converted || light
+        this.light = light
+        val converted = this.converted
+        firstLoad = true
+        waitingSince = null
+        main.removeCallbacks(longWait)
         fun sub(index: Any, track: SubtitleTrack) =
             ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(api.subtitleUrl(media.id, index)))
                 .setMimeType(MimeTypes.TEXT_VTT)
@@ -565,13 +603,87 @@ class RoomActivity : ComponentActivity() {
         val inside = if (converted) mediaInfo?.subtitles.orEmpty().map { sub("e${it.index}", it) } else emptyList()
         val subs = media.subtitles.map { sub(it.index, it) } + inside
         val item = ExoMediaItem.Builder()
-            .setUri(if (converted) api.hlsUrl(media.id) else api.streamUrl(media.id))
+            .setUri(if (converted) api.hlsUrl(media.id, light) else api.streamUrl(media.id))
             .setMimeType(if (converted) MimeTypes.APPLICATION_M3U8 else null)
             .setMediaId(media.id)
             .setSubtitleConfigurations(subs)
             .build()
-        player.setMediaItem(item)
+        if (startMs != null) player.setMediaItem(item, startMs) else player.setMediaItem(item)
         player.prepare()
+    }
+
+    /** Times each wait for video while the party plays (or waits for screens), so Auto quality can tell a slow connection. */
+    private fun watchWaits(playbackState: Int) {
+        val now = SystemClock.elapsedRealtime()
+        if (playbackState == Player.STATE_READY) {
+            val since = waitingSince
+            waitingSince = null
+            main.removeCallbacks(longWait)
+            if (firstLoad) firstLoad = false
+            else if (since != null && slowWatch.waited(now - since, waitingAfterJump, now)) slowDown()
+            return
+        }
+        if (playbackState != Player.STATE_BUFFERING || firstLoad || waitingSince != null) return
+        val state = lastState ?: return
+        if (state.paused && !state.hold) return
+        waitingSince = now
+        waitingAfterJump = now - lastJumpAt < JUMP_WAIT_MS
+        main.postDelayed(longWait, SlowConnection.LONG_MS)
+    }
+
+    /** Auto quality: this device keeps waiting for video, so it switches to the lighter copy for the rest of the party. */
+    private fun slowDown() {
+        waitingSince = null
+        main.removeCallbacks(longWait)
+        val media = lastMedia
+        if (light || prefs.videoQuality != VideoQuality.AUTO || mediaInfo?.convert != true || media == null || media.id != loadedMediaId) return
+        slowConnection = true
+        connection.send(Protocol.quality(light = true, auto = true))
+        load(media, converted = true, light = true, startMs = player.currentPosition)
+        showNotice("Slow connection: switched to a lighter stream")
+    }
+
+    /** Settings > Video quality: keeps [choice] for this device and switches the playing video to match right away. */
+    private fun setQuality(choice: String) {
+        if (prefs.videoQuality == choice) return
+        prefs.videoQuality = choice
+        // Picking Original starts Auto afresh next time it's picked.
+        if (choice == VideoQuality.ORIGINAL) slowConnection = false
+        val media = lastMedia ?: return
+        val info = mediaInfo ?: return
+        if (media.id != loadedMediaId || wantsLight(info) == light) return
+        val lighter = wantsLight(info)
+        connection.send(Protocol.quality(light = lighter, auto = false))
+        val direct = Playable.direct(info, media.size, isTv, metered(), DeviceDecoders(this))
+        load(media, converted = !direct, light = lighter, startMs = player.currentPosition)
+    }
+
+    /** A short note in a pill at the bottom corner, like "Slow connection: switched to a lighter stream". */
+    private fun showNotice(message: String) {
+        noticeText.text = message
+        noticeText.visibility = View.VISIBLE
+        main.removeCallbacks(hideNotice)
+        main.postDelayed(hideNotice, NOTICE_SHOWN_MS)
+    }
+
+    /** Settings > Video quality: Auto, Original or Lighter for this device. */
+    private fun showQuality() {
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val picker = present(dialog().setTitle("Video quality").setView(content).setNegativeButton("Cancel", null))
+        val device = if (isTv) "this device" else "this phone"
+        val choices = listOf(
+            Triple(VideoQuality.AUTO, "Auto", "The original file. Switches to a lighter stream if $device keeps waiting for video."),
+            Triple(VideoQuality.ORIGINAL, "Original", "The full file whenever $device can play it${if (isTv) ", as today." else "."}"),
+            Triple(VideoQuality.LIGHT, "Lighter (720p)", "A smaller stream for slow connections.${if (isTv) " The server converts it while you watch." else ""}"),
+        )
+        for ((value, label, detail) in choices) {
+            val row = dialogRow(label, detail, radio(prefs.videoQuality == value)) {
+                picker.dismiss()
+                setQuality(value)
+            }
+            content.addView(row)
+            if (prefs.videoQuality == value) row.requestFocus()
+        }
     }
 
     /** When the original file won't play here, switches to the converted copy. False if that isn't possible. */
@@ -709,6 +821,19 @@ class RoomActivity : ComponentActivity() {
         root.addView(playedText, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
             topMargin = dp(if (isTv) 48 else 24)
         })
+        noticeText = text(14f, ON_SURFACE).apply {
+            background = pill(Color.argb(235, 0x12, 0x0E, 0x18))
+            setPadding(dp(16), dp(10), dp(20), dp(10))
+            compoundDrawablePadding = dp(10)
+            gravity = Gravity.CENTER_VERTICAL
+            val icon = getDrawable(R.drawable.ic_wifi_off)!!.apply { setBounds(0, 0, dp(18), dp(18)) }
+            setCompoundDrawablesRelative(icon, null, null, null)
+            visibility = View.GONE
+        }
+        root.addView(noticeText, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+            val margin = dp(if (isTv) 48 else 24)
+            setMargins(margin, margin, margin, margin)
+        })
 
         setContentView(root)
     }
@@ -783,7 +908,7 @@ class RoomActivity : ComponentActivity() {
         muteButton = phoneButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         listOfNotNull(
-            phoneButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
+            phoneButton("Invite friends", R.drawable.ic_user_plus) { if (solo) askInvite() else showInvite() },
             phoneButton("Chat", R.drawable.ic_chat) { openChat() }.also { chatButtons.add(it) },
             voiceButton,
             muteButton,
@@ -949,7 +1074,7 @@ class RoomActivity : ComponentActivity() {
             subtitles,
             tvButton("Up next", R.drawable.ic_video) { openUpNext() }.also { listButtons.add(it) },
             tvButton("Settings", R.drawable.ic_settings) { showSettings() },
-            tvButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { inviteButtons.add(it) },
+            tvButton("Invite friends", R.drawable.ic_user_plus) { askInvite() }.apply { visibility = View.GONE }.also { tvInvite = it },
             tvButton("Leave", R.drawable.ic_leave) { confirmLeave() },
             playerSettings,
         ).forEach { right.addView(it) }
@@ -1233,16 +1358,17 @@ class RoomActivity : ComponentActivity() {
                 .setPositiveButton("Done") { _, _ -> save() }
                 .setNegativeButton("Cancel", null),
         )
-        /** A row that does something and closes Settings. */
-        fun action(label: String, detail: String?, onClick: () -> Unit) = content.addView(
-            dialogRow(label, detail) {
+        /** A row that does something and closes Settings; [opens]: another menu, marked with a ›. */
+        fun action(label: String, detail: String?, opens: Boolean = false, onClick: () -> Unit) = content.addView(
+            dialogRow(label, detail, if (opens) chevron() else null) {
                 save()
                 settings.dismiss()
                 onClick()
             },
         )
-        // The player's controls have one gear, so Media3's own menu (audio track, playback speed) opens from here.
-        action("Audio track and playback speed", null) { openPlayerSettings() }
+        action("Video quality", QUALITY_LABELS[prefs.videoQuality] ?: "Auto", opens = true) { showQuality() }
+        // The player's controls have one gear, so Media3's own audio track menu opens from here, when there's a choice.
+        if (player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO } > 1) action("Audio track", null, opens = true) { openPlayerSettings() }
         // The phone's top row keeps to the essentials, so switching to chat only lives here.
         if (!isTv && !solo) action("Chat only", "Just chat on this phone, for when you're watching on a TV.") { enterCompanion(auto = false) }
         row.requestFocus()
@@ -1644,7 +1770,7 @@ class RoomActivity : ComponentActivity() {
         )
     }
 
-    /** Watching alone or not: alone, there's Invite in place of Chat and Join voice, and no party code. */
+    /** Watching alone or not: alone, there's no Chat or Join voice, Invite makes it a party, and there's no party code. */
     private fun setSolo(on: Boolean) {
         solo = on && host
         sync.alone = solo
@@ -1652,7 +1778,7 @@ class RoomActivity : ComponentActivity() {
         val party = if (solo) View.GONE else View.VISIBLE
         chatButtons.forEach { it.visibility = party }
         if (voice == null) voiceButton.visibility = party
-        inviteButtons.forEach { it.visibility = if (solo) View.VISIBLE else View.GONE }
+        tvInvite?.visibility = if (solo) View.VISIBLE else View.GONE
         renderPlayerInfo()
         if (lastMedia == null) titleText.text = nothingPlaying()
         renderChatOverlay()
@@ -1672,7 +1798,12 @@ class RoomActivity : ComponentActivity() {
     private fun makeParty() {
         connection.send(Protocol.invite())
         setSolo(false)
-        val link = inviteLink()
+        showInvite("It's a party")
+    }
+
+    /** The code and a QR of the invite link to scan; phones can also share or copy the link (a TV shows this only after Make it a party). */
+    private fun showInvite(title: String = "Invite friends") {
+        val link = inviteLink(prefs.serverUrl, roomCode)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1689,23 +1820,15 @@ class RoomActivity : ComponentActivity() {
             }, LinearLayout.LayoutParams(dp(if (isTv) 180 else 200), dp(if (isTv) 180 else 200)).apply { topMargin = dp(12) })
         }
         val builder = dialog()
-            .setTitle("It's a party")
+            .setTitle(title)
             .setMessage("Friends join with this code, or by scanning the code with their phone.")
             .setView(content)
             .setPositiveButton("Done", null)
-        if (!isTv) builder.setNeutralButton("Copy invite link") { _, _ ->
-            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Invite link", link))
-            Toast.makeText(this, "Invite link copied", Toast.LENGTH_SHORT).show()
+        if (!isTv) {
+            builder.setNeutralButton("Copy link") { _, _ -> copyInvite(this, link) }
+            builder.setNegativeButton("Share") { _, _ -> shareInvite(this, roomCode, link) }
         }
         present(builder)
-    }
-
-    /** The party's invite link: on the host's own domain for the built-in server, as on the web. */
-    private fun inviteLink(): String {
-        val server = Prefs.normalizeUrl(prefs.serverUrl)
-        val builtIn = server == Prefs.normalizeUrl(BuildConfig.DEFAULT_SERVER)
-        val base = if (builtIn && BuildConfig.INVITE_HOST.isNotBlank()) "https://${BuildConfig.INVITE_HOST}" else server
-        return "$base/join/${roomCode.lowercase()}"
     }
 
     /** Seconds into the video: the party's, on a phone that's only for chat. */
@@ -2190,6 +2313,28 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    /** A radio button's circle (Material 3): an amber ring and dot when picked, dark while its row is focused. */
+    private fun radio(on: Boolean) = View(this).apply {
+        isDuplicateParentStateEnabled = true
+        fun circle(color: Int) = LayerDrawable(listOfNotNull(
+            GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2), color) },
+            if (on) GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) } else null,
+        ).toTypedArray()).apply { if (on) setLayerInset(1, dp(5), dp(5), dp(5), dp(5)) }
+        background = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), circle(ON_ACCENT))
+            addState(intArrayOf(), circle(if (on) ACCENT else ON_SURFACE_VARIANT))
+        }
+        minimumWidth = dp(20)
+        minimumHeight = dp(20)
+    }
+
+    /** The › at the end of a dialog row that opens something else. */
+    private fun chevron() = text(20f, ON_SURFACE_VARIANT).apply {
+        text = "›"
+        isDuplicateParentStateEnabled = true
+        setTextColor(ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()), intArrayOf(ON_ACCENT, ON_SURFACE_VARIANT)))
+    }
+
     /** A row in a dialog's list (Settings, Play for everyone): a rounded pill, white with dark text while focused. */
     private fun dialogRow(label: String, detail: String?, trailing: View? = null, onClick: () -> Unit): LinearLayout {
         val focused = intArrayOf(android.R.attr.state_focused)
@@ -2243,6 +2388,10 @@ class RoomActivity : ComponentActivity() {
         /** How far the remote's fast-forward and rewind buttons, and a double-tap on the phone, jump. */
         private const val SKIP_MS = 10_000L
         private const val PLAYED_SHOWN_MS = 2_000L
+        private const val NOTICE_SHOWN_MS = 6_000L
+        /** A wait for video that starts this soon after a jump is the jump's (SlowConnection gives those longer). */
+        private const val JUMP_WAIT_MS = 1_500L
+        private val QUALITY_LABELS = mapOf(VideoQuality.AUTO to "Auto", VideoQuality.ORIGINAL to "Original", VideoQuality.LIGHT to "Lighter (720p)")
         /** How long the server counts down before a binge's next video (its advanceDelayMs). */
         private const val ADVANCE_MS = 10_000L
         /** Room inside the Skip intro and Up next card views for the shadows they draw (see where they're added). */

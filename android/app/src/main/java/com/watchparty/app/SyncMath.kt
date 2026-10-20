@@ -85,3 +85,39 @@ class SpeakingTracker(private val threshold: Double = 0.03, private val holdMs: 
         return next
     }
 }
+
+/** The choices under Settings > Video quality, as kept in [Prefs.videoQuality]. */
+object VideoQuality {
+    /** The original file, switching to the lighter stream if this device keeps waiting for video. */
+    const val AUTO = "auto"
+    const val ORIGINAL = "original"
+    /** The server's lighter copy (720p, about 3 Mbps) for slow connections. */
+    const val LIGHT = "light"
+}
+
+/**
+ * Notices a device that keeps waiting for video, so Auto quality can switch it to the lighter stream: a wait of 10 s,
+ * or two waits within 5 minutes. Short waits don't count, and a jump's wait gets longer, since loading a new spot
+ * takes a moment on any connection.
+ */
+class SlowConnection {
+    private val waits = ArrayDeque<Long>()
+
+    /** A wait for video of [ms] ended at [now] (ms); [jump]: right after a jump. True when it's time to switch. */
+    fun waited(ms: Long, jump: Boolean, now: Long): Boolean {
+        if (ms >= LONG_MS) return true
+        if (ms < if (jump) JUMP_MS else PLAYING_MS) return false
+        while (waits.isNotEmpty() && now - waits.first() > WINDOW_MS) waits.removeFirst()
+        waits.addLast(now)
+        return waits.size >= COUNT
+    }
+
+    companion object {
+        /** One wait this long is enough (also checked while it's still going). */
+        const val LONG_MS = 10_000L
+        const val PLAYING_MS = 2_000L
+        const val JUMP_MS = 5_000L
+        const val WINDOW_MS = 5 * 60_000L
+        const val COUNT = 2
+    }
+}

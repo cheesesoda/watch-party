@@ -112,6 +112,8 @@ class PhoneScreensTest {
                     path.startsWith("/api/history") -> json("""{"history":${Protocol.json.encodeToString(history)}}""")
                     path.startsWith("/api/watched") -> json("""{"watch":{}}""")
                     path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
+                    // Start party (not watching alone) on a movie: listed, with its code.
+                    path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","media":${Protocol.json.encodeToString(items[4])}}}""")
                     path.startsWith("/api/rooms") -> json("""{"rooms":[]}""")
                     path.startsWith("/api/spots") -> json("""{"spots":[]}""")
                     path.startsWith("/api/images/") -> MockResponse().setHeader("Content-Type", "image/png").setBody(png(path.hashCode() and 0xFF))
@@ -226,5 +228,20 @@ class PhoneScreensTest {
         settle(3_000) { rule.onAllNodesWithText("Stopped at", substring = true).fetchSemanticsNodes().isNotEmpty() }
         shot("p14-history")
         assertTrue("History has no Today", rule.onAllNodesWithText("TODAY").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    /** Party ready on a phone offers Share invite next to the code, as the web's Copy invite link does. */
+    @Test
+    fun partyReadySharesTheInvite() {
+        rule.onNodeWithContentDescription("More").performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
+        rule.onAllNodesWithText("Watch alone")[0].performSemanticsAction(SemanticsActions.OnClick)
+        settle(800) { false }
+        tap("Movies")
+        tapPoster("Alien")
+        tap("Start party")
+        settle(3_000) { rule.onAllNodesWithText("ABC123").fetchSemanticsNodes().isNotEmpty() }
+        shot("p20-party-ready")
+        assertTrue("Party ready has no Share invite", rule.onAllNodesWithText("Share invite").fetchSemanticsNodes().isNotEmpty())
     }
 }

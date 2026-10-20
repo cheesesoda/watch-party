@@ -577,3 +577,19 @@ test("Skip intro is a jump anyone can make, and friends see what it skipped", ()
   room.handle(alice.id, { type: "seek", position: 30, skip: "nonsense" as any });
   assert.equal(room.chat.at(-1)?.text, "Alice jumped to 0:30");
 });
+
+test("the log names a screen that switches to the lighter stream, and says when it did so by itself", () => {
+  const { room, alice, bob } = setup();
+  const lines: string[] = [];
+  room.log = (l) => lines.push(l);
+  room.handle(bob.id, { type: "quality", light: true, auto: true });
+  room.handle(alice.id, { type: "quality", light: true });
+  room.handle(alice.id, { type: "quality", light: false });
+  assert.deepEqual(lines.map((l) => l.replace(/^.*?(switched)/, "$1")), [
+    "switched to the lighter stream (kept waiting for video)",
+    "switched to the lighter stream",
+    "switched back to the usual stream",
+  ]);
+  room.handle(alice.id, { type: "seek", position: 60 });
+  room.handle(alice.id, { type: "player", on: true });
+});

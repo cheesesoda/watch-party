@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { episodeLabel } from "../../shared/specials.ts";
-import { worthSaving, type MediaItem, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
+import { worthSaving, type HealthReport, type MediaItem, type RoomPlayback, type RoomSummary, type Spot } from "../../shared/protocol.ts";
 import { api, getInviteBase, imageUrl, type LibraryResponse } from "./api.ts";
 import { Banner, HomeRows, movieLink, MoviePage, MoviesPage, readPref, SearchResults, ShowPage, showLink, ShowsPage, writePref, type Browse } from "./Browse.tsx";
 import { buildCatalog } from "./catalog.ts";
-import { CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
+import { ActivityIcon, CaptionsIcon, FilmIcon, HistoryIcon, HomeIcon, ListVideoIcon, LogOutIcon, PencilIcon, RefreshIcon, SearchIcon, TvIcon, UserIcon, UsersIcon } from "./Icons.tsx";
+import { HealthPage, needsFixing } from "./Health.tsx";
 import { HistoryPage } from "./History.tsx";
 import { Details } from "./Library.tsx";
 import { navigate, usePageTitle } from "./nav.ts";
@@ -63,6 +64,20 @@ export function Home(props: {
     (rescan ? api.rescan() : api.library()).then(setLibrary, (e) => setLibraryError(e.message));
   };
   useEffect(() => loadLibrary(), []);
+
+  // Library health: the server checks files in the background after a scan, so look again now and then.
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  useEffect(() => {
+    const load = () =>
+      api.health().then(
+        (r) => (setHealth(r), setHealthError(null)),
+        (e) => setHealthError(e.message),
+      );
+    load();
+    const timer = setInterval(load, health && health.checked < health.total ? 5_000 : 60_000);
+    return () => clearInterval(timer);
+  }, [library, health && health.checked < health.total]);
 
   // When the list arrived, so playing parties' progress can move on between refreshes.
   const [fetchedAt, setFetchedAt] = useState(() => Date.now());
@@ -237,12 +252,13 @@ export function Home(props: {
   const mainRef = useRef<HTMLElement>(null);
   const tone = useArtTone(mainRef, !!hero);
   usePageTitle(
-    query.trim() ? `Search: ${query.trim()}` : movie ? movie.title : show ? show.name : route === "/" ? null : NAV.find(([path]) => path === route)?.[1],
+    query.trim() ? `Search: ${query.trim()}` : movie ? movie.title : show ? show.name : route === "/" ? null : route === "/health" ? "Library health" : NAV.find(([path]) => path === route)?.[1],
   );
 
   let page: ReactNode;
   if (libraryError) page = <p className="error">{libraryError}</p>;
   else if (!library) page = <p className="muted">Loading library…</p>;
+  else if (route === "/health") page = <HealthPage b={browse} report={health} error={healthError} />;
   else if (library.items.length === 0 && route !== "/parties")
     page = <p className="muted">No videos found. Put files in the server's media folder and press Rescan library.</p>;
   else if (query.trim()) page = <SearchResults b={browse} query={query} />;
@@ -293,6 +309,10 @@ export function Home(props: {
               Hosting as <strong>{props.name}</strong>
             </span>
             <PencilIcon size={14} />
+          </button>
+          <button className={route === "/health" && !query.trim() ? "on" : ""} onClick={() => go("/health")} title="Files that won't play well">
+            <ActivityIcon size={16} /> Library health
+            {needsFixing(health) > 0 && <b className="nav-count warn">{needsFixing(health)}</b>}
           </button>
           <button onClick={() => loadLibrary(true)} title="Look for new or removed videos">
             <RefreshIcon size={16} /> Rescan library

@@ -223,7 +223,7 @@ export class Room {
 
   /** `guest` members joined with the party code: they can watch, chat and talk, but not change the video or end the party. */
   join(name: string, send: Send, device: Device = "web", close: Close = () => {}, guest = false): Member {
-    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device };
+    const member: Member = { id: crypto.randomUUID(), name: cleanName(name), voice: false, muted: true, device, ...(guest ? {} : { host: true }) };
     // Someone joining on a second device (say, a phone next to their TV) isn't news to the room.
     const alreadyHere = this.hasName(member.name);
     this.emptyAt = null;
@@ -323,7 +323,7 @@ export class Room {
         return;
 
       case "ready": {
-        const copy = msg.converted === true ? " (converted copy)" : "";
+        const copy = msg.light === true ? " (lighter copy)" : msg.converted === true ? " (converted copy)" : "";
         if (msg.late === true) {
           if (this.late?.ids.delete(member.id)) {
             this.log(`${this.who([member.id])} caught up ${now - this.late.since} ms after the jump, ${now - this.late.gaveUpAt} ms after the others started${copy}`);
@@ -339,6 +339,11 @@ export class Room {
         }
         return;
       }
+
+      case "quality":
+        if (msg.light === true) this.log(`${this.who([member.id])} switched to the lighter stream${msg.auto === true ? " (kept waiting for video)" : ""}`);
+        else this.log(`${this.who([member.id])} switched back to the usual stream`);
+        return;
 
       case "chat": {
         const text = typeof msg.text === "string" ? msg.text.trim().slice(0, MAX_CHAT_LENGTH) : "";

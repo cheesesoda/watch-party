@@ -76,6 +76,19 @@ test("ffmpegArgs seeks to the segment and keeps its place on the timeline", () =
   assert.equal(cpu[cpu.indexOf("-c:v") + 1], "libx264");
 });
 
+test("the lighter copy is 720p at about 3 Mbps with smaller sound, and never upscales", () => {
+  const probe = parseProbe({ format: { format_name: "matroska", duration: "60" }, streams: [{ index: 0, codec_type: "video", codec_name: "hevc" }, { index: 1, codec_type: "audio", codec_name: "ac3" }] });
+  for (const encoder of ["h264_nvenc", "libx264"]) {
+    const args = ffmpegArgs({ input: "/m/a.mkv", probe, start: 0, outDir: "/tmp/x", encoder, light: true });
+    const after = (flag: string) => args[args.indexOf(flag) + 1];
+    assert.equal(after("-vf"), "scale=-2:min(ih\\,720),format=yuv420p");
+    assert.equal(after("-maxrate"), "3M");
+    assert.equal(after("-b:a"), "128k");
+  }
+  const usual = ffmpegArgs({ input: "/m/a.mkv", probe, start: 0, outDir: "/tmp/x", encoder: "libx264" });
+  assert.equal(usual[usual.indexOf("-maxrate") + 1], "10M");
+});
+
 test("converts HEVC + AC3 into segments that line up across restarts", { skip: !hasFfmpeg && "ffmpeg not installed" }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "wp-tc-"));
   const input = path.join(dir, "in.mkv");
@@ -182,4 +195,23 @@ test("lengths are kept on disk, so a restart shows them before probing again", {
     await tc.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test("parseProbe lists every audio track with a label, and which one plays", () => {
+  const info = parseProbe({
+    format: { format_name: "matroska", duration: "60" },
+    streams: [
+      { index: 0, codec_type: "video", codec_name: "h264" },
+      { index: 1, codec_type: "audio", codec_name: "ac3", channels: 6, tags: { language: "jpn" }, disposition: { default: 1 } },
+      { index: 2, codec_type: "audio", codec_name: "aac", channels: 2, tags: { language: "eng" } },
+      { index: 3, codec_type: "audio", codec_name: "aac", channels: 2, tags: { language: "eng", title: "Commentary" } },
+    ],
+  });
+  assert.deepEqual(info.audios, [
+    { index: 0, label: "Japanese · 5.1" },
+    { index: 1, label: "English · stereo" },
+    { index: 2, label: "English (Commentary) · stereo" },
+  ]);
+  assert.equal(info.audioTrack, 1);
+  assert.deepEqual(info.audioIndexes, [1, 2, 3]);
 });

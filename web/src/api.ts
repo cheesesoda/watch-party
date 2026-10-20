@@ -1,4 +1,4 @@
-import type { HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
+import type { HealthReport, HistoryEntry, MediaInfo, MediaItem, RoomSummary, SkipMarks, Spot, WatchState } from "../../shared/protocol.ts";
 
 /** A video's skip times: what the server found, and what the host set by hand over it (a kind left out is still found). */
 export type SkipTimes = { found: SkipMarks; set: SkipMarks | null };
@@ -93,6 +93,8 @@ export const api = {
   /** Mark as watched / not watched; answers each video's new mark (null when it has none). */
   markWatched: (ids: string[], watched: boolean) =>
     call<{ watch: Record<string, WatchState | null> }>("/api/watched", { method: "POST", body: JSON.stringify({ ids, watched }) }).then((r) => r.watch),
+  /** Library health: files that won't play well. */
+  health: () => call<HealthReport>("/api/library/health"),
   /** Every video played, newest first. */
   history: () => call<{ history: HistoryEntry[] }>("/api/history").then((r) => r.history),
   /** "Pick up where you left off": where parties stopped, newest first. */
@@ -104,7 +106,9 @@ export const api = {
 };
 
 export const streamUrl = (id: string) => media(`/api/media/${id}/stream`);
-export const hlsUrl = (id: string) => media(`/api/media/${id}/hls/index.m3u8`);
+/** The server's converted copy; `light`: its lighter one for slow connections (720p); `audio`: another audio track. */
+export const hlsUrl = (id: string, light = false, audio?: number) =>
+  media(`/api/media/${id}/hls/${light ? "light/" : ""}index.m3u8${audio !== undefined ? `?audio=${audio}` : ""}`);
 /** A TMDB poster or still, passed through the server. TMDB paths start with "/". */
 export const imageUrl = (path: string, size: "w92" | "w185" | "w342" | "w500" | "w300" | "w780" | "w1280") => media(`/api/images/${size}${path}`);
 /** A still from the video where a saved spot stopped, for videos without TMDB art (host only). */

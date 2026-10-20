@@ -221,4 +221,17 @@ class LogicTest {
         assertEquals(null, skippable(marks, 94.0))
         assertEquals(null, skippable(null, 70.0))
     }
+
+    @Test
+    fun switchesToTheLighterStreamAfterALongWaitOrTwoWaitsInFiveMinutes() {
+        val slow = SlowConnection()
+        assertTrue("short waits don't count", !slow.waited(1_500, jump = false, now = 0))
+        assertTrue("a jump gets longer", !slow.waited(4_000, jump = true, now = 1_000))
+        assertTrue(!slow.waited(3_000, jump = false, now = 10_000))
+        assertTrue("the first was over 5 minutes ago", !slow.waited(3_000, jump = false, now = 10_000 + 6 * 60_000))
+        assertTrue(slow.waited(6_000, jump = true, now = 11_000 + 6 * 60_000))
+        assertTrue("one long wait is enough", SlowConnection().waited(10_000, jump = false, now = 0))
+        assertEquals("http://h/api/media/m1/hls/light/index.m3u8", Api("http://h", "").hlsUrl("m1", light = true))
+        assertTrue(Protocol.quality(light = true, auto = true).contains("\"auto\":true"))
+    }
 }

@@ -10,6 +10,7 @@ import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
+import { Health } from "./health.ts";
 import { handSet, Markers } from "./markers.ts";
 import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
@@ -47,15 +48,24 @@ export function createApp(config: Config): App {
   // What parties play carries its intro and credits times, for Skip intro and the Up next card, and its length once
   // known, so a video without a credits mark still counts as watched near its end.
   const history = new History(config.historyFile);
+  const health = new Health(config.healthFile, (file) => transcoder.probe(file));
   const rooms = new RoomManager((id) => {
     const entry = library.peek(id);
     if (!entry) return undefined;
     const duration = transcoder.knownDuration(entry.absPath);
     return markers.attach(metadata.enrich(duration ? { ...entry.item, duration } : entry.item));
   }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
+  const rescan = async () => {
+    await library.scan();
+    void metadata.warm(await library.list());
+    void findMarks();
+  };
   const findMarks = async () => {
     const items = await library.list();
-    await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
+    const entries = items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath);
+    // Library health first: it's quick (a header and a few spots per file), and finding marks takes hours on a new library.
+    await health.check(entries).catch((e) => console.warn(`health: ${(e as Error).message}`));
+    await markers.warm(entries);
   };
   // Videos added while the server runs get their details and skip times without a Rescan.
   library.onNew = () => {
@@ -89,6 +99,21 @@ export function createApp(config: Config): App {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, authRequired: Boolean(config.password), inviteUrl: config.inviteUrl ?? null, mediaUrl: config.mediaUrl ?? null });
+  });
+
+  // The tray app's Rescan library. The tray starts the server with a fresh TRAY_KEY each time, so only it knows the key:
+  // friends' connections through Tailscale Funnel also come from this computer, so being local proves nothing.
+  app.post("/api/tray/rescan", async (req, res) => {
+    const key = req.get("x-tray-key");
+    if (!config.trayKey || typeof key !== "string" || !safeEqual(key, config.trayKey)) return void res.status(403).json({ error: "Only the tray app can do that." });
+    const before = new Set((await library.list()).map((i) => i.id));
+    await rescan();
+    const items = await library.list();
+    const added = items.filter((i) => !before.has(i.id)).length;
+    const now = new Set(items.map((i) => i.id));
+    const removed = [...before].filter((id) => !now.has(id)).length;
+    console.log(`library: rescanned from the tray: ${items.length} video(s), ${added} new, ${removed} gone`);
+    res.json({ count: items.length, added, removed });
   });
 
   const hostToken = config.password ? tokenFor(config.password) : "";
@@ -279,10 +304,12 @@ export function createApp(config: Config): App {
     res.json(await libraryResponse());
   });
 
+  app.get("/api/library/health", (_req, res) => {
+    res.json(health.report());
+  });
+
   app.post("/api/library/rescan", async (_req, res) => {
-    await library.scan();
-    void metadata.warm(await library.list());
-    void findMarks();
+    await rescan();
     res.json(await libraryResponse());
   });
 
@@ -382,30 +409,33 @@ export function createApp(config: Config): App {
     if (!entry) return void res.status(404).json({ error: "Not found." });
     const probe = await transcoder.probe(entry.absPath);
     if (!probe) return void res.json({ info: null });
-    const { videoIndex: _v, audioIndex: _a, subtitleIndexes: _s, ...info } = probe;
+    const { videoIndex: _v, audioIndex: _a, audioIndexes: _ai, subtitleIndexes: _s, ...info } = probe;
     res.json({ info });
   });
 
-  // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS.
-  app.get("/api/media/:id/hls/index.m3u8", async (req, res) => {
-    const entry = await library.get(req.params.id);
-    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath));
+  // A converted copy for browsers that can't play the file (HEVC, AC3/DTS and the like), as HLS. Under light/, the
+  // lighter copy for slow connections. ?audio=N picks another audio track (N counts audio tracks only).
+  const audioOf = (req: express.Request) => (typeof req.query.audio === "string" && /^\d{1,2}$/.test(req.query.audio) ? Number(req.query.audio) : undefined);
+  const hlsPlaylist = (light: boolean) => async (req: express.Request, res: express.Response) => {
+    const entry = await library.get(String(req.params.id));
+    const audio = audioOf(req);
+    let text = entry && (await transcoder.playlist(entry.item.id, entry.absPath, light, audio));
     if (!text) return void res.status(404).json({ error: "This file can't be converted." });
-    // A playlist opened with ?token= passes it on to its segments, which players fetch by relative link.
+    // A playlist opened with ?token= (or ?audio=) passes it on to its segments, which players fetch by relative link.
     const token = typeof req.query.token === "string" ? req.query.token : "";
-    if (token) text = text.replace(/^(\d+\.ts)$/gm, `$1?token=${encodeURIComponent(token)}`);
+    const query = [audio !== undefined ? `audio=${audio}` : "", token ? `token=${encodeURIComponent(token)}` : ""].filter(Boolean).join("&");
+    if (query) text = text.replace(/^(\d+\.ts)$/gm, `$1?${query}`);
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     res.setHeader("Cache-Control", "no-cache");
     res.send(text);
-  });
-
-  app.get("/api/media/:id/hls/:segment", async (req, res) => {
-    const match = /^(\d{1,6})\.ts$/.exec(req.params.segment);
-    const entry = match && (await library.get(req.params.id));
+  };
+  const hlsSegment = (light: boolean) => async (req: express.Request, res: express.Response) => {
+    const match = /^(\d{1,6})\.ts$/.exec(String(req.params.segment));
+    const entry = match && (await library.get(String(req.params.id)));
     if (!entry) return void res.status(404).json({ error: "Not found." });
     let file: string | null;
     try {
-      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]));
+      file = await transcoder.segment(entry.item.id, entry.absPath, Number(match[1]), light, audioOf(req));
     } catch (err) {
       return void res.status(500).json({ error: `Converting failed: ${(err as Error).message}` });
     }
@@ -415,7 +445,11 @@ export function createApp(config: Config): App {
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
-  });
+  };
+  app.get("/api/media/:id/hls/index.m3u8", hlsPlaylist(false));
+  app.get("/api/media/:id/hls/light/index.m3u8", hlsPlaylist(true));
+  app.get("/api/media/:id/hls/light/:segment", hlsSegment(true));
+  app.get("/api/media/:id/hls/:segment", hlsSegment(false));
 
   app.get("/api/media/:id/subtitles/:index", async (req, res) => {
     const entry = await library.get(req.params.id);

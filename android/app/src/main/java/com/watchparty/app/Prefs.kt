@@ -23,6 +23,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("chat_popups", true)
         set(v) = sp.edit().putBoolean("chat_popups", v).apply()
 
+    /** Video quality on this device: [VideoQuality.AUTO], [VideoQuality.ORIGINAL] or [VideoQuality.LIGHT]. */
+    var videoQuality: String
+        get() = sp.getString("video_quality", VideoQuality.AUTO) ?: VideoQuality.AUTO
+        set(v) = sp.edit().putString("video_quality", v).apply()
+
     /** Code of the last party this device joined; fills in the code when signing in a TV. */
     var lastRoom: String
         get() = sp.getString("last_room", "") ?: ""

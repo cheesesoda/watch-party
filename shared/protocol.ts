@@ -115,6 +115,12 @@ export interface EpisodeInfo {
   title: string | null;
 }
 
+/** An audio track inside a file; `index` counts audio tracks only (the converted copy's ?audio=). */
+export interface AudioTrack {
+  index: number;
+  label: string;
+}
+
 /** What ffprobe found in a file, so a browser can tell whether it can play it as-is. */
 export interface MediaInfo {
   /** ffprobe's format name, e.g. "matroska,webm" or "mov,mp4,m4a,3gp,3g2,mj2". */
@@ -128,6 +134,9 @@ export interface MediaInfo {
    * and can't switch, so they need the converted copy, which carries the right one.
    */
   audioNotFirst?: boolean;
+  /** Every audio track in the file, in order, and which of them plays (`audioTrack`, an index into it). */
+  audios?: AudioTrack[];
+  audioTrack?: number;
   /** The server can convert this file for browsers (ffmpeg is installed). */
   convert: boolean;
   /** Text subtitles inside the file, which the server serves as WebVTT (picture-based ones are left out). */
@@ -157,6 +166,8 @@ export interface Member {
   muted: boolean;
   /** What they joined from, so a phone can act as the chat screen for its owner's TV. */
   device: Device;
+  /** Signed in with the server password (not a guest with the party code): picks what plays. */
+  host?: boolean;
 }
 
 export type Device = "web" | "phone" | "tv";
@@ -258,9 +269,12 @@ export type ClientMessage =
   | { type: "seek"; position: number; at?: number; skip?: "intro" | "recap" }
   /**
    * This screen has loaded `position` during a hold (see PlaybackState.hold). `late`: the hold had already given up on
-   * it, and it has now caught up (for the log). `converted`: it plays the server's converted copy.
+   * it, and it has now caught up (for the log). `converted`: it plays the server's converted copy; `light`: its
+   * lighter copy for slow connections.
    */
-  | { type: "ready"; position: number; late?: boolean; converted?: boolean }
+  | { type: "ready"; position: number; late?: boolean; converted?: boolean; light?: boolean }
+  /** This screen changed its video quality (for the log). `auto`: by itself, after waiting for video too often. */
+  | { type: "quality"; light: boolean; auto?: boolean }
   /** This member's screen plays the video (false for a phone that's only for chat). Holds wait for these screens. */
   | { type: "player"; on: boolean }
   | { type: "select"; mediaId: string }
@@ -355,4 +369,28 @@ export function skippable(marks: SkipMarks | null | undefined, position: number)
     if (part && position >= part.start && position < part.end - 2) return { kind, to: part.end };
   }
   return null;
+}
+
+/**
+ * A file Library health flags. `broken`: the server can't read it (empty, blank or not a video). `damaged`: it reads,
+ * but part of it is blank, as when a copy stops partway. `lowres`: smaller than 720p.
+ */
+export interface HealthIssue {
+  id: string;
+  relPath: string;
+  /** Where the file is on the server's computer, to find it there (the page shows relPath and copies this). */
+  path: string;
+  kind: "broken" | "damaged" | "lowres";
+  /** What's wrong, for people: "Empty file (0 bytes)", "Blank from about 31:20 to the end", "480p (640×480)". */
+  detail: string;
+}
+
+/** GET /api/library/health: the files that won't play well. */
+export interface HealthReport {
+  issues: HealthIssue[];
+  /** Videos checked so far, of `total` in the library; the rest are still being looked at. */
+  checked: number;
+  total: number;
+  /** When the last check finished (ms), or null before the first one. */
+  checkedAt: number | null;
 }

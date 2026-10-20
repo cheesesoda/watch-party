@@ -684,6 +684,14 @@ select:focus-visible {
   color: var(--text, #eceef3);
 }
 
+/* "Paused at 13:33" / "Playing" for a moment, a pill as on the TV and phone. */
+.toast.played {
+  color: var(--text, #eceef3);
+  border-radius: 999px;
+  padding: 6px 16px;
+  pointer-events: none;
+}
+
 /* Voice chat: who is in it, who is talking. Stays visible when the top bar hides. */
 .voice-strip {
   position: absolute;
@@ -3160,4 +3168,86 @@ button.link:focus-visible {
     text-align: left;
     padding-left: 12px;
   }
+}
+
+/* Library health */
+.health-section {
+  margin-top: 30px;
+}
+.health-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+  font-family: "Barlow", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.health-section h2 svg {
+  color: var(--accent);
+}
+.health-section h2.bad svg,
+.history-state.bad {
+  color: var(--danger, #f2a08e);
+}
+.health-section h2 .count {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.health-why {
+  margin: 0 0 10px 28px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.health-section .history-list {
+  margin-left: 16px;
+}
+.health-row {
+  gap: 16px;
+  padding: 10px 12px;
+}
+.health-row .history-art {
+  width: 120px;
+}
+.health-row .history-text {
+  flex: 1;
+}
+.health-path {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 13px ui-monospace, Menlo, Consolas, monospace;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: copy;
+}
+.health-path:hover,
+.health-path:focus-visible {
+  color: var(--text);
+}
+.health-row .history-state {
+  width: 240px;
+  font-size: 14px;
+}
+.health-fine {
+  margin-top: 24px;
+  color: var(--accent);
+}
+.nav-count.warn {
+  background: var(--danger, #f2a08e);
+  color: #1c1520;
+}
+.sidebar-foot button.on {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+.sidebar-foot .nav-count {
+  margin-left: auto;
 }
