@@ -2014,7 +2014,7 @@ private fun TvCards(
 ) {
     LazyRow(
         // With the episode on top, the room it needs comes with the episodes into view (a third of the screen, plus the chips).
-        modifier.onFocusChanged { if (!it.hasFocus) onFocused?.invoke(null) }.then(if (onFocused != null) Modifier.roomAbove(154.dp) else Modifier),
+        modifier.onFocusChanged { if (!it.hasFocus) onFocused?.invoke(null) }.then(if (onFocused != null) Modifier.roomAbove(170.dp) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(start = 128.dp, end = 48.dp, top = 12.dp, bottom = 12.dp),
     ) {
