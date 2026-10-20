@@ -9,6 +9,7 @@ import { Picker } from "./Picker.tsx";
 import { SaveSpotDialog, spotPreview } from "./Spots.tsx";
 import { leaveParty, usePageTitle } from "./nav.ts";
 import { canPlayDirect, hasMse } from "./playable.ts";
+import { LONG_WAIT_MS, QUALITY_CHOICES, SlowConnection, loadQuality, saveQuality, type Quality } from "./quality.ts";
 import { useRoom } from "./useRoom.ts";
 import { VideoSync } from "./sync.ts";
 import { Ducker, Voice, type VoiceStatus } from "./voice.ts";
@@ -60,6 +61,11 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null | undefined>(undefined);
   /** Playing the server's converted copy instead of the original file. */
   const [converted, setConverted] = useState(false);
+  /** Settings > Video quality on this device. */
+  const [quality, setQuality] = useState<Quality>(loadQuality);
+  /** Auto quality found this device kept waiting for video: the rest of the party plays the lighter copy. */
+  const [slow, setSlow] = useState(false);
+  const slowWatch = useRef(new SlowConnection());
   /** Skip intro is showing (chat pop-ups move up out of its corner). */
   const [skipping, setSkipping] = useState(false);
 
@@ -157,6 +163,70 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
     };
   }, [mediaId]);
 
+  // The lighter copy, by Settings > Video quality (and on Auto, whether this device kept waiting).
+  const light = Boolean(mediaInfo?.convert) && (quality === "light" || (quality === "auto" && slow));
+  const stateRef = useRef(view.state);
+  stateRef.current = view.state;
+
+  const changeQuality = (q: Quality) => {
+    if (q === quality) return;
+    saveQuality(q);
+    setQuality(q);
+    // Picking Original starts Auto afresh next time it's picked.
+    const stillSlow = q === "original" ? false : slow;
+    if (q === "original") setSlow(false);
+    const lighter = Boolean(mediaInfo?.convert) && (q === "light" || (q === "auto" && stillSlow));
+    if (mediaId && lighter !== light) send({ type: "quality", light: lighter, auto: false });
+  };
+
+  // Auto quality: times each wait for video while the party plays (or waits for screens after a jump). A device that
+  // keeps waiting switches to the lighter copy for the rest of the party, like the TV and phone apps.
+  useEffect(() => {
+    const video = videoRef.current!;
+    if (!mediaId || !mediaInfo?.convert || quality !== "auto" || light) return;
+    let loaded = false;
+    let since: number | undefined;
+    let jump = false;
+    let long: number | undefined;
+    const slowDown = () => {
+      window.clearTimeout(long);
+      since = undefined;
+      setSlow(true);
+      send({ type: "quality", light: true, auto: true });
+      setInfo("Slow connection: switched to a lighter stream");
+    };
+    const start = (afterJump: boolean) => {
+      const s = stateRef.current;
+      if (!loaded || since !== undefined || !s || (s.paused && !s.hold)) return;
+      since = performance.now();
+      jump = afterJump;
+      long = window.setTimeout(slowDown, LONG_WAIT_MS);
+    };
+    const onSeeking = () => start(true);
+    const onWaiting = () => start(false);
+    const onReady = () => {
+      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      loaded = true;
+      if (since === undefined) return;
+      window.clearTimeout(long);
+      const now = performance.now();
+      const ms = now - since;
+      since = undefined;
+      if (slowWatch.current.waited(ms, jump, now)) slowDown();
+    };
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("canplay", onReady);
+    video.addEventListener("playing", onReady);
+    return () => {
+      window.clearTimeout(long);
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("canplay", onReady);
+      video.removeEventListener("playing", onReady);
+    };
+  }, [mediaId, mediaInfo, quality, light, converted]);
+
   // Which subtitles show: "" for none, else a <track>'s id ("s0" for a sidecar file, "e0" for one inside the video).
   const [subtitle, setSubtitle] = useState("");
   useEffect(() => setSubtitle(""), [mediaId]);
@@ -177,14 +247,17 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
   useEffect(() => {
     const video = videoRef.current!;
     if (!mediaId || mediaInfo === undefined) return;
-    if (syncRef.current) syncRef.current.converted = converted;
+    if (syncRef.current) {
+      syncRef.current.converted = converted || light;
+      syncRef.current.light = light;
+    }
     let destroy = () => {};
     let cancelled = false;
-    if (!converted) {
+    if (!converted && !light) {
       video.src = streamUrl(mediaId);
     } else if (!hasMse()) {
       // iPhones have no MediaSource for hls.js but play HLS themselves.
-      video.src = hlsUrl(mediaId);
+      video.src = hlsUrl(mediaId, light);
     } else {
       // hls.js even where the browser says it plays HLS itself. Newer Chrome-based browsers say so,
       // and leaving the stream to them is the likely reason Brave showed a dead player.
@@ -200,7 +273,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
         hls.on(Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) setInfo(`The converted stream failed: ${data.details}. Check the server's console.`);
         });
-        hls.loadSource(hlsUrl(mediaId));
+        hls.loadSource(hlsUrl(mediaId, light));
         hls.attachMedia(video);
         destroy = () => hls.destroy();
       });
@@ -211,12 +284,12 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       video.removeAttribute("src");
       video.load();
     };
-  }, [mediaId, mediaInfo, converted]);
+  }, [mediaId, mediaInfo, converted, light]);
 
   // If the original won't play after all (an error, or sound with no picture), switch to converting.
   useEffect(() => {
     const video = videoRef.current!;
-    if (converted || !mediaInfo) return;
+    if (converted || light || !mediaInfo) return;
     const fallBack = () => {
       if (mediaInfo.convert) {
         setConverted(true);
@@ -237,7 +310,7 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
       video.removeEventListener("error", onError);
       video.removeEventListener("loadeddata", onLoaded);
     };
-  }, [mediaInfo, converted]);
+  }, [mediaInfo, converted, light]);
 
   // Re-apply the room state once the new source has loaded.
   useEffect(() => {
@@ -584,6 +657,21 @@ export function Room(props: { roomId: string; name: string; host: boolean }) {
               </label>
             )}
             {mediaInfo?.convert && (
+              <label className="switch-row">
+                <span>
+                  Video quality
+                  <small>{QUALITY_CHOICES.find((c) => c.value === quality)?.detail} Only on this device.</small>
+                </span>
+                <select value={quality} onChange={(e) => changeQuality(e.target.value as Quality)}>
+                  {QUALITY_CHOICES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {mediaInfo?.convert && !light && (
               <label className="switch-row">
                 <span>
                   Play the server's converted copy
