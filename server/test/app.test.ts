@@ -335,3 +335,11 @@ test("the tray app rescans with the key it started the server with, and nobody e
     await tray.close();
   }
 });
+
+test("Library health lists files that won't play, for the host only", async () => {
+  await app.findMarks();
+  const report = await (await fetch(`${base}/api/library/health`, { headers: auth() })).json();
+  assert.deepEqual(report.issues.map((i: { relPath: string; kind: string }) => [i.relPath, i.kind]), [["Shows/Ep.One.mp4", "broken"]]);
+  assert.equal(report.checked, report.total);
+  assert.equal((await fetch(`${base}/api/library/health`)).status, 401);
+});

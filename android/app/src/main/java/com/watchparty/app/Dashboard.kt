@@ -248,6 +248,8 @@ private class Actions(
     val mark: ((List<String>, Boolean) -> Unit)? = null,
     /** Starts a party with this video this far in (History's Pick up). */
     val startAt: (MediaItem, Double) -> Unit = { m, _ -> start(m, null) },
+    /** A party's invite link, to share or scan. */
+    val inviteLink: (RoomSummary) -> String = { "" },
 ) {
     val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else if (alone) "Play" else "Start party"
 }
@@ -458,6 +460,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         },
         info = { shownInfo = it.id; resumeAt = null },
         join = { RoomActivity.start(context, it.id) },
+        inviteLink = { inviteLink(prefs.serverUrl, it.id) },
         end = { ending = it },
         spotOf = { show -> spots.firstOrNull { sp -> show.episodes.any { it.id == sp.media.id } } },
         startSpot = { spotActions.start(it) },
@@ -1181,10 +1184,11 @@ private fun Dots(count: Int, current: Int, small: Boolean = false) {
     }
 }
 
-/** "Party ready" after Start party: the code, Join party and End party. */
+/** "Party ready" after Start party: the code, Join party and End party. Phones can share the invite link. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StartedCard(room: RoomSummary, a: Actions, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     Column(
         Modifier
             .padding(top = if (a.tv) 40.dp else 0.dp)
@@ -1204,6 +1208,7 @@ private fun StartedCard(room: RoomSummary, a: Actions, onDismiss: () -> Unit) {
         Text(room.id.uppercase(), fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 4.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill("Join party", null, primary = true, small = true) { a.join(room) }
+            if (!a.tv) Pill("Share invite", null, small = true) { shareInvite(context, room.id, a.inviteLink(room)) }
             Pill("End party", null, small = true) { a.end(room) }
             Pill("Dismiss", null, small = true, text = true, onClick = onDismiss)
         }
@@ -1446,6 +1451,7 @@ private fun PageTitle(title: String, count: String?) {
 
 @Composable
 private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boolean, a: Actions, state: LazyGridState) {
+    val context = LocalContext.current
     val side = if (a.tv) 96.dp else 16.dp
     LazyVerticalGrid(
         columns = GridCells.Adaptive(if (a.tv) 280.dp else 300.dp),
@@ -1459,7 +1465,10 @@ private fun PartiesPage(rooms: List<RoomSummary>, sinceFetch: Long, details: Boo
         items(rooms, key = { it.id }) { room ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PartyCard(room, sinceFetch, details, a, width = null)
-                Pill("End party", null, small = true, text = true) { a.end(room) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!a.tv) Pill("Share invite", null, small = true, text = true) { shareInvite(context, room.id, a.inviteLink(room)) }
+                    Pill("End party", null, small = true, text = true) { a.end(room) }
+                }
             }
         }
     }
@@ -1918,7 +1927,8 @@ private fun EpisodeRow(m: MediaItem, lib: Library, a: Actions, special: Boolean 
             else Text(m.episode?.let { "E${it.episode}" } ?: "", color = Muted, fontFamily = BarlowCondensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Center).then(dim))
             val progress = progressOf(m)
             if (m.duration != null) Text(episodeLength(m), fontSize = 11.sp, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = if (progress != null) 12.dp else 5.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xCC0A070E)).padding(horizontal = 6.dp))
-            WatchMarks(m.watched, progress, small = true)
+            // The round check beside it shows it's watched; the check on the still is only for rows without one.
+            WatchMarks(m.watched && (a.adding || a.mark == null), progress, small = true)
         }
         // Adding to a party: the length and whether it's already lined up, with an Add button (✓ once added).
         val playing = a.adding && PartyLink.playing == m.id
