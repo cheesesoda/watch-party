@@ -359,3 +359,27 @@ export function skippable(marks: SkipMarks | null | undefined, position: number)
   }
   return null;
 }
+
+/**
+ * A file Library health flags. `broken`: the server can't read it (empty, blank or not a video). `damaged`: it reads,
+ * but part of it is blank, as when a copy stops partway. `lowres`: smaller than 720p.
+ */
+export interface HealthIssue {
+  id: string;
+  relPath: string;
+  /** Where the file is on the server's computer, to find it there (the page shows relPath and copies this). */
+  path: string;
+  kind: "broken" | "damaged" | "lowres";
+  /** What's wrong, for people: "Empty file (0 bytes)", "Blank from about 31:20 to the end", "480p (640×480)". */
+  detail: string;
+}
+
+/** GET /api/library/health: the files that won't play well. */
+export interface HealthReport {
+  issues: HealthIssue[];
+  /** Videos checked so far, of `total` in the library; the rest are still being looked at. */
+  checked: number;
+  total: number;
+  /** When the last check finished (ms), or null before the first one. */
+  checkedAt: number | null;
+}

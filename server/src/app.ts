@@ -10,6 +10,7 @@ import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { Library } from "./library.ts";
+import { Health } from "./health.ts";
 import { handSet, Markers } from "./markers.ts";
 import { Metadata } from "./metadata.ts";
 import { parseRange } from "./range.ts";
@@ -40,6 +41,7 @@ export function createApp(config: Config): App {
   // What parties play carries its intro and credits times, for Skip intro and the Up next card, and its length once
   // known, so a video without a credits mark still counts as watched near its end.
   const history = new History(config.historyFile);
+  const health = new Health(config.healthFile, (file) => transcoder.probe(file));
   const rooms = new RoomManager((id) => {
     const entry = library.peek(id);
     if (!entry) return undefined;
@@ -48,7 +50,10 @@ export function createApp(config: Config): App {
   }, Date.now, undefined, config.iceServers, new Spots(config.spotsFile), history);
   const findMarks = async () => {
     const items = await library.list();
-    await markers.warm(items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath));
+    const entries = items.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })).filter((e) => e.absPath);
+    // Library health first: it's quick (a header and a few spots per file), and finding marks takes hours on a new library.
+    await health.check(entries).catch((e) => console.warn(`health: ${(e as Error).message}`));
+    await markers.warm(entries);
   };
   // Videos added while the server runs get their details and skip times without a Rescan.
   library.onNew = () => {
@@ -270,6 +275,10 @@ export function createApp(config: Config): App {
 
   app.get("/api/library", async (_req, res) => {
     res.json(await libraryResponse());
+  });
+
+  app.get("/api/library/health", (_req, res) => {
+    res.json(health.report());
   });
 
   app.post("/api/library/rescan", async (_req, res) => {
