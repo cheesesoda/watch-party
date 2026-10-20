@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from "react";
-import { api } from "./api.ts";
+import { useEffect, useState, type FormEvent } from "react";
+import type { PartyInvite } from "../../shared/protocol.ts";
+import { api, getInviteBase, NotStarted } from "./api.ts";
+import { InviteEarly } from "./Schedule.tsx";
 import { navigate } from "./nav.ts";
 import { Logo } from "./Logo.tsx";
 
@@ -77,6 +79,11 @@ export function Join(props: { initialName: string; initialCode: string; onDone: 
   const [code, setCode] = useState(props.initialCode.toUpperCase());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A scheduled party that hasn't opened yet: when it starts, instead of the form.
+  const [invite, setInvite] = useState<PartyInvite | null>(null);
+  useEffect(() => {
+    if (props.initialCode) api.invite(props.initialCode).then(setInvite, () => {});
+  }, [props.initialCode]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -88,11 +95,14 @@ export function Join(props: { initialName: string; initialCode: string; onDone: 
       const room = await api.join(code);
       props.onDone(name.trim(), room.id);
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof NotStarted) setInvite(err.invite);
+      else setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   };
+
+  if (invite) return <InviteEarly invite={invite} link={`${getInviteBase()}/join/${invite.id.toUpperCase()}`} />;
 
   return (
     <div className="center">

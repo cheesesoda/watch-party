@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
 
 class UnauthorizedException : IOException("Not signed in.")
 class ApiException(message: String) : IOException(message)
+/** A scheduled party's code, used before the party opens: [invite] says when it starts. */
+class NotStartedException(message: String, val invite: PartyInvite) : IOException(message)
 
 /** REST calls to the watch party server. */
 class Api(private val baseUrl: String, private val token: String) {
@@ -43,7 +45,8 @@ class Api(private val baseUrl: String, private val token: String) {
     @Serializable private data class HistoryResponse(val history: List<HistoryEntry>)
     @Serializable private data class WatchedResponse(val watch: Map<String, WatchState?>)
     @Serializable private data class InfoResponse(val info: MediaInfo? = null)
-    @Serializable private data class ErrorResponse(val error: String? = null)
+    @Serializable private data class ErrorResponse(val error: String? = null, val invite: PartyInvite? = null)
+    @Serializable private data class ScheduledResponse(val scheduled: List<ScheduledParty>)
 
     private val jsonType = "application/json".toMediaType()
 
@@ -55,8 +58,9 @@ class Api(private val baseUrl: String, private val token: String) {
             val text = res.body?.string().orEmpty()
             if (res.code == 401 && !path.endsWith("/login") && !path.endsWith("/join") && !path.startsWith("/api/pair")) throw UnauthorizedException()
             if (!res.isSuccessful) {
-                val msg = runCatching { Protocol.json.decodeFromString<ErrorResponse>(text).error }.getOrNull()
-                throw ApiException(msg ?: "Server returned ${res.code}")
+                val err = runCatching { Protocol.json.decodeFromString<ErrorResponse>(text) }.getOrNull()
+                if (res.code == 409 && err?.invite != null) throw NotStartedException(err.error ?: "This party hasn't started yet.", err.invite)
+                throw ApiException(err?.error ?: "Server returned ${res.code}")
             }
             text
         }
@@ -112,6 +116,21 @@ class Api(private val baseUrl: String, private val token: String) {
             put("save", save)
         }.toString())
     }
+
+    /** Parties scheduled for later (Coming up), soonest first. Empty from a server too old to schedule. */
+    suspend fun scheduled(): List<ScheduledParty> = try {
+        Protocol.json.decodeFromString<ScheduledResponse>(request("/api/scheduled")).scheduled
+    } catch (e: ApiException) {
+        emptyList()
+    }
+
+    suspend fun cancelScheduled(id: String) {
+        request("/api/scheduled/$id", delete = true)
+    }
+
+    /** Opens a scheduled party now, with the same code. */
+    suspend fun startScheduled(id: String): RoomSummary =
+        Protocol.json.decodeFromString<RoomResponse>(request("/api/scheduled/$id/start", "{}")).room
 
     /** "Pick up where you left off": where parties stopped, newest first. */
     suspend fun spots(): List<Spot> =

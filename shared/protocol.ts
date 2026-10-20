@@ -219,6 +219,30 @@ export interface RoomSummary {
   solo?: boolean;
 }
 
+/** A party set up for later (Schedule). Its code works from the start; it opens 30 minutes before [at]. */
+export interface ScheduledParty {
+  id: string;
+  /** When it starts (ms since epoch). */
+  at: number;
+  /** The first video, and how many are lined up in all (1 for a movie). */
+  media: MediaItem | null;
+  count: number;
+}
+
+/** What a friend with the code of a scheduled party sees before it opens. */
+export interface PartyInvite {
+  id: string;
+  at: number;
+  /** When the code starts joining the party (ms since epoch). */
+  opensAt: number;
+  /** "Charade", or "Reacher · S2 E1" for an episode. */
+  title: string;
+  /** Who scheduled it, for "Jake's party". */
+  host: string | null;
+  /** The first video's length in seconds, for the calendar event, when known. */
+  duration: number | null;
+}
+
 /** Where a party stopped, saved so a new party can pick up there ("Pick up where you left off"). */
 export interface Spot {
   id: string;

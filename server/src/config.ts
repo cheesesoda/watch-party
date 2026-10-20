@@ -47,6 +47,8 @@ export interface Config {
   healthFile?: string;
   /** Where skip times set by hand are kept (data/skip-times.json). */
   skipTimesFile?: string;
+  /** Parties scheduled for later (data/schedule.json). */
+  scheduleFile?: string;
   /**
    * Where invite links point, e.g. https://tv.chzsda.com, when that address forwards /join/CODE to this server.
    * Empty: invite links use the address the page was opened on.
@@ -117,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trayKey: (env.TRAY_KEY?.trim().length ?? 0) >= 32 ? env.TRAY_KEY!.trim() : undefined,
     healthFile: path.resolve(env.HEALTH_FILE?.trim() || fileURLToPath(new URL("../../data/health.json", import.meta.url))),
     skipTimesFile: path.resolve(env.SKIP_TIMES_FILE?.trim() || fileURLToPath(new URL("../../data/skip-times.json", import.meta.url))),
+    scheduleFile: path.resolve(env.SCHEDULE_FILE?.trim() || fileURLToPath(new URL("../../data/schedule.json", import.meta.url))),
     inviteUrl: env.INVITE_URL?.trim().replace(/\/+$/, "") || undefined,
     mediaUrl: env.MEDIA_URL?.trim().replace(/\/+$/, "") || undefined,
     proxyKey: env.PROXY_KEY?.trim() || undefined,
