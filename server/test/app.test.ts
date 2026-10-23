@@ -226,6 +226,49 @@ test("a TV signs in by QR: the phone enters a party code or the password", async
   assert.equal((await fetch(`${base}/.well-known/assetlinks.json`)).status, 404);
 });
 
+test("Watch on TV: a phone lists the TVs under its name and sends one its party", async () => {
+  const post = (path: string, body: unknown, headers: Record<string, string> = auth()) =>
+    fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const { room } = await (await post("/api/rooms", {})).json();
+  const { room: other } = await (await post("/api/rooms", {})).json();
+  const list = async (name: string, headers = auth()) =>
+    (await (await fetch(`${base}/api/screens?name=${encodeURIComponent(name)}`, { headers })).json()).screens;
+
+  const denied = new WebSocket(`${base.replace("http", "ws")}/ws/screen?id=tv-living-room&name=Jake`);
+  await new Promise((r) => denied.on("error", r));
+
+  const tv = new WebSocket(`${base.replace("http", "ws")}/ws/screen?id=tv-living-room&name=Jake&label=Living%20Room%20TV&token=${token}`);
+  const got: unknown[] = [];
+  tv.on("message", (d) => got.push(JSON.parse(String(d))));
+  await new Promise((r) => tv.on("open", r));
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.deepEqual(await list("jake"), [{ id: "tv-living-room", label: "Living Room TV", watching: null }], "names match ignoring case");
+  assert.deepEqual(await list("Sam"), []);
+  tv.send(JSON.stringify({ type: "status", room: other.id }));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal((await list("Jake"))[0].watching, "A watch party");
+
+  assert.equal((await post("/api/screens/tv-living-room/watch", { room: room.id, name: "Sam" })).status, 404, "only the TV's own name");
+  assert.equal((await post("/api/screens/tv-living-room/watch", { room: "nope00", name: "Jake" })).status, 404);
+  assert.equal((await post("/api/screens/tv-living-room/watch", { room: room.id, name: "Jake" })).status, 204);
+  await new Promise((r) => setTimeout(r, 50));
+  const sent = got.pop() as { type: string; room: string; token: string; from: string };
+  assert.equal(sent.type, "watch");
+  assert.equal(sent.room, room.id);
+  assert.equal(sent.from, "Jake");
+  assert.equal((await fetch(`${base}/api/rooms/${room.id}`, { headers: { Authorization: `Bearer ${sent.token}` } })).status, 200, "the TV gets a pass for the party");
+
+  // A guest can only send the party they joined.
+  const guest = { Authorization: `Bearer ${sent.token}` };
+  assert.equal((await post("/api/screens/tv-living-room/watch", { room: other.id, name: "Jake" }, guest)).status, 403);
+  assert.equal((await post("/api/screens/tv-living-room/watch", { room: room.id, name: "Jake" }, guest)).status, 204);
+
+  tv.close();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(await list("Jake"), [], "a TV that closes the app drops off");
+});
+
 test("behind a local proxy, one visitor's wrong passwords don't lock out another", async () => {
   // The test client connects from 127.0.0.1, like `tailscale serve` does, and names the visitor.
   const attempt = (password: string, visitor: string) =>

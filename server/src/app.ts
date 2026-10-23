@@ -5,7 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, HistoryEntry, MediaItem, PartyInvite, RoomSummary, ScheduledParty, ServerMessage, Spot, SubtitleSearch } from "../../shared/protocol.ts";
+import type { ClientMessage, HistoryEntry, MediaItem, PartyInvite, RoomSummary, ScheduledParty, ScreenMessage, ScreenStatus, ServerMessage, Spot, SubtitleSearch } from "../../shared/protocol.ts";
 import { episodeLabel } from "../../shared/specials.ts";
 import type { IncomingMessage } from "node:http";
 import { checkPassword, COOKIE_NAME, extractToken, guestToken, parseGuestToken, safeEqual, tokenFor, type Access } from "./auth.ts";
@@ -19,6 +19,7 @@ import { FailureLimiter } from "./ratelimit.ts";
 import { cleanName, MAX_QUEUE, RoomManager, type Room } from "./rooms.ts";
 import { History } from "./history.ts";
 import { opens, Schedule, type Planned } from "./schedule.ts";
+import { Screens } from "./screens.ts";
 import { Spots } from "./spots.ts";
 import { OpenSubtitles } from "./openSubtitles.ts";
 import { englishSubtitles, englishTrack, srtToVtt } from "./subtitles.ts";
@@ -63,6 +64,7 @@ export function createApp(config: Config): App {
   // Parties scheduled for later keep their code from the start, so no new party may take it.
   const schedule = new Schedule(config.scheduleFile);
   rooms.reserved = (code) => schedule.has(code);
+  const screens = new Screens();
   // A scheduled party becomes an ordinary one 30 minutes before it starts, so friends can join and wait for the host.
   // Left empty, it's kept until 30 minutes after the start time, like any party nobody is in.
   const openParty = (p: Planned): Room => {
@@ -297,6 +299,27 @@ export function createApp(config: Config): App {
     // so the sign-in cookie isn't sent there).
     const token = extractToken(req);
     res.json(access.kind === "host" ? { ok: true, role: "host", token } : { ok: true, role: "guest", room: access.roomId, token });
+  });
+
+  // Watch on TV: the TVs signed in under the phone's name, and sending one of them a party. Guests may send their own
+  // party, so the TV gets a guest pass for it in case its own sign-in is for another party.
+  app.get("/api/screens", (req, res) => {
+    const name = typeof req.query.name === "string" ? req.query.name : "";
+    const watching = (id: string) => {
+      const room = rooms.get(id);
+      return room ? titleOf(room.media ?? undefined) : null;
+    };
+    res.json({ screens: screens.list(name, watching) });
+  });
+  app.post("/api/screens/:id/watch", (req, res) => {
+    const access: Access = res.locals.access;
+    const room = rooms.get(typeof req.body?.room === "string" ? req.body.room : "");
+    if (!room) return void res.status(404).json({ error: "No such party. It may have ended." });
+    if (access.kind === "guest" && access.roomId !== room.id) return void res.status(403).json({ error: "You can only send the party you joined." });
+    const name = cleanName(req.body?.name);
+    const msg: ScreenMessage = { type: "watch", room: room.id, token: guestToken(room.id, room.guestKey), from: name, title: titleOf(room.media ?? undefined) };
+    if (!screens.send(req.params.id, name, msg)) return void res.status(404).json({ error: "That TV isn't there anymore. Open Popcorn Club on it." });
+    res.status(204).end();
   });
 
   // Guests only get what their own party is playing.
@@ -767,8 +790,15 @@ export function createApp(config: Config): App {
 
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.pathname !== "/ws") return void socket.destroy();
+    if (url.pathname !== "/ws" && url.pathname !== "/ws/screen") return void socket.destroy();
     const access = accessOf(req);
+    if (url.pathname === "/ws/screen") {
+      if (!access) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        return void socket.destroy();
+      }
+      return void wss.handleUpgrade(req, socket, head, (ws) => onScreen(ws, url));
+    }
     if (!access || (access.kind === "guest" && rooms.get(url.searchParams.get("room") ?? "")?.id !== access.roomId)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return void socket.destroy();
@@ -820,6 +850,37 @@ export function createApp(config: Config): App {
       // 1000/1001/1005: the app or browser closed it (leaving, or the tab going); 4404: the party ended.
       const lost = unanswered ? "no answer to ping" : [1000, 1001, 1005, 4404].includes(code) ? null : `code ${code}`;
       room.leave(member.id, lost);
+    });
+  }
+
+  // A TV with the app open, waiting for a phone to send it a party (Watch on TV).
+  function onScreen(ws: WebSocket, url: URL): void {
+    const id = url.searchParams.get("id") ?? "";
+    if (!/^[\w-]{8,64}$/.test(id)) return void ws.close(4400, "Bad id");
+    const send = (msg: ScreenMessage) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+    };
+    const label = (url.searchParams.get("label") ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || "TV";
+    if (!screens.add(id, cleanName(url.searchParams.get("name")), label, send)) return void ws.close(4429, "Too many TVs");
+    let alive = true;
+    ws.on("pong", () => (alive = true));
+    const heartbeat = setInterval(() => {
+      if (!alive) return void ws.terminate();
+      alive = false;
+      ws.ping();
+    }, 30_000);
+    ws.on("message", (data) => {
+      let msg: ScreenStatus;
+      try {
+        msg = JSON.parse(String(data));
+      } catch {
+        return;
+      }
+      if (msg?.type === "status") screens.setRoom(id, typeof msg.room === "string" && rooms.get(msg.room) ? msg.room : null);
+    });
+    ws.on("close", () => {
+      clearInterval(heartbeat);
+      screens.remove(id, send);
     });
   }
 

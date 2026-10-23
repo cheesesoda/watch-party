@@ -172,6 +172,23 @@ export interface Member {
 
 export type Device = "web" | "phone" | "tv";
 
+/** Watch on TV: a TV with the app open, signed in under the same name as the phone listing it. */
+export interface ScreenInfo {
+  id: string;
+  /** The TV's own name, like "Living Room TV". */
+  label: string;
+  /** What the TV is watching now, if it's in a party. */
+  watching: string | null;
+}
+
+/** Sent to a TV over /ws/screen. */
+export type ScreenMessage =
+  /** Open this party. [token]: a guest pass for it, when the TV's own sign-in doesn't cover it. */
+  { type: "watch"; room: string; token: string | null; from: string; title: string };
+
+/** Sent by a TV over /ws/screen: the party it's in now, or null on its home screen. */
+export type ScreenStatus = { type: "status"; room: string | null };
+
 /** An RTCIceServer, with `urls` always an array so typed clients can parse it. */
 export interface IceServer {
   urls: string[];
