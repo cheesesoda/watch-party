@@ -51,6 +51,7 @@ class PlaybackInfoTest {
         assertEquals("1920×1080 · H.264 · 8.4 Mbps", stats.video)
         assertEquals("English · AAC 5.1", stats.audio)
         assertEquals("850 kbps", bitrate(850_000))
+        assertEquals("24 Mbps", bitrate(24_000_000))
         assertEquals("HEVC", codecName("video/hevc"))
         assertNull(videoLine(0, 0, null, null))
         assertEquals("AAC stereo", audioLine("und", "audio/mp4a-latm", 2))

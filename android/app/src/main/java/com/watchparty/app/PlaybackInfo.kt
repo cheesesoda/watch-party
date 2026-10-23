@@ -55,9 +55,9 @@ fun playbackRows(s: PlaybackStats): List<InfoRow> = listOfNotNull(
     InfoRow("Dropped frames", s.droppedFrames.toString()),
 )
 
-/** "8.4 Mbps", or "850 kbps" below 1 Mbps. */
+/** "8.4 Mbps" ("24 Mbps" when it's whole), or "850 kbps" below 1 Mbps. */
 fun bitrate(bps: Long): String =
-    if (bps >= 1_000_000) String.format(Locale.US, "%.1f Mbps", bps / 1_000_000.0) else "${(bps + 500) / 1000} kbps"
+    if (bps >= 1_000_000) String.format(Locale.US, "%.1f", bps / 1_000_000.0).removeSuffix(".0") + " Mbps" else "${(bps + 500) / 1000} kbps"
 
 /** "H.264" for "video/avc" and the like; the subtype otherwise. */
 fun codecName(mime: String?): String? = when (mime) {
