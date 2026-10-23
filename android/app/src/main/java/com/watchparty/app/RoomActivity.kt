@@ -22,6 +22,7 @@ import android.graphics.drawable.shapes.RectShape
 import android.graphics.drawable.StateListDrawable
 import android.net.ConnectivityManager
 import android.net.Uri
+import java.net.InetAddress
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -81,6 +82,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TimeBar
@@ -204,6 +207,12 @@ class RoomActivity : ComponentActivity() {
     /** Bumped to put the remote on Skip intro (Up from the seek bar, or after the controls hide). */
     private val skipFocus = mutableStateOf(0)
     private lateinit var skipView: ComposeView
+    /** Settings > Playback info: the panel's rows while it's on, null while it's off. */
+    private val infoRows = mutableStateOf<List<InfoRow>?>(null)
+    private val waitLog = WaitLog()
+    private var droppedFrames = 0
+    /** How this device reaches the server (Playback info), looked up once. */
+    @Volatile private var route: String? = null
     /** Where the video was at the last check, and which video, so reaching the credits is noticed once as it happens. */
     private var lastTick = -1.0
     private var lastTickMedia: String? = null
@@ -230,6 +239,7 @@ class RoomActivity : ComponentActivity() {
     private val chatTicker = object : Runnable {
         override fun run() {
             renderChatOverlay()
+            renderPlaybackInfo()
             renderCompanionStatus()
             main.postDelayed(this, 1000)
         }
@@ -294,6 +304,11 @@ class RoomActivity : ComponentActivity() {
                     groups.isNotEmpty() && groups.none { it.isSupported }
                 }
                 if (unplayable) switchToConverted()
+            }
+        })
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
+                droppedFrames += count
             }
         })
         PlayerSync.startLag = prefs.startLag
@@ -620,7 +635,10 @@ class RoomActivity : ComponentActivity() {
             waitingSince = null
             main.removeCallbacks(longWait)
             if (firstLoad) firstLoad = false
-            else if (since != null && slowWatch.waited(now - since, waitingAfterJump, now)) slowDown()
+            else if (since != null) {
+                waitLog.add(now, now - since)
+                if (slowWatch.waited(now - since, waitingAfterJump, now)) slowDown()
+            }
             return
         }
         if (playbackState != Player.STATE_BUFFERING || firstLoad || waitingSince != null) return
@@ -797,6 +815,13 @@ class RoomActivity : ComponentActivity() {
         root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         // Both draw a shadow around themselves, inside SHADOW_ROOM_DP of padding (a view cuts off what's drawn past
         // its edges, which left a gray box around the white Skip intro); their margins give that room back.
+        // Playback info sits in the top corner; on a phone below its row of buttons.
+        root.addView(ComposeView(this).apply {
+            isFocusable = false
+            setContent { infoRows.value?.let { PopcornTheme { PlaybackInfoPanel(it, isTv) } } }
+        }, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
+            if (isTv) setMargins(0, dp(28), dp(32), 0) else setMargins(0, dp(72), dp(16), 0)
+        })
         root.addView(buildSkipView(), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
             // Where the Up next card shows at the credits.
             setMargins(0, 0, dp((if (isTv) 48 else 24) - SHADOW_ROOM_DP), dp((if (isTv) 48 else 88) - SHADOW_ROOM_DP))
@@ -1341,15 +1366,22 @@ class RoomActivity : ComponentActivity() {
         // The whole row takes focus and toggles, so the remote highlights it like the other rows.
         val popups = switch(prefs.chatPopups).apply { isFocusable = false }
         val row = dialogRow("Chat pop-ups", "Show new messages over the video on this device.", popups) { popups.toggle() }
+        val info = switch(prefs.playbackInfo).apply { isFocusable = false }
+        val infoRow = dialogRow("Playback info", "Show how the video is streaming, in a corner of the picture.", info) { info.toggle() }
         val save = {
             if (prefs.chatPopups != popups.isChecked) {
                 prefs.chatPopups = popups.isChecked
                 renderChatOverlay()
             }
+            if (prefs.playbackInfo != info.isChecked) {
+                prefs.playbackInfo = info.isChecked
+                renderPlaybackInfo()
+            }
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(row)
+            addView(infoRow)
         }
         val settings = present(
             dialog()
@@ -1378,6 +1410,38 @@ class RoomActivity : ComponentActivity() {
     private fun openPlayerSettings() {
         playerView.showController()
         playerView.post { playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.performClick() }
+    }
+
+    /** Settings > Playback info: the panel's numbers, refreshed every second while it's on and the video is showing. */
+    private fun renderPlaybackInfo() {
+        if (!prefs.playbackInfo || companion) {
+            infoRows.value = null
+            return
+        }
+        if (route == null) {
+            // "" while it's looked up, off the main thread.
+            route = ""
+            val host = Uri.parse(prefs.serverUrl).host
+            Thread { route = host?.let { runCatching { routeOf(it, InetAddress.getAllByName(it).toList()) }.getOrNull() } ?: "Unknown" }.start()
+        }
+        val video = player.videoFormat
+        val audio = player.audioFormat
+        val media = lastMedia
+        // A file played as it is rarely says its bitrate: its size over its length is close.
+        val fileBps = media?.duration?.takeIf { !converted && it > 0 }?.let { (media.size * 8 / it).toLong() }
+        val (waits, waited) = waitLog.recent(SystemClock.elapsedRealtime())
+        val stats = PlaybackStats(
+            playing = if (!converted) "Original file" else if (light) "Lighter copy (720p)" else "Converted copy",
+            video = video?.let { videoLine(it.width, it.height, it.sampleMimeType, it.bitrate.takeIf { b -> b > 0 }?.toLong() ?: fileBps) },
+            audio = audio?.let { audioLine(it.language, it.sampleMimeType, it.channelCount) },
+            route = route?.ifEmpty { null },
+            downloadBps = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate.takeIf { it > 0 },
+            bufferedMs = player.totalBufferedDuration,
+            waits = waits,
+            waitedMs = waited,
+            droppedFrames = droppedFrames,
+        )
+        infoRows.value = playbackRows(stats)
     }
 
     /** Shows the last few messages for 10 seconds each, like a game chat. */
