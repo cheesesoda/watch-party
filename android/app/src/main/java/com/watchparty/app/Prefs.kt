@@ -23,6 +23,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("chat_popups", true)
         set(v) = sp.edit().putBoolean("chat_popups", v).apply()
 
+    /** Settings > Playback info: how the video is streaming, over the picture on this device. */
+    var playbackInfo: Boolean
+        get() = sp.getBoolean("playback_info", false)
+        set(v) = sp.edit().putBoolean("playback_info", v).apply()
+
     /** Video quality on this device: [VideoQuality.AUTO], [VideoQuality.ORIGINAL] or [VideoQuality.LIGHT]. */
     var videoQuality: String
         get() = sp.getString("video_quality", VideoQuality.AUTO) ?: VideoQuality.AUTO
