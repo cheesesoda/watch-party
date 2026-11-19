@@ -726,7 +726,7 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
         if (route in TOP_PAGES && adding) {
             // Adding to a party: back to it, search, and which party.
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconAction(R.drawable.ic_back, "Back to the party", onBack)
+                IconAction(R.drawable.ic_back, "Back to the party", onClick = onBack)
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 Spacer(Modifier.weight(1f))
                 PartyPill(tv = false, Modifier, onBack)
