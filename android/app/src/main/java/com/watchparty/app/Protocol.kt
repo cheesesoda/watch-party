@@ -165,6 +165,20 @@ data class Member(
     val device: String = "web",
 )
 
+/** Watch on TV: a TV with the app open, signed in under the same name as this phone. */
+@Serializable
+data class ScreenInfo(
+    val id: String,
+    /** The TV's own name, like "Living Room TV". */
+    val label: String,
+    /** What the TV is watching now, if it's in a party. */
+    val watching: String? = null,
+)
+
+/** Sent to a TV over /ws/screen: open this party. [token]: a guest pass for it. [from]: who sent it. */
+@Serializable
+data class ScreenMessage(val type: String, val room: String = "", val token: String? = null, val from: String = "", val title: String = "")
+
 @Serializable
 data class IceServer(val urls: List<String>, val username: String? = null, val credential: String? = null)
 
