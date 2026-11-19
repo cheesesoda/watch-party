@@ -47,6 +47,7 @@ class Api(private val baseUrl: String, private val token: String) {
     @Serializable private data class InfoResponse(val info: MediaInfo? = null)
     @Serializable private data class ErrorResponse(val error: String? = null, val invite: PartyInvite? = null)
     @Serializable private data class ScheduledResponse(val scheduled: List<ScheduledParty>)
+    @Serializable private data class ScreensResponse(val screens: List<ScreenInfo>)
 
     private val jsonType = "application/json".toMediaType()
 
@@ -94,6 +95,21 @@ class Api(private val baseUrl: String, private val token: String) {
             if (password != null) put("password", password)
         }.toString()
         request("/api/pair/$id", body)
+    }
+
+    /** Watch on TV: the TVs with the app open, signed in under [name]. Empty from a server too old for it. */
+    suspend fun screens(name: String): List<ScreenInfo> = try {
+        Protocol.json.decodeFromString<ScreensResponse>(request("/api/screens?name=" + java.net.URLEncoder.encode(name, "UTF-8"))).screens
+    } catch (e: ApiException) {
+        emptyList()
+    }
+
+    /** Opens party [room] on the TV [screenId]. */
+    suspend fun sendToScreen(screenId: String, room: String, name: String) {
+        request("/api/screens/$screenId/watch", buildJsonObject {
+            put("room", room)
+            put("name", name)
+        }.toString())
     }
 
     suspend fun me() {
@@ -218,6 +234,18 @@ class Api(private val baseUrl: String, private val token: String) {
             .addQueryParameter("room", roomId)
             .addQueryParameter("name", name)
             .addQueryParameter("device", device)
+            .apply { if (token.isNotEmpty()) addQueryParameter("token", token) }
+            .build()
+            .toString()
+        return url.replaceFirst("http", "ws")
+    }
+
+    /** The TV's line to the server while the app is open, so a phone can send it a party (Watch on TV). */
+    fun screenSocketUrl(id: String, name: String, label: String): String {
+        val url = "$baseUrl/ws/screen".toHttpUrl().newBuilder()
+            .addQueryParameter("id", id)
+            .addQueryParameter("name", name)
+            .addQueryParameter("label", label)
             .apply { if (token.isNotEmpty()) addQueryParameter("token", token) }
             .build()
             .toString()
