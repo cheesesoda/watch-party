@@ -261,8 +261,10 @@ private class Actions(
     val scheduled: List<ScheduledParty> = emptyList(),
     val askScheduled: (ScheduledParty) -> Unit = {},
     val scheduledLink: (ScheduledParty) -> String = { "" },
+    /** Watch on TV: the TV this phone is connected to, where Play and Start party now start things. */
+    val onTv: String? = null,
 ) {
-    val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else if (alone) "Play" else "Start party"
+    val startLabel = if (adding) (if (PartyLink.solo) "Play" else "Play for everyone") else (if (alone) "Play" else "Start party") + (onTv?.let { " on $it" } ?: "")
 }
 
 /**
@@ -409,15 +411,40 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         go("home")
         listStates.getOrPut("home") { LazyListState() }.scrollToItem(0)
     }
+    /** Watch on TV's "Connected to …" note, with Disconnect, for a few seconds after picking a TV. */
+    var tvSheet by remember { mutableStateOf(false) }
+    var connectedNote by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(connectedNote) {
+        if (connectedNote != null) {
+            delay(4000)
+            connectedNote = null
+        }
+    }
+    /**
+     * A party or Watch alone just started. Connected to a TV (Watch on TV), the TV opens it and this phone becomes its
+     * chat screen; otherwise watching alone goes straight to the player and a party shows its code first.
+     */
+    suspend fun opened(room: RoomSummary) {
+        val screen = TvTarget.screen
+        if (screen != null && !tv) {
+            try {
+                api.sendToScreen(screen.id, room.id, prefs.name)
+                RoomActivity.start(context, room.id, onTv = screen.label)
+                return
+            } catch (e: Exception) {
+                TvTarget.screen = null
+                android.widget.Toast.makeText(context, "Couldn't reach ${screen.label}: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
+    }
     val spotActions = SpotActions(
         start = { spot ->
             spotOptions = null
             scope.launch {
                 val room = guard { api.startSpot(spot.id, alone) }
                 spots = spots.filter { it.id != spot.id }
-                // Watching alone goes straight to the player; a party shows its code first.
-                if (room?.solo == true) RoomActivity.start(context, room.id)
-                else if (room != null) showStarted(room)
+                if (room != null) opened(room)
                 else guard { api.spots() }?.let { spots = it }
             }
         },
@@ -465,9 +492,7 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             if (!starting) scope.launch {
                 starting = true
                 try {
-                    guard { api.createRoom(media.id, queue, alone) }?.let { room ->
-                        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
-                    }
+                    guard { api.createRoom(media.id, queue, alone) }?.let { room -> opened(room) }
                 } finally {
                     starting = false
                 }
@@ -485,13 +510,12 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
         alone = alone,
         setAlone = setAlone,
         mark = mark,
+        onTv = TvTarget.screen?.label?.takeIf { !tv },
         startAt = { media, position ->
             if (!starting) scope.launch {
                 starting = true
                 try {
-                    guard { api.createRoom(media.id, null, alone, position) }?.let { room ->
-                        if (room.solo) RoomActivity.start(context, room.id) else showStarted(room)
-                    }
+                    guard { api.createRoom(media.id, null, alone, position) }?.let { room -> opened(room) }
                 } finally {
                     starting = false
                 }
@@ -528,11 +552,22 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             }
         }
     } else {
-        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, onBack = onBackToParty, go = go) {
+        PhoneShell(route, adding, alone, setAlone, onCode = { askCode = true }, onRefresh = { reload() }, onSettings = { go("settings") }, onBack = onBackToParty, go = go, castOn = TvTarget.screen != null, onCast = { tvSheet = true }) {
             Box(Modifier.fillMaxSize()) {
                 page()
                 // The top pages show it in their bar; movie and show pages over their backdrop.
                 if (adding && route !in TOP_PAGES) PartyPill(tv = false, Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 12.dp), onBackToParty)
+                connectedNote?.let { label ->
+                    Snackbar(
+                        "Connected to $label",
+                        Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                        action = "Disconnect",
+                        onUndo = {
+                            TvTarget.screen = null
+                            connectedNote = null
+                        },
+                    )
+                }
                 added?.let { (label, ids) ->
                     Snackbar(
                         "Added “$label” to Up next",
@@ -546,6 +581,26 @@ fun Dashboard(prefs: Prefs, onSignedOut: (String?) -> Unit, adding: Boolean = fa
             }
         }
     }
+
+    if (tvSheet) {
+        WatchOnTvSheet(
+            api = api,
+            name = prefs.name,
+            connected = TvTarget.screen,
+            onPick = { screen ->
+                tvSheet = false
+                TvTarget.screen = screen
+                connectedNote = screen.label
+            },
+            onDisconnect = {
+                tvSheet = false
+                TvTarget.screen = null
+            },
+            onDismiss = { tvSheet = false },
+        )
+    }
+    // Watch on TV: while a TV shows the app, phones signed in under the same name can send it a party.
+    if (tv && !adding) LaunchedEffect(Unit) { (context as? android.app.Activity)?.let { ScreenLink.attach(it, room = null) } }
 
     if (askCode) {
         JoinCodeDialog(onDismiss = { askCode = false }) { code ->
@@ -664,14 +719,14 @@ private fun section(route: Route) = when {
 }
 
 @Composable
-private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, go: (Route) -> Unit, content: @Composable () -> Unit) {
+private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: (Boolean) -> Unit, onCode: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, go: (Route) -> Unit, castOn: Boolean = false, onCast: () -> Unit = {}, content: @Composable () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         // Movie and show pages draw their own header over the backdrop.
         if (route in TOP_PAGES && adding) {
             // Adding to a party: back to it, search, and which party.
             Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconAction(R.drawable.ic_back, "Back to the party", onBack)
+                IconAction(R.drawable.ic_back, "Back to the party", onClick = onBack)
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 Spacer(Modifier.weight(1f))
                 PartyPill(tv = false, Modifier, onBack)
@@ -686,6 +741,8 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
                         if (alone) Text("Watching alone", color = Accent, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
+                // Watch on TV: orange while connected to a TV.
+                IconAction(R.drawable.ic_cast, if (castOn) "Connected to a TV" else "Watch on TV", on = castOn, onClick = onCast)
                 IconAction(R.drawable.ic_search, "Search") { go("search") }
                 var menu by remember { mutableStateOf(false) }
                 Box {
@@ -738,9 +795,11 @@ private fun PhoneShell(route: Route, adding: Boolean, alone: Boolean, setAlone: 
 }
 
 @Composable
-private fun IconAction(icon: Int, label: String, onClick: () -> Unit) {
+private fun IconAction(icon: Int, label: String, on: Boolean = false, onClick: () -> Unit) {
     Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(painterResource(icon), contentDescription = label, tint = Color.White, modifier = Modifier.size(22.dp))
+        Box(Modifier.size(40.dp).clip(CircleShape).background(if (on) Accent else Color.Transparent), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), contentDescription = label, tint = if (on) OnFocus else Color.White, modifier = Modifier.size(22.dp))
+        }
     }
 }
 
@@ -2334,13 +2393,13 @@ private fun PartyPill(tv: Boolean, modifier: Modifier, onBack: () -> Unit) {
 
 /** A Material 3 snackbar: what just happened, and Undo. */
 @Composable
-private fun Snackbar(text: String, modifier: Modifier, onUndo: () -> Unit) {
+private fun Snackbar(text: String, modifier: Modifier, action: String = "Undo", onUndo: () -> Unit) {
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFEEEAF3)).padding(start = 16.dp, end = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, color = OnFocus, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Text("Undo", color = Color(0xFF8A4F1E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo).padding(12.dp))
+        Text(action, color = Color(0xFF8A4F1E), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo).padding(12.dp))
     }
 }
 
