@@ -5,14 +5,14 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!-- Scaled to 78% so the mark sits well inside the 66 dp safe circle with even padding,
-         and shifted down 3.5 dp so its top-to-bottom extent is centered
+         and shifted down 2.5 dp: 1 dp above true center, which reads as centered,
          like other launcher icons (at full size it nearly touched the mask). -->
     <group
         android:pivotX="54"
         android:pivotY="50.5"
         android:scaleX="0.78"
         android:scaleY="0.78"
-        android:translateY="3.5">
+        android:translateY="2.5">
         <!-- A popcorn puff: five overlapping kernels, orange to coral. -->
         <path android:pathData="M26,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M52,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M38,38a16,16 0 1,0 32,0a16,16 0 1,0 -32,0 M31,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0 M49,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0">
             <aapt:attr name="android:fillColor">
