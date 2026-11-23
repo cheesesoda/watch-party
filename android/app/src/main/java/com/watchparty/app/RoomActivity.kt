@@ -218,6 +218,11 @@ class RoomActivity : ComponentActivity() {
     private var lastTickMedia: String? = null
     /** Up next (the list, not the countdown): open or not, and what it shows. Compose state, read by [upNextView]. */
     private val upNextOpen = mutableStateOf(false)
+    /** Watch on TV's list of TVs is open (phone). */
+    private val tvSheetOpen = mutableStateOf(false)
+    private lateinit var tvSheetView: ComposeView
+    /** The TV this phone handed the party to, named on the chat screen ("On Living Room TV"). */
+    private var onTv: String? = null
     private val upNextQueue = mutableStateOf<Queue?>(null)
     private val upNextMedia = mutableStateOf<MediaItem?>(null)
     private val listButtons = mutableListOf<View>()
@@ -331,10 +336,19 @@ class RoomActivity : ComponentActivity() {
         )
         connection.connect()
         if (host) link = PartyLink.Party(roomCode) { connection.send(it) }.also { PartyLink.party = it }
+        // Started from Home while connected to a TV (Watch on TV): the TV plays, so this phone is the chat screen.
+        intent.getStringExtra(EXTRA_ON_TV)?.let { label ->
+            onTv = label
+            if (!isTv) enterCompanion(auto = false)
+        }
+        // Sent here from a phone (Watch on TV): say who sent it, for a few seconds.
+        intent.getStringExtra(EXTRA_SENT_FROM)?.takeIf { isTv }?.let { from -> showSentFrom(from, intent.getStringExtra(EXTRA_SENT_TITLE).orEmpty()) }
     }
 
     override fun onStart() {
         super.onStart()
+        // Watch on TV: a phone can send this TV another party while it plays this one.
+        if (isTv) ScreenLink.attach(this, roomCode.lowercase())
         if (!companion) sync.start()
         main.post(chatTicker)
         main.post(marksTicker)
@@ -353,6 +367,7 @@ class RoomActivity : ComponentActivity() {
         player.playWhenReady = false
         main.removeCallbacks(chatTicker)
         main.removeCallbacks(marksTicker)
+        if (isTv) ScreenLink.detach(this)
         super.onStop()
     }
 
@@ -813,6 +828,7 @@ class RoomActivity : ComponentActivity() {
         root.addView(companionView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         root.addView(buildUpNextView(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        if (!isTv) root.addView(buildTvSheet(), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         // Both draw a shadow around themselves, inside SHADOW_ROOM_DP of padding (a view cuts off what's drawn past
         // its edges, which left a gray box around the white Skip intro); their margins give that room back.
         // Playback info sits in the top corner; on a phone below its row of buttons.
@@ -933,6 +949,7 @@ class RoomActivity : ComponentActivity() {
         muteButton = phoneButton("Mute", R.drawable.ic_mic_off) { toggleMute() }.apply { visibility = View.GONE }
         val buttons = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         listOfNotNull(
+            phoneButton("Watch on TV", R.drawable.ic_cast) { openTvSheet() },
             phoneButton("Invite friends", R.drawable.ic_user_plus) { if (solo) askInvite() else showInvite() },
             phoneButton("Chat", R.drawable.ic_chat) { openChat() }.also { chatButtons.add(it) },
             voiceButton,
@@ -1689,7 +1706,8 @@ class RoomActivity : ComponentActivity() {
         if (!companion) return
         // Your TV and phone share a name, so each person shows once.
         val names = members.map { it.name }.distinct()
-        companionWho.text = if (names.isEmpty()) "On the TV" else "On the TV · " + names.joinToString(", ")
+        val where = onTv?.let { "On $it" } ?: "On the TV"
+        companionWho.text = if (names.isEmpty()) where else "$where · " + names.joinToString(", ")
         val state = lastState
         val media = lastMedia
         if (state == null || media == null) {
@@ -2127,6 +2145,56 @@ class RoomActivity : ComponentActivity() {
         }
     }
 
+    /** Watch on TV (phone): the TVs signed in under this name. Picking one hands it the party; this phone becomes the chat screen. */
+    private fun buildTvSheet() = ComposeView(this).also { tvSheetView = it }.apply {
+        visibility = View.GONE
+        setContent {
+            if (tvSheetOpen.value) PopcornTheme {
+                WatchOnTvSheet(
+                    api = api,
+                    name = prefs.name,
+                    connected = TvTarget.screen,
+                    onPick = { screen ->
+                        closeTvSheet()
+                        lifecycleScope.launch {
+                            try {
+                                api.sendToScreen(screen.id, roomCode.lowercase(), prefs.name)
+                                TvTarget.screen = screen
+                                onTv = screen.label
+                                enterCompanion(auto = false)
+                            } catch (e: Exception) {
+                                Toast.makeText(this@RoomActivity, e.message ?: "Couldn't reach the TV.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onDisconnect = { TvTarget.screen = null; closeTvSheet() },
+                    onDismiss = ::closeTvSheet,
+                )
+            }
+        }
+    }
+
+    private fun openTvSheet() {
+        playerView.hideController()
+        tvSheetView.visibility = View.VISIBLE
+        tvSheetOpen.value = true
+    }
+
+    private fun closeTvSheet() {
+        tvSheetOpen.value = false
+        tvSheetView.visibility = View.GONE
+    }
+
+    /** On the TV: "Sent from Jake's phone" at the top right for a few seconds (see ui-redesign/watch-on-tv). */
+    private fun showSentFrom(from: String, title: String) {
+        val card = ComposeView(this).apply { setContent { PopcornTheme { SentFromCard(from, title) } } }
+        (window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as FrameLayout).addView(
+            card,
+            FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(32), dp(48), 0) },
+        )
+        main.postDelayed({ card.animate().alpha(0f).setDuration(300).withEndAction { (card.parent as? ViewGroup)?.removeView(card) }.start() }, SENT_FROM_SHOWN_MS)
+    }
+
     private fun openUpNext() {
         playerView.hideController()
         upNextView.visibility = View.VISIBLE
@@ -2430,6 +2498,12 @@ class RoomActivity : ComponentActivity() {
     companion object {
         const val EXTRA_ROOM = "room"
         const val EXTRA_HOST = "host"
+        /** Watch on TV: the phone opens the party as its chat screen, since this TV (its name) plays it. */
+        const val EXTRA_ON_TV = "on_tv"
+        /** Watch on TV: on the TV, who sent this party from their phone, and what it is. */
+        const val EXTRA_SENT_FROM = "sent_from"
+        const val EXTRA_SENT_TITLE = "sent_title"
+        private const val SENT_FROM_SHOWN_MS = 6_000L
         private const val CHAT_FADE_MS = 10_000L
         /** The player's line icons (TV and phone) in place of the filled ones elsewhere; voice and mute keep switching through these. */
         private val LINE_ICONS = mapOf(
@@ -2506,8 +2580,15 @@ class RoomActivity : ComponentActivity() {
             Color.rgb(0xB3, 0x9D, 0xFF), Color.rgb(0x6F, 0xE0, 0xD6), Color.rgb(0xFF, 0xB0, 0x7A),
         )
 
-        fun start(context: Context, roomId: String, host: Boolean = true) {
-            context.startActivity(Intent(context, RoomActivity::class.java).putExtra(EXTRA_ROOM, roomId).putExtra(EXTRA_HOST, host))
+        fun start(context: Context, roomId: String, host: Boolean = true, onTv: String? = null, sentFrom: String? = null, sentTitle: String? = null) {
+            context.startActivity(
+                Intent(context, RoomActivity::class.java)
+                    .putExtra(EXTRA_ROOM, roomId)
+                    .putExtra(EXTRA_HOST, host)
+                    .putExtra(EXTRA_ON_TV, onTv)
+                    .putExtra(EXTRA_SENT_FROM, sentFrom)
+                    .putExtra(EXTRA_SENT_TITLE, sentTitle),
+            )
         }
     }
 }

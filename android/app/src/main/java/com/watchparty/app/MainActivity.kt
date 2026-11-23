@@ -155,6 +155,19 @@ class MainActivity : ComponentActivity() {
             }
     }
 
+    private val isTv by lazy { getSystemService(UiModeManager::class.java)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION }
+
+    // Watch on TV: while the app shows on a TV, phones signed in under the same name can send it a party.
+    override fun onStart() {
+        super.onStart()
+        if (isTv) ScreenLink.attach(this, room = null)
+    }
+
+    override fun onStop() {
+        if (isTv) ScreenLink.detach(this)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = Prefs(this)

@@ -48,6 +48,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("alone", false)
         set(v) = sp.edit().putBoolean("alone", v).apply()
 
+    /** This TV's id for Watch on TV, made once, so phones see the same TV after it reconnects. */
+    val screenId: String
+        get() = sp.getString("screen_id", null) ?: java.util.UUID.randomUUID().toString().also { sp.edit().putString("screen_id", it).apply() }
+
     val isSetUp: Boolean
         get() = serverUrl.isNotBlank() && name.isNotBlank() && sp.getBoolean("signed_in", false)
 
