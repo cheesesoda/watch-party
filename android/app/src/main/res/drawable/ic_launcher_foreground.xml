@@ -4,21 +4,29 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- A popcorn puff: five overlapping kernels, orange to coral, inside the 66 dp safe circle. -->
-    <path android:pathData="M26,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M52,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M38,38a16,16 0 1,0 32,0a16,16 0 1,0 -32,0 M31,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0 M49,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endColor="#FF5252"
-                android:endX="80"
-                android:endY="80"
-                android:startColor="#FF8E44"
-                android:startX="28"
-                android:startY="22"
-                android:type="linear" />
-        </aapt:attr>
-    </path>
-    <!-- The play button, cut out in the background's deep purple. -->
-    <path
-        android:fillColor="#1A0933"
-        android:pathData="M48,42 L67,53 L48,64 Z" />
+    <!-- Scaled to 78% so the mark sits well inside the 66 dp safe circle with even padding,
+         like other launcher icons (at full size it nearly touched the mask). -->
+    <group
+        android:pivotX="54"
+        android:pivotY="52"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+        <!-- A popcorn puff: five overlapping kernels, orange to coral. -->
+        <path android:pathData="M26,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M52,50a15,15 0 1,0 30,0a15,15 0 1,0 -30,0 M38,38a16,16 0 1,0 32,0a16,16 0 1,0 -32,0 M31,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0 M49,65a14,14 0 1,0 28,0a14,14 0 1,0 -28,0">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:endColor="#FF5252"
+                    android:endX="80"
+                    android:endY="80"
+                    android:startColor="#FF8E44"
+                    android:startX="28"
+                    android:startY="22"
+                    android:type="linear" />
+            </aapt:attr>
+        </path>
+        <!-- The play button, cut out in the background's deep purple. -->
+        <path
+            android:fillColor="#1A0933"
+            android:pathData="M48,42 L67,53 L48,64 Z" />
+    </group>
 </vector>
