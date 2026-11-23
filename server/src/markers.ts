@@ -307,6 +307,42 @@ export function findRecap(head: Uint32Array, skip: TimeRange[], sources: RecapSo
   return run && run.end - run.start >= SKIP_MIN ? run : null;
 }
 
+/**
+ * What comes before a recap is filler when nothing in it is as loud as the recap, give or take QUIET_BELOW (LU), for
+ * more than LOUD_MAX seconds in all, other than sound most episodes share (logos, a warning every episode plays), and no
+ * one says anything other episodes don't also say before theirs. Then the recap starts at 0:00.
+ */
+const QUIET_BELOW = 10;
+const LOUD_MAX = 1;
+/** Bumped when that check changes, so recaps are checked again. */
+const OPENING_CHECK = 1;
+
+/** One reading of loudness: seconds in, and momentary loudness (LUFS). */
+export interface Loudness {
+  t: number;
+  m: number;
+}
+
+/**
+ * Whether everything before [recap] is filler (see QUIET_BELOW): [loudness] from 0:00 to the recap's end, [shared] the
+ * sound other episodes also open with, [cues] the episode's subtitles if it has any, and [elsewhere] the lines other
+ * episodes say before their recaps.
+ */
+export function fillerBefore(recap: TimeRange, loudness: Loudness[], shared: TimeRange[], cues: Cue[] | null, elsewhere: Set<string>): boolean {
+  if (recap.start <= 0) return false;
+  const during = loudness.filter((l) => l.t >= recap.start && l.t < recap.end).map((l) => l.m).sort((a, b) => a - b);
+  if (!during.length) return false;
+  const loud = during[Math.floor(during.length / 2)] - QUIET_BELOW;
+  const before = loudness.filter((l) => l.t < recap.start);
+  let loudFor = 0;
+  for (const [i, l] of before.entries()) {
+    const step = (before[i + 1]?.t ?? recap.start) - l.t;
+    if (l.m >= loud && !shared.some((r) => l.t >= r.start && l.t < r.end)) loudFor += step;
+  }
+  if (loudFor > LOUD_MAX) return false;
+  return !(cues ?? []).some((c) => c.start < recap.start && c.text.includes(" ") && !elsewhere.has(c.text));
+}
+
 const RECAP = /\b(recap|previously)\b/;
 const INTRO = /^(intro|introduction|opening|opening credits|opening titles|op|title sequence|main titles?|theme song)$/;
 const CREDITS = /^(credits|end credits|closing credits|ending|ending credits|ed|outro|end titles)$/;
@@ -638,6 +674,8 @@ interface Entry {
   openerChecked?: boolean;
   /** Whether the episode's subtitles have been read for a recap sound didn't find (SUBTITLE_RECAPS). */
   subtitlesRead?: number;
+  /** Where the recap started when what comes before it was checked for filler (OPENING_CHECK), so a new recap is checked. */
+  openingChecked?: { start: number; v: number };
   /**
    * Which second credits search an episode without them has had (true: the first, which also took the end logos
    * alone for the start of the credits).
@@ -887,6 +925,7 @@ export class Markers {
       await this.save();
     }
     await this.subtitleRecaps(seasons);
+    await this.recapOpenings(seasons);
     // Movies only have chapter names to go on.
     let moviesChanged = false;
     for (const e of singles) {
@@ -1344,6 +1383,78 @@ export class Markers {
       if (black && t != null) frames.push({ t, black: Number(black[1]) });
     }
     return frames;
+  }
+
+  /**
+   * Recaps with only filler before them (logos, silence, quiet music, a warning every episode plays) start at 0:00, so
+   * Skip recap skips that too. Anyone speaking, or anything as loud as the recap, keeps it where it is.
+   */
+  private async recapOpenings(seasons: Map<string, MarkersEntry[]>): Promise<void> {
+    const get = this.config.subtitles;
+    const read = new Map<string, Promise<Cue[] | null>>();
+    const cuesOf = (e: MarkersEntry) => {
+      if (!get) return Promise.resolve(null);
+      if (!read.has(e.item.id)) read.set(e.item.id, get(e).then((t) => (t ? parseCues(t) : null), () => null));
+      return read.get(e.item.id)!;
+    };
+    for (const list of seasons.values()) {
+      if (this.closed) return;
+      const due = list.filter((e) => {
+        const entry = this.cache[e.item.id];
+        const recap = entry?.marks.recap;
+        const hand = this.hand[e.item.id];
+        if (!entry || entry.key !== Markers.key(e.item) || entry.v !== VERSION || !recap || recap.start <= 0 || (hand && "recap" in hand)) return false;
+        return !(entry.openingChecked?.v === OPENING_CHECK && entry.openingChecked.start === recap.start);
+      });
+      if (!due.length) continue;
+      const name = Markers.seasonName(list);
+      const moved: string[] = [];
+      for (const e of due) {
+        if (this.closed) return;
+        const entry = this.cache[e.item.id];
+        const recap = entry.marks.recap!;
+        // The sound the other episodes open with, a little past where this recap starts, for what most of them share.
+        const others = list.filter((o) => o !== e).slice(0, 4);
+        const head = await this.fingerprint(e.absPath, 0, Math.max(recap.start, INTRO_MIN));
+        const heads: Uint32Array[] = [];
+        for (const o of others) {
+          const h = head ? await this.fingerprint(o.absPath, 0, recap.start + 60) : null;
+          if (h) heads.push(h);
+        }
+        const shared = head && heads.length >= 2 ? recurring(head, heads) : [];
+        const loudness = await this.loudness(e.absPath, recap.end);
+        const cues = await cuesOf(e);
+        const elsewhere = new Set<string>();
+        if (cues) {
+          for (const o of others) {
+            const theirs = this.cache[o.item.id]?.marks.recap;
+            for (const c of (await cuesOf(o)) ?? []) if (c.start < (theirs?.start || recap.start) + 30) elsewhere.add(c.text);
+          }
+        }
+        const filler = loudness ? fillerBefore(recap, loudness, shared, cues, elsewhere) : false;
+        const marks = filler ? { ...entry.marks, recap: { start: 0, end: recap.end } } : entry.marks;
+        this.cache[e.item.id] = { ...entry, marks, openingChecked: { start: marks.recap!.start, v: OPENING_CHECK } };
+        if (filler) moved.push(`E${String(e.item.episode!.episode).padStart(2, "0")} from ${clock(recap.start)}`);
+      }
+      this.log(`${name}: recaps start at 0:00 in ${moved.length} of ${due.length}${moved.length ? ` (only filler before them: ${moved.join(", ")})` : ""}`);
+      await this.save();
+    }
+  }
+
+  /** Momentary loudness every 0.1 s from 0:00 for [length] seconds, or null when ffmpeg can't. */
+  private async loudness(file: string, length: number): Promise<Loudness[] | null> {
+    const args = ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file, "-t", String(length), "-vn", "-sn", "-dn", "-af", "ebur128=metadata=1,ametadata=mode=print:key=lavfi.r128.M:file=-", "-f", "null", "-"];
+    const r = await run(this.config.ffmpeg, args, 5 * 60_000);
+    if (r.code !== 0) return null;
+    const out: Loudness[] = [];
+    let t: number | null = null;
+    for (const line of r.out.toString("utf8").split("\n")) {
+      const time = /pts_time:([\d.]+)/.exec(line);
+      if (time) t = Number(time[1]);
+      const m = /lavfi\.r128\.M=(-?[\d.]+)/.exec(line);
+      if (m && t != null) out.push({ t, m: Number(m[1]) });
+    }
+    return out.length ? out : null;
   }
 
   /**

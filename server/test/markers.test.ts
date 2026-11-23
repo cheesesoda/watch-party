@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { MediaItem } from "../../shared/protocol.ts";
 import { Library } from "../src/library.ts";
-import { blackCredits, cardsAfter, cardsBefore, chapterMarks, creditsBefore, creditsBeforeExtras, findClip, findRecap, handSet, introChapter, lastChapter, Markers, onCards, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
+import { blackCredits, cardsAfter, cardsBefore, chapterMarks, creditsBefore, creditsBeforeExtras, fillerBefore, findClip, findRecap, handSet, introChapter, lastChapter, Markers, onCards, outroStart, POINT_SECONDS, recurring, sharedStretch } from "../src/markers.ts";
 
 /** Pseudo-random fingerprint points, the same for the same seed. */
 function points(seed: number, n: number): number[] {
@@ -669,6 +669,70 @@ test("recaps sound can't hear are found in the subtitles, once, and never over a
   assert.equal(reads, before);
   assert.deepEqual(again.get(eps[1])?.recap, { start: 5, end: 17.5 });
   await again.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("only filler before a recap (quiet, or sound most episodes share, and nobody talking) starts it at 0:00", () => {
+  const recap = { start: 6, end: 40 };
+  // Loudness every 0.1 s: [loud] before the recap where given, quiet otherwise, and the recap itself at -20 LUFS.
+  const reading = (loud: (t: number) => boolean) => Array.from({ length: 400 }, (_, i) => ({ t: i / 10, m: i < 60 ? (loud(i / 10) ? -21 : -45) : -20 }));
+  const quiet = reading(() => false);
+  assert.equal(fillerBefore(recap, quiet, [], null, new Set()), true);
+  // A logo every episode plays is loud but shared; a moment as loud as the recap that only this one has isn't filler.
+  const logo = reading((t) => t < 4);
+  assert.equal(fillerBefore(recap, logo, [{ start: 0, end: 4 }], null, new Set()), true);
+  assert.equal(fillerBefore(recap, logo, [], null, new Set()), false);
+  // Up to 1 s of it (a logo's last echo as it fades) is still filler, but not a line of narration.
+  assert.equal(fillerBefore(recap, reading((t) => t >= 4 && t < 4.8), [], null, new Set()), true);
+  assert.equal(fillerBefore(recap, reading((t) => t >= 4 && t < 5.5), [], null, new Set()), false);
+  // Someone talking before it keeps the recap where it is, unless every episode says that line before its recap.
+  const cues = [{ start: 2, end: 4, text: "this show contains scenes of violence" }];
+  assert.equal(fillerBefore(recap, quiet, [], cues, new Set()), false);
+  assert.equal(fillerBefore(recap, quiet, [], cues, new Set(["this show contains scenes of violence"])), true);
+  // A recap already at 0:00, or no readings, stays as it is.
+  assert.equal(fillerBefore({ start: 0, end: 40 }, quiet, [], null, new Set()), false);
+  assert.equal(fillerBefore(recap, [], [], null, new Set()), false);
+});
+
+test("recaps with only a shared logo and quiet before them start at 0:00 in real files", { skip: !canFingerprint && "needs ffmpeg with chromaprint" }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "marks-filler-"));
+  const season = path.join(dir, "Show", "Season 1");
+  await fs.mkdir(season, { recursive: true });
+  // Episodes 1-3: the same 4 s logo, 2 s of near silence, then their own story. Episode 4 opens straight on its story.
+  for (const n of [1, 2, 3, 4]) {
+    const parts = n < 4 ? ["-f", "lavfi", "-i", melody(9.1, 4), "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2"] : [];
+    const story = ["-f", "lavfi", "-i", melody(n * 3.7 + 0.2, n < 4 ? 234 : 240)];
+    const filter = n < 4 ? "[0]aformat=channel_layouts=mono[a];[1]aformat=channel_layouts=mono[b];[2]aformat=channel_layouts=mono[c];[a][b][c]concat=n=3:v=0:a=1" : "[0]aformat=channel_layouts=mono";
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...parts, ...story, "-filter_complex", filter, "-c:a", "aac", path.join(season, `Show S01E0${n}.mp4`)]);
+    assert.equal(r.status, 0, r.stderr?.toString());
+  }
+  const recapSubs = "1\n00:00:06,000 --> 00:00:07,500\nPreviously on Show...\n\n2\n00:00:08,000 --> 00:00:11,000\nSomebody killed my brother.\n\n3\n00:00:13,000 --> 00:00:17,500\nThe money went through the warehouse.\n";
+  const subs: Record<number, string> = {
+    1: "1\n00:01:00,000 --> 00:01:03,000\nSomebody killed my brother.\n\n2\n00:02:00,000 --> 00:02:04,000\nThe money went through the warehouse.\n",
+    2: recapSubs,
+    // Episode 3 has someone speak in the quiet before its recap.
+    3: "0\n00:00:04,200 --> 00:00:05,800\nGet down, all of you, now!\n\n" + recapSubs,
+    4: recapSubs,
+  };
+  const library = new Library([dir]);
+  await library.scan();
+  const eps = (await library.list()).filter((i) => i.episode);
+  const config = { ffmpeg: "ffmpeg", ffprobe: "ffprobe", file: path.join(dir, "markers.json"), subtitles: async (e: { item: MediaItem }) => subs[e.item.episode!.episode] };
+  const lines: string[] = [];
+  const markers = new Markers(config, (l) => lines.push(l));
+  await markers.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  assert.deepEqual(markers.get(eps[1])?.recap, { start: 0, end: 17.5 }, lines.join("\n"));
+  assert.deepEqual(markers.get(eps[2])?.recap, { start: 6, end: 17.5 });
+  assert.deepEqual(markers.get(eps[3])?.recap, { start: 6, end: 17.5 });
+  assert.ok(lines.some((l) => l.includes("Show season 1: recaps start at 0:00 in 1 of 3 (only filler before them: E02 from 0:06)")), lines.join("\n"));
+  await markers.close();
+  // Checked once: a restart doesn't listen again.
+  const again: string[] = [];
+  const second = new Markers(config, (l) => again.push(l));
+  await second.warm(eps.map((item) => ({ absPath: library.peek(item.id)!.absPath, item })));
+  assert.ok(!again.some((l) => l.includes("recaps start at 0:00")), again.join("\n"));
+  assert.deepEqual(second.get(eps[1])?.recap, { start: 0, end: 17.5 });
+  await second.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
