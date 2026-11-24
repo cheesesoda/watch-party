@@ -79,18 +79,37 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import android.content.Intent
+import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
+import androidx.media3.common.MediaItem as ExoItem
+import androidx.media3.common.Player
+import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.PlayerView
+import androidx.test.core.app.ActivityScenario
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.robolectric.Shadows.shadowOf
 
 /**
- * A library of the Blender Foundation's open movies (Big Buck Bunny, Sintel, Tears of Steel, CC BY) for the app store
- * pictures, instead of anyone's real library, so no other studio's artwork is in them. Posters are TMDB's; backdrops
- * and the video behind the player are frames from the films (test resources under store/).
+ * A made-up library for the app store pictures: invented films with original art painted for them (test resources
+ * under store/: posters, backdrops and a frame behind the player), so no studio's titles or artwork are in them.
  */
 private object StoreLibrary {
     fun resource(name: String): ByteArray = StoreLibrary::class.java.getResourceAsStream("/store/$name")!!.use { it.readBytes() }
 
     private fun movie(id: String, title: String, year: Int, minutes: Double, overview: String, genres: List<String>, rating: Double, addedAt: Long) =
         MediaItem(
-            id = id, title = title, relPath = "Movies/$title ($year).mp4", folder = "Movies", size = 400_000_000, addedAt = addedAt, year = year,
+            id = id, title = title, relPath = "Movies/$title ($year).mp4", folder = "Movies", size = 4_000_000_000, addedAt = addedAt, year = year,
             duration = minutes * 60,
             meta = MediaMeta(
                 tmdbId = addedAt, title = title, year = year, overview = overview, posterPath = "/poster-$id.jpg",
@@ -98,43 +117,48 @@ private object StoreLibrary {
             ),
         )
 
-    val sintel = movie(
-        "sintel", "Sintel", 2010, 14.8,
-        "A wandering warrior finds an unlikely friend in a young dragon. When the dragon is snatched away, she sets out on a relentless quest to get it back.",
-        listOf("Animation", "Fantasy"), 7.0, 3000,
+    val kestrel = movie(
+        "kestrel", "Kestrel Bay", 2021, 108.0,
+        "When the old lighthouse on Kestrel Bay goes up for sale, two sisters who haven't spoken in years come home for one last summer to save it.",
+        listOf("Drama"), 7.4, 3000,
     )
-    val bunny = movie(
-        "bbb", "Big Buck Bunny", 2008, 9.9,
-        "A gentle giant of a rabbit meets three rodents who make a sport of bullying the forest's creatures, and decides it's time to teach them a lesson.",
-        listOf("Animation", "Comedy"), 6.5, 2000,
+    val copper = movie(
+        "copper", "Copper Moon", 2019, 117.0,
+        "A retired courier rides three hundred miles of open desert to deliver one last letter before the railroad reaches town.",
+        listOf("Western", "Adventure"), 6.9, 2000,
     )
-    val tears = movie(
-        "tos", "Tears of Steel", 2012, 12.2,
-        "In a future Amsterdam, a group of warriors and scientists gather at the Oude Kerk to restage a moment from the past and save the world from destructive robots.",
-        listOf("Science Fiction"), 6.1, 4000,
+    val signal = movie(
+        "signal", "Signal North", 2023, 101.0,
+        "At a remote observatory far above the Arctic Circle, a night-shift astronomer picks up a signal that repeats every 47 minutes.",
+        listOf("Science Fiction", "Mystery"), 7.1, 4000,
     )
-    private val items = listOf(tears, sintel, bunny)
-    private val spots = listOf(Spot("s1", sintel, 9 * 60.0 + 12, next = listOf(tears), savedAt = 5000))
+    val items = listOf(signal, kestrel, copper)
+    val members = listOf(Member("m1", "Jake", device = "tv"), Member("m2", "Sam", device = "phone"), Member("m3", "Maya", device = "web"))
+    private val spots = listOf(Spot("s1", kestrel, 47 * 60.0 + 12, next = listOf(signal), savedAt = 5000))
     private val parties = listOf(
         RoomSummary(
             id = "movies",
-            media = tears,
-            members = listOf(Member("m1", "Jake", device = "tv"), Member("m2", "Sam", device = "phone"), Member("m3", "Maya", device = "web")),
-            playback = RoomPlayback(position = 5 * 60.0 + 20, paused = false, duration = tears.duration),
+            media = signal,
+            members = members,
+            playback = RoomPlayback(position = 38 * 60.0 + 20, paused = false, duration = signal.duration),
         ),
     )
 
-    val dispatcher = object : Dispatcher() {
+    val dispatcher = dispatcher()
+
+    /** The pretend server; [socket] answers the party's connection, for the player. */
+    fun dispatcher(socket: WebSocketListener? = null) = object : Dispatcher() {
         override fun dispatch(request: RecordedRequest): MockResponse {
             val path = request.path.orEmpty()
             fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
             return when {
+                path.startsWith("/ws") && socket != null -> MockResponse().withWebSocketUpgrade(socket)
                 path.startsWith("/api/library") -> json("""{"items":${Protocol.json.encodeToString(items)}}""")
                 path.startsWith("/api/rooms") && request.method == "POST" -> json("""{"room":{"id":"abc123","solo":true}}""")
                 path.startsWith("/api/rooms") -> json("""{"rooms":${Protocol.json.encodeToString(parties)}}""")
                 path.startsWith("/api/spots/") -> json("{}")
                 path.startsWith("/api/spots") -> json("""{"spots":${Protocol.json.encodeToString(spots)}}""")
-                // /api/images/<size>/poster-sintel.jpg and the like.
+                // /api/images/<size>/poster-kestrel.jpg and the like.
                 path.startsWith("/api/images/") -> runCatching { resource(path.substringAfterLast('/')) }.getOrNull()
                     ?.let { MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(it)) }
                     ?: MockResponse().setResponseCode(404)
@@ -327,7 +351,7 @@ class StoreScreensTest {
             SideEffect { @OptIn(ExperimentalComposeUiApi::class) inputMode.requestInputMode(InputMode.Keyboard) }
             PopcornTheme {
                 Box(Modifier.fillMaxSize()) {
-                    StoreLibrary.Video("video-bbb.jpg")
+                    StoreLibrary.Video("video-copper.jpg")
                     Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
                         SkipPartButton(kind = "intro", tv = true, focusKey = focusKey.value) {}
                     }
@@ -348,9 +372,9 @@ class StoreScreensTest {
         rule.setContent {
             PopcornTheme {
                 Box(Modifier.fillMaxSize()) {
-                    StoreLibrary.Video("video-sintel.jpg")
+                    StoreLibrary.Video("video-kestrel.jpg")
                     Box(Modifier.align(Alignment.BottomEnd).padding(48.dp)) {
-                        NextCard(api, tv = true, item = StoreLibrary.tears, at = now + 6_000, total = 10_000, serverNow = { now }, onPlayNow = {}, onStay = {})
+                        NextCard(api, tv = true, item = StoreLibrary.signal, at = now + 6_000, total = 10_000, serverNow = { now }, onPlayNow = {}, onStay = {})
                     }
                 }
             }
@@ -362,7 +386,7 @@ class StoreScreensTest {
 
     @Test
     fun chat() {
-        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-tos.jpg") } }
+        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-signal.jpg") } }
         rule.waitForIdle()
         rule.storeShot("8-chat")
     }
@@ -450,7 +474,7 @@ class StoreTabletScreensTest {
         dashboard()
         tap("Movies")
         rule.storeShot("tablet-3-movies")
-        tapPoster("Sintel")
+        tapPoster("Kestrel Bay")
         rule.storeShot("tablet-4-movie-page")
     }
 
@@ -459,7 +483,7 @@ class StoreTabletScreensTest {
         rule.setContent {
             PopcornTheme {
                 Box(Modifier.fillMaxSize()) {
-                    StoreLibrary.Video("video-bbb.jpg")
+                    StoreLibrary.Video("video-copper.jpg")
                     Box(Modifier.align(Alignment.BottomEnd).padding(32.dp)) {
                         SkipPartButton(kind = "intro", tv = false, focusKey = 0) {}
                     }
@@ -478,9 +502,9 @@ class StoreTabletScreensTest {
         rule.setContent {
             PopcornTheme {
                 Box(Modifier.fillMaxSize()) {
-                    StoreLibrary.Video("video-sintel.jpg")
+                    StoreLibrary.Video("video-kestrel.jpg")
                     Box(Modifier.align(Alignment.BottomEnd).padding(32.dp)) {
-                        NextCard(api, tv = false, item = StoreLibrary.tears, at = now + 6_000, total = 10_000, serverNow = { now }, onPlayNow = {}, onStay = {})
+                        NextCard(api, tv = false, item = StoreLibrary.signal, at = now + 6_000, total = 10_000, serverNow = { now }, onPlayNow = {}, onStay = {})
                     }
                 }
             }
@@ -491,7 +515,7 @@ class StoreTabletScreensTest {
 
     @Test
     fun chat() {
-        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-tos.jpg") } }
+        rule.setContent { PopcornTheme { StoreLibrary.Chat("video-signal.jpg") } }
         rule.waitForIdle()
         rule.storeShot("tablet-7-chat")
     }
@@ -500,5 +524,100 @@ class StoreTabletScreensTest {
     fun joinWithCode() {
         dashboard { StoreLibrary.JoinCode() }
         rule.storeShot("tablet-8-join")
+    }
+}
+
+/** The party's player on a TV with its controls up, over a frame of the film (store-extra-player-controls). */
+@RunWith(AndroidJUnit4::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
+class StorePlayerScreenTest {
+    private val server = MockWebServer()
+
+    @After
+    fun stop() {
+        runCatching { server.shutdown() }
+    }
+
+    /** A pretend player for the controls: a film partway through, as the seek bar and times show it. */
+    @OptIn(UnstableApi::class)
+    private class StillPlayer(private val durationMs: Long, private val positionMs: Long) : SimpleBasePlayer(Looper.getMainLooper()) {
+        override fun getState(): State = State.Builder()
+            .setAvailableCommands(Player.Commands.Builder().addAllCommands().build())
+            .setPlaylist(listOf(MediaItemData.Builder("film").setMediaItem(ExoItem.fromUri("http://localhost/film")).setDurationUs(durationMs * 1000).build()))
+            .setPlaybackState(Player.STATE_READY)
+            .setPlayWhenReady(true, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            .setContentPositionMs(positionMs)
+            .build()
+
+        override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> = Futures.immediateVoidFuture()
+        override fun handleSetVideoOutput(videoOutput: Any): ListenableFuture<*> = Futures.immediateVoidFuture()
+        override fun handleClearVideoOutput(videoOutput: Any?): ListenableFuture<*> = Futures.immediateVoidFuture()
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun playerControls() {
+        val items = StoreLibrary.items
+        val film = 1
+        val media = items[film]
+        val position = 47 * 60.0 + 12
+        val now = System.currentTimeMillis()
+        server.dispatcher = StoreLibrary.dispatcher(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                val welcome = buildJsonObject {
+                    put("type", "welcome")
+                    put("you", Protocol.json.encodeToJsonElement(Member.serializer(), StoreLibrary.members[0]))
+                    put("roomId", "party1")
+                    put("state", Protocol.json.encodeToJsonElement(PlaybackState.serializer(), PlaybackState(media.id, paused = false, position = position, updatedAt = now)))
+                    put("media", Protocol.json.encodeToJsonElement(MediaItem.serializer(), media))
+                    put("members", Protocol.json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Member.serializer()), StoreLibrary.members))
+                    put("serverTime", now)
+                    put("queue", Protocol.json.encodeToJsonElement(Queue.serializer(), Queue(items = items, at = film)))
+                }
+                webSocket.send(welcome.toString())
+            }
+        })
+        server.start()
+        signedIn(server)
+        // The player asks Android whether it's on a TV.
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        shadowOf(context.getSystemService(android.app.UiModeManager::class.java)).setCurrentModeType(android.content.res.Configuration.UI_MODE_TYPE_TELEVISION)
+        val intent = Intent(context, RoomActivity::class.java).putExtra(RoomActivity.EXTRA_ROOM, "k7qm2x").putExtra(RoomActivity.EXTRA_HOST, true)
+        val frame = StoreLibrary.resource("video-kestrel.jpg").let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        fun field(target: Any, name: String): Any? = RoomActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(target)
+        ActivityScenario.launch<RoomActivity>(intent).use { scenario ->
+            fun idle(ms: Long) {
+                val until = System.currentTimeMillis() + ms
+                while (System.currentTimeMillis() < until) {
+                    Thread.sleep(50)
+                    shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+                }
+            }
+            idle(3_000)
+            scenario.onActivity { activity ->
+                val playerView = field(activity, "playerView") as PlayerView
+                // The film's picture where the video would be.
+                val content = activity.findViewById<ViewGroup>(android.R.id.content)
+                content.addView(ImageView(activity).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(frame) }, 0, FrameLayout.LayoutParams(-1, -1))
+                content.setBackgroundColor(android.graphics.Color.BLACK)
+                playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                playerView.background = android.graphics.drawable.BitmapDrawable(activity.resources, frame)
+                // The video's surface draws black here; the frame stands in for it.
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)?.visibility = View.INVISIBLE
+                playerView.player = StillPlayer(((media.duration ?: 600.0) * 1000).toLong(), (position * 1000).toLong())
+                playerView.controllerShowTimeoutMs = 0
+                playerView.showController()
+                activity.window.decorView.dispatchWindowFocusChanged(true)
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus()
+            }
+            idle(2_500)
+            scenario.onActivity { activity ->
+                val view = activity.window.decorView
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(bitmap))
+                File(File("build/tv-screens").apply { mkdirs() }, "store-extra-player-controls.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        }
     }
 }
