@@ -137,7 +137,7 @@ private object StoreLibrary {
     private val spots = listOf(Spot("s1", kestrel, 47 * 60.0 + 12, next = listOf(signal), savedAt = 5000))
     private val parties = listOf(
         RoomSummary(
-            id = "movies",
+            id = "k7qm2x",
             media = signal,
             members = members,
             playback = RoomPlayback(position = 38 * 60.0 + 20, paused = false, duration = signal.duration),
